@@ -151,14 +151,74 @@ function quote(x) {
   return lit(x);
 }
 
-// static knowledge: is this expression certainly a number?
-const NUMHEADS = new Set(['-', '*', '/', '//', '%', '**', '#', 'bnot', '&', '|', '^', '<<', '>>', '>>>', 'abs', 'sqrt', 'int', 'flr', 'cel', 'rnd', 'rand', 'sum', 'len', 'now', 'clock', 'num']);
-function isNum(x) {
+// ---- static numeric knowledge (sound, conservative): is this expression certainly a number (or an exception)?
+const NUMHEADS = new Set(['-', '*', '/', '//', '%', '**', '#', 'bnot', '&', '|', '^', '<<', '>>', '>>>', 'abs', 'sqrt', 'int', 'flr', 'cel', 'rnd', 'rand', 'sum', 'now', 'clock']);
+// cand: optimistic candidate set (during fixpoint); otherwise consult variable info.num flags
+function isNum(x, cand) {
   if (typeof x === 'number') return true;
-  if (!Array.isArray(x) || !(x[0] instanceof Sym) || lookup(x[0].n)) return false;
+  if (x instanceof Sym) { if (cand) return cand.has(x.n); const i = lookup(x.n); return !!(i && i.num); }
+  if (!Array.isArray(x) || !(x[0] instanceof Sym)) return false;
   const n = x[0].n;
-  if (n === '+') return x.length > 1 && x.slice(1).some(isNum);
-  return NUMHEADS.has(n);
+  if (!cand && lookup(n)) return false;
+  switch (n) {
+    case '+': return x.length > 1 && x.slice(1).every(a => isNum(a, cand));
+    case '&&': case '||': return x.length > 1 && x.slice(1).every(a => isNum(a, cand));
+    case '??': return x.length > 1 && isNum(x[1], cand);
+    case '=': case '<-': return x[1] instanceof Sym && isNum(x[2], cand);
+    case ':': return x.length > 1 && isNum(x[x.length - 1], cand);
+    case '?': { for (let i = 2; i < x.length; i += 2) if (!isNum(x[i], cand)) return false; if (x.length % 2 === 0) return false; return x.length >= 3; }
+    case '%loopvar': return x[1] === 'range' || isNum(x[1], cand);
+    default: return NUMHEADS.has(n) && !Array.isArray(n);
+  }
+}
+const UNK = { unknown: true };
+// name -> list of right-hand sides assigned to it anywhere in these forms (UNK when not analyzable)
+function collectAssigns(forms, ownParams) {
+  const m = new Map();
+  const add = (n, r) => { if (!m.has(n)) m.set(n, []); m.get(n).push(r); };
+  const leaves = p => { if (p instanceof Sym) { if (p.n !== '_') add(p.n, UNK); } else if (isPat(p)) p.slice(1).forEach(q => leaves(isSpread(q) ? q[1] : q)); };
+  const params = list => { const l = list instanceof Sym || isPat(list) ? [list] : (Array.isArray(list) ? list : []); l.forEach(p => { if (p instanceof Sym) add(p.n, UNK); else if (isForm(p, '=') && p[1] instanceof Sym) { add(p[1].n, UNK); walk(p[2]); } else if (isSpread(p) && p[1] instanceof Sym) add(p[1].n, UNK); else leaves(p); }); };
+  const rangeLike = c => (isForm(c, '..') && !lookup('..')) || (typeof c === 'number' && Number.isInteger(c) && c >= 0);
+  const walk = x => {
+    if (!Array.isArray(x)) return;
+    if (x[0] instanceof Sym) {
+      const h = x[0].n;
+      switch (h) {
+        case 'q': return;
+        case '=': {
+          const t = x[1];
+          if (Array.isArray(t) && !isPat(t)) { if (t[0] instanceof Sym) add(t[0].n, UNK); params(t.slice(1)); x.slice(2).forEach(walk); return; }
+          if (t instanceof Sym) add(t.n, x[2]); else leaves(t);
+          walk(x[2]); return;
+        }
+        case '<-': if (x[1] instanceof Sym) add(x[1].n, x[2]); else walk(x[1]); walk(x[2]); return;
+        case '+=': case '-=': case '*=': case '/=': case '%=': case '**=': case '//=':
+          if (x[1] instanceof Sym) add(x[1].n, [S(h.slice(0, -1)), x[1], x[2]]); else walk(x[1]); walk(x[2]); return;
+        case '||=': case '??=': if (x[1] instanceof Sym) add(x[1].n, [S('??'), x[1], x[2]]); else walk(x[1]); walk(x[2]); return;
+        case '\\': params(x[1]); x.slice(2).forEach(walk); return;
+        case 'let': {
+          const b = x[1];
+          if (Array.isArray(b)) for (let i = 0; i < b.length; i += 2) { if (b[i] instanceof Sym) add(b[i].n, b[i + 1]); else leaves(b[i]); walk(b[i + 1]); }
+          x.slice(2).forEach(walk); return;
+        }
+        case 'for': {
+          const v = x[1], c = x[2];
+          if (v instanceof Sym) add(v.n, [S('%loopvar'), rangeLike(c) ? 'range' : c]); else leaves(v);
+          walk(c); x.slice(3).forEach(walk); return;
+        }
+      }
+    }
+    x.forEach(walk);
+  };
+  params(ownParams || []);
+  forms.forEach(walk);
+  return m;
+}
+function numCandidates(forms, ownParams) {
+  const m = collectAssigns(forms, ownParams);
+  const cand = new Set([...m].filter(([, rs]) => rs.every(r => r !== UNK)).map(([n]) => n));
+  for (let ch = true; ch;) { ch = false; for (const n of [...cand]) if (!m.get(n).every(r => isNum(r, cand))) { cand.delete(n); ch = true; } }
+  return cand;
 }
 
 // ================================================================== expressions
@@ -172,7 +232,7 @@ function exprs(xs, spreadOk) {
   parts.forEach(([pre, r], i) => {
     pre.forEach(emit);
     let e = r.e;
-    if (i < last && !isLit(xs[i])) { const t = tmp(); emit(`${t}=${e};`); e = t; }
+    if (i < last && !isLit(xs[i])) { const t = tmp(); emit(`${t}=${r.sp ? e + '.slice()' : e};`); e = t; }
     out.push(r.sp ? '...' + e : e);
   });
   return out;
@@ -269,7 +329,7 @@ function compileFn(jsName, plist, body, selfName, selfInfo, node) {
   const sv = { buf: ST.buf, fn: ST.fn, scope: ST.scope };
   const { ps, rest, min, max } = parseParams(plist, node);
   if (selfInfo) selfInfo.arity = [min, max];
-  const fn = { tmps: [], async: false, tryDepth: 0, tco: false, tcoUsed: false, label: 'L' + (++ST.uid), params: [], selfName, selfInfo, root: null };
+  const fn = { tmps: [], async: false, tryDepth: 0, tco: false, tcoUsed: false, label: 'L' + (++ST.uid), params: [], selfName, selfInfo, root: null, numCand: null };
   ST.fn = fn; ST.buf = [];
   let lines, jsParams = [];
   try {
@@ -283,6 +343,7 @@ function compileFn(jsName, plist, body, selfName, selfInfo, node) {
       if (rest) { const i = declareIn(sc, rest, { param: true }); jsParams.push('...' + i.js); }
       fn.params = jsParams.slice();
       fn.tco = !!selfName && !rest && ps.every(p => !p.pat && !p.def) && !body.some(hasClosure);
+      fn.numCand = numCandidates(body, plist);
       predeclare(decls([...body, ...ps.filter(p => p.pat).map(p => [S('='), p.pat, null])]));
       for (const p of ps) if (p.def) {
         const i = lookupLocal(p.name);
@@ -290,7 +351,7 @@ function compileFn(jsName, plist, body, selfName, selfInfo, node) {
         emit(`if(${i.js}===undefined){`); pre.forEach(emit); emit(`${i.js}=${e};}`);
       }
       pro.forEach(f => f());
-      seqStmt(body, RET);
+      rootSeq(body, RET);
     });
     lines = ST.buf;
   } finally { ST.buf = sv.buf; ST.fn = sv.fn; ST.scope = sv.scope; }
@@ -397,27 +458,44 @@ function doOpAssign(x) {   // (+= target v) ...
 const BINJS = { '&': '&', '|': '|', '^': '^', '<<': '<<', '>>': '>>', '>>>': '>>>' };
 const litEq = x => x === true || x === false || typeof x === 'number' || typeof x === 'string';
 
+// wrap an operand with a number check unless statically known to be a number
+function numArg(args) { return (e, i) => isNum(args[i]) ? e : `${href('n')}(${e})`; }
+
+// inline type checks run left-to-right *before* later operands are evaluated; if a later operand can have effects or
+// throw, we must evaluate everything first and check at operation time (like Python) -> use the two-operand helper
+function orderSafe(args) {
+  for (let i = 0; i < args.length; i++) if (!isNum(args[i])) for (let j = i + 1; j < args.length; j++) if (!(isLit(args[j]) || args[j] instanceof Sym)) return false;
+  return true;
+}
+const HELP2 = { '-': 'sub', '*': 'mul', '**': 'pow', '&': 'band', '|': 'bor', '^': 'bxor', '<<': 'shl', '>>': 'shr', '>>>': 'ushr' };
+function strictBin(n, args) {   // left fold of 2-operand helpers
+  const es = exprs(args);
+  return es.slice(1).reduce((a, e) => `${href(HELP2[n])}(${a},${e})`, es[0]);
+}
+
 function inlineOp(n, args, node) {
   const k = args.length;
   switch (n) {
     case '+': {
       if (k === 0) return '0';
-      if (k === 1) return `(+${exprs(args)[0]})`;
+      if (k === 1) return numArg(args)(exprs(args)[0], 0);
       const es = exprs(args);
       let r = es[0], numeric = isNum(args[0]);
       for (let i = 1; i < k; i++) {
-        numeric = numeric || isNum(args[i]);
+        numeric = numeric && isNum(args[i]);      // both sides statically numbers -> native +; otherwise strict polymorphic add
         r = numeric ? `(${r}+${es[i]})` : `${href('add')}(${r},${es[i]})`;
       }
       return r;
     }
     case '*': {
       if (k === 0) return '1';
-      const es = exprs(args); return k === 1 ? `(+${es[0]})` : `(${es.join('*')})`;
+      if (k >= 2 && !orderSafe(args)) return strictBin(n, args);
+      const es = exprs(args).map(numArg(args)); return k === 1 ? es[0] : `(${es.join('*')})`;
     }
     case '-': {
       if (k === 0) return '0';
-      const es = exprs(args); return k === 1 ? `(-${es[0]})` : `(${es.join('-')})`;
+      if (k >= 2 && !orderSafe(args)) return strictBin(n, args);
+      const es = exprs(args).map(numArg(args)); return k === 1 ? `(-${es[0]})` : `(${es.join('-')})`;
     }
     case '/': {
       if (k === 0) return undefined;
@@ -428,12 +506,17 @@ function inlineOp(n, args, node) {
     case '%':
       if (k === 2 && typeof args[1] === 'number' && args[1] > 0 && Number.isFinite(args[1])) {
         const es = exprs(args), t = tmp();
-        return `((${t}=${es[0]})%${es[1]}+(${t}%${es[1]}<0?${es[1]}:0))`;
+        return `((${t}=${numArg(args)(es[0], 0)})%${es[1]}+(${t}%${es[1]}<0?${es[1]}:0))`;
       }
       // fallthrough
     case '//': if (k === 2) return `${href(n === '%' ? 'mod' : 'fdiv')}(${exprs(args).join(',')})`; return;
-    case '**': if (k === 2) { const es = exprs(args); return `(${es[0]}**${es[1]})`; } return;
-    case '<': case '>': case '<=': case '>=': if (k === 2) { const es = exprs(args); return `(${es[0]}${n}${es[1]})`; } return;
+    case '**': if (k === 2 && !orderSafe(args)) return strictBin(n, args); if (k === 2) { const es = exprs(args).map(numArg(args)); return `(${es[0]}**${es[1]})`; } return;
+    case '<': case '>': case '<=': case '>=': {
+      if (k !== 2) return;
+      const es = exprs(args);
+      if (isNum(args[0]) && isNum(args[1])) return `(${es[0]}${n}${es[1]})`;
+      return `${href({ '<': 'lt', '>': 'gt', '<=': 'le', '>=': 'ge' }[n])}(${es[0]},${es[1]})`;
+    }
     case '==': case '!=': {
       if (k !== 2) return;
       const es = exprs(args); const neg = n === '!=';
@@ -444,9 +527,9 @@ function inlineOp(n, args, node) {
       return neg ? `(!${r})` : r;
     }
     case '!': if (k === 1) return `(!${cond(args[0])})`; return;
-    case '&': case '|': case '^': if (k >= 2) return `(${exprs(args).join(BINJS[n])})`; return;
-    case '<<': case '>>': case '>>>': if (k === 2) return `(${exprs(args).join(BINJS[n])})`; return;
-    case 'bnot': if (k === 1) return `(~${exprs(args)[0]})`; return;
+    case '&': case '|': case '^': if (k >= 2 && !orderSafe(args)) return strictBin(n, args); if (k >= 2) return `(${exprs(args).map(numArg(args)).join(BINJS[n])})`; return;
+    case '<<': case '>>': case '>>>': if (k === 2 && !orderSafe(args)) return strictBin(n, args); if (k === 2) return `(${exprs(args).map(numArg(args)).join(BINJS[n])})`; return;
+    case 'bnot': if (k === 1) return `(~${exprs(args).map(numArg(args))[0]})`; return;
     case '#': if (k === 1) return `${href('len')}(${exprs(args)[0]})`; return;
     case '@': if (k === 2) return `${href('at')}(${exprs(args).join(',')})`; return;
     case '@!': if (k === 2) { const es = exprs(args); return `(${es[0]}[${es[1]}]??null)`; } return;
@@ -591,6 +674,19 @@ function deliver(d, e) {
   else if (!/^[\w$.]+$/.test(e)) emit(`${e};`);
 }
 
+// function/program root: after an unconditional top-level `x=<numeric>`, later reads of x are statically numeric
+function rootSeq(forms, d) {
+  if (!forms.length) return deliver(d, 'null');
+  for (let i = 0; i < forms.length; i++) {
+    stmt(forms[i], i === forms.length - 1 ? d : DROP);
+    const f = forms[i];
+    if (isForm(f, '=') && f[1] instanceof Sym && ST.fn.numCand && ST.fn.numCand.has(f[1].n)) {
+      const info = lookupLocal(f[1].n);
+      if (info && !info.param) info.num = true;
+    }
+  }
+}
+
 function seqStmt(forms, d) {
   if (!forms.length) return deliver(d, 'null');
   for (let i = 0; i < forms.length - 1; i++) stmt(forms[i], DROP);
@@ -623,7 +719,8 @@ function letStmt(x, d) {
         emit(`let ${info.js}=${compileFn(info.js, val[1], val.slice(2), name.n, info, val)};`);
       } else {
         const e = expr(val);
-        const info = declareUniq(name.n, { inline: true });
+        const num = isNum(val) && !!(ST.fn.numCand && ST.fn.numCand.has(name.n));
+        const info = declareUniq(name.n, { inline: true, num });
         emit(`let ${info.js}=${e};`);
       }
     }
@@ -644,8 +741,9 @@ function forStmt(x) {
   if (x.length < 3) cerr('(for var coll body..)', x);
   const v = x[1], c = x[2], body = x.slice(3);
   if (!(v instanceof Sym || isPat(v))) cerr('for: variable must be a name or [pattern]', x);
+  let loopNum = false;
   const bindVar = el => {
-    if (v instanceof Sym) { if (v.n !== '_') letLeaf(v.n, el); }
+    if (v instanceof Sym) { if (v.n !== '_') { letLeaf(v.n, el); if (loopNum && ST.fn.numCand && ST.fn.numCand.has(v.n)) lookupLocal(v.n).num = true; } }
     else destructure(v, el, letLeaf);
   };
   const loopBody = el => { scoped(() => { bindVar(el); seqStmt(body, DROP); }); };
@@ -653,9 +751,10 @@ function forStmt(x) {
   const isNumLit = typeof c === 'number' && Number.isInteger(c) && c >= 0;
   if (isRangeCall || isNumLit || (v instanceof Sym && isNum(c))) {
     let lo = '0', hi;
-    if (isRangeCall) { const a = c.slice(1); if (a.length === 1) hi = exprs(a)[0]; else [lo, hi] = exprs(a); }
+    if (isRangeCall) { const a = c.slice(1); const chk = numArg(a); if (a.length === 1) hi = chk(exprs(a)[0], 0); else { const es = exprs(a).map(chk); lo = es[0]; hi = es[1]; } }
     else hi = expr(c);
     const ci = 'i' + (++ST.uid), ce = 'e' + ST.uid;
+    loopNum = true;
     emit(`for(let ${ci}=${lo},${ce}=${hi};${ci}<${ce};${ci}++){`);
     loopBody(ci);
     emit('}');
@@ -737,7 +836,7 @@ function compile(src, opts = {}) {
   const seen = new Set([path.resolve(file)]);
   const forms = parse(src, file).map(f => expandUse(f, dir, seen, file)).filter(f => f !== null);
   ST.fn = { tmps: [], async: false, tryDepth: 0, tco: false, tcoUsed: false, label: 'L0', params: [], selfName: null, selfInfo: null, root: null };
-  scoped(sc => { ST.fn.root = sc; predeclare(decls(forms)); seqStmt(forms, opts.ret ? RET : DROP); });
+  scoped(sc => { ST.fn.root = sc; ST.fn.numCand = numCandidates(forms, []); predeclare(decls(forms)); rootSeq(forms, opts.ret ? RET : DROP); });
   const head = [];
   for (const n of ST.usedMods) head.push(`const M_${n}=require(${JSON.stringify(n)});`);
   for (const n of ST.usedH) head.push(`const H_${n}=R.H[${JSON.stringify(n)}];`);

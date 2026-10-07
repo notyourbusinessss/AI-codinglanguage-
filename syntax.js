@@ -159,7 +159,7 @@ class Parser {
   looksLikeSymbolRun() {
     let j = this.i; while (OPCH.has(this.s[j])) j++;
     const c = this.s[j];
-    return c === undefined || this.isWs(c) || c === ')' || c === ']' || c === '}' || c === ';' || c === '(' || c === '[';
+    return c === undefined || this.isWs(c) || c === ')' || c === ']' || c === '}' || c === ';';
   }
 
   primary() {
