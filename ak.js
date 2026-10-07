@@ -25,7 +25,8 @@ function expandUse(x, dir, seen, file) {
     if (!fs.existsSync(f)) throw new CErr(`${file}:${x.line}:${x.col}: use: file not found: ${x[1]}`);
     if (seen.has(f)) return null;
     seen.add(f);
-    const forms = parse(fs.readFileSync(f, 'utf8'), f).map(y => expandUse(y, path.dirname(f), seen, f));
+    const tagFile = (y) => { if (Array.isArray(y)) { y.file = f; y.forEach(tagFile); } return y; };   // forms remember which file they came from
+    const forms = parse(fs.readFileSync(f, 'utf8'), f).map(y => expandUse(tagFile(y), path.dirname(f), seen, f));
     const r = [S(':'), ...forms]; r.line = x.line; r.col = x.col; return r;
   }
   const r = x.map(y => expandUse(y, dir, seen, file)); r.line = x.line; r.col = x.col; return r;
@@ -817,7 +818,8 @@ function tailSelf(x) {
 
 function stmt(x, d) {
   if (Array.isArray(x) && x.length) {
-    if (x.line && x.line !== ST.lastMark) { ST.lastMark = x.line; emit(`//@${x.line}:${x.col}`); }
+    const mk = (x.file ? x.file + '|' : '') + x.line;
+    if (x.line && mk !== ST.lastMark) { ST.lastMark = mk; emit(`//@${x.file ? x.file + '|' : ''}${x.line}:${x.col}`); }
     at_(x);
     if (x[0] instanceof Sym) {
       switch (x[0].n) {

@@ -142,7 +142,7 @@ class Parser {
       const nxt = this.s[this.i + 2];
       if (nxt !== undefined && !this.isWs(nxt) && nxt !== ')' && nxt !== ']' && nxt !== '}') {
         const p = this.pos(); this.i += 2;
-        const operand = this.bin(PREC_UNARY);
+        const operand = this.bin(this.idx ? 10 : PREC_UNARY);      // a[..n-1] is a[..(n-1)]; ..xs (spread) binds tightly
         return this.idx ? form([S('..'), null, operand], p) : form([S('%spread'), operand], p);
       }
     }
