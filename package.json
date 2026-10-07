@@ -6,7 +6,7 @@
     "ak": "ak.js"
   },
   "scripts": {
-    "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/spec.test.js && node tests/cli.test.js && node tests/parse_diff.js 800 && node tests/examples.test.js && node tests/corpus.js && node tests/fuzz.js 3000 1",
+    "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/spec.test.js && node tests/cli.test.js && node tests/parse_diff.js 800 && node tests/x86_diff.js 1 1500 && node tests/native_elf.test.js && node tests/examples.test.js && node tests/corpus.js && node tests/fuzz.js 3000 1",
     "fuzz": "node tests/fuzz.js 20000 7 -v"
   },
   "license": "MIT"

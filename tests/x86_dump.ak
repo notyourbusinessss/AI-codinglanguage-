@@ -1,0 +1,5 @@
+(use "../src/x86.ak")
+; stdin: one Intel-syntax instruction per line; stdout: its encoding as hex bytes (or ERR)
+(for line (split (trim (inall)) "\n")
+  (asm_reset)
+  (try (: (asm line) (p (join (~ b=>(fmt "%02x" b) A.code) " "))) e=>(p "ERR" e)))
