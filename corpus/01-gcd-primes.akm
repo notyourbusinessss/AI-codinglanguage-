@@ -1,0 +1,5 @@
+(= (gcd a b) (? b==0 a (gcd b a%b)))
+(= (is_prime n) n>=2&&(let (i 2 ok true) (wh ok&&i*i<=n (? 0==n%i ok=false) i+=1) ok))
+(p (gcd 48 18) (gcd 17 5))
+(p (join (~? is_prime 2..50) " "))
+(p (sum (~? is_prime 2..1000)))

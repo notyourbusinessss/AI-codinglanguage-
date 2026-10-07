@@ -1,4 +1,4 @@
-(= (fact n) (? n<=1n 1n n*(fact n-1n)))
-(p (fact 30n))
+(= (fact n) (? n<=1 1n n*fact(n-1n)))
+(p fact(30n))
 (p 2n**100n)
-(p (sum (~ num (split ($ (fact 50n)) ""))))
+(p (sum (~ num [..($ fact(50n))])))

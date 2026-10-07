@@ -1,26 +1,29 @@
-# Ak — spec (whole language, ~1 page)
-Compiles to JavaScript, runs on V8 JIT (native-class speed) with full Node/npm access.
-Syntax: `(f a b)` call · `[a b]` list · `{k v k v}` map · `;` comment · commas = whitespace. No precedence, no infix.
-Atoms: `12` `1.5` `0xff` `0b101` `10n`(BigInt) `"str"` `:kw` `T` `F` `_`(nil). Falsy: only `F` and `_`. Calls on out-of-range/missing give `_`, never crash.
-## Forms (special)
-- `(= x v)` bind · `(= (f a b) body..)` fn · `(<- x v)` rebind · `(<- (@ c i) v)` in-place set · `(<- a.b v)` JS property set
-- `(\ (a b) body..)` lambda · `(\ (a .. r) ..)` varargs · last expr is the result (no `return`)
-- `(? c a)` `(? c a else)` `(? c1 a c2 b .. else)` if/cond · `(: e..)` sequence · `(& ..)` `(| ..)` short-circuit, return deciding value
-- `(let (a 1 b (+ a 1)) body..)` · `(wh c body..)` · `(for (v coll) ..)` `(for (k v coll) ..)` (map/list pairs) · `(for (i (.. n)) ..)` compiles to a raw numeric loop
-- `(sw x v1 r1 [v2 v3] r2 .. else)` switch (`[..]` = any-of) · `(try body (\ (e) ..))` e = message string · `(q x)` quote · `(use "file")` include at compile time
-- Self tail calls become loops; other recursion is fine to ~millions deep (512MB stack).
-## JS interop (everything in Node/npm is reachable)
-`(req "mod")` require · `(imp "mod")` dynamic import (promise) · dotted symbols = property paths: `(Math.max 1 2)` `(fs.readFileSync "f" "utf8")` `process.argv` (first segment: your var, a builtin, or any JS global)
-`(. obj :method args..)` call · `(.@ obj :prop)` get · `(.= obj :prop v)` set · `(new Class args..)` · `(js "raw expr")`
-`(aw promise)` await — any function (or the top level) containing `aw` becomes async automatically. `(delay ms)` promise · `(sleep ms)` blocking.
+# Ak spec
+Compiles to JS, runs on V8. Statements are S-forms; expressions are **tight infix chunks: no spaces inside a chunk** (`a+b`, never `a + b`; spaces/commas separate elements).
+## Syntax
+`12 1.5 0xff 1_000 10n(BigInt) "s" :key(="key") true false nil ; comment`
+`(f a b)` or `f(a b)` call · `[1 2]` list · `{:k v}` map (keys are expressions) · `a[i]` `a[i j]`(=a[i][j]) `a[1..3]` `a[2..]` `a[..n]` · `m.k` `m.k=v` `o.method(x)` · `..xs` spread · `0..n` range [0,n) · `#x` len · `!x` `-x` `~x`
+Infix, Python precedence (tight→loose): `**` · unary · `* / // %` · `+ -` · `<< >>` · `&` · `^` · `|` · `..` · `< > <= >= == !=`(chains: `0<=i<n`) · `&&` · `|| ??` · `= += -= *= /= %= **= //= ||= ??=` · `=>`
+Lambda: `x=>x*2` `(a b)=>a+b` `[a b]=>a` `()=>1`; several statements: `(\ (x) s1 s2 result)`
+## Forms
+`(= x v)`=`x=v` · `(= (f a b=1 ..r) body..)` fn (last expr returned; patterns ok: `(= (f [x l r]) ..)`) · `[a [b ..c]]=v` destructure (`[a b]=[b a]` swaps; `_` ignores) · `(<- x v)` rebind an OUTER variable
+`(? c a)` `(? c a else)` `(? c1 a c2 b else)` · `(: a b c)` seq · `(&& ..)` `(|| ..)` `(?? ..)` return the deciding value · `(wh c body..)`
+`(for x coll body..)` · `(for [k v] map ..)` · `(for i 0..n ..)` · `(for 3 body)` · `(let (x 1 y 2) body..)` · `(sw v 1 a [2 3] b else)`
+`(try body e=>handler)` `(err "msg" ..)` · `(aw promise)`(async inferred) · `(req "mod")` `(new C args)` `(js "raw js")` `(use "file.ak")`(include) · Node built-in modules and JS globals are in scope: `fs.readFileSync(f)` `Math.max(1 2)` `path.basename(p)`
+## Semantics
+- Truthiness is Python's: false nil 0 "" [] {} are falsy. `??` replaces only nil: use `m[k]??0` for defaults (`||` would also replace a real 0).
+- `=` is function-local like Python and never changes an outer variable. `x+=1` on an outer variable is a compile error → use `(<- x x+1)`. Only `let` makes a block scope. Closures capture variables; loop variables are per-iteration.
+- Strict, no silent coercion: `nil+1` `"a"-1` `nil<1` throw. `+` also concatenates str+str, str+any, list+list; bools count as 0/1. `==` is deep structural. `/` true division, `//` floor, `%` floored, `x/0` throws.
+- Numbers are doubles: integers are exact to 2^53; beyond that `+ - * **` on integers throw `integer overflow` — use BigInt (`10n`, `2n**100n`). `ak --fast` skips these checks.
+- `for`: list → elements (length fixed at loop start); map → `[k v]`; number n → 0..n-1; string → chars. Out-of-range index / missing key → nil. Self tail calls become loops; recursion depth is large (512MB stack).
+- Arity of direct calls to known functions is checked at compile time. Errors print `error: msg (file:line:col)`, exit 1.
 ## Builtins
-math `+ - * / % // ** < > <= >= == != !` (`==` is deep structural, no coercion; `%` is floored; `/` by 0 errors) `abs min max sum sqrt int flr cel rnd rand`; bits `band bor bxor bnot shl shr ushr`
-seq `(# x)` len · `(@ c i)` index (neg ok) · `(@ c a b)` slice · `(c i)` / `(:k m)` calling a list/map/str/keyword indexes it · `(@! a i)` `(<@! a i v)` unchecked fast array access
-`(+> l x..)` pure append · `(<< l x..)` in-place push · `(>> l)` pop · `(set c k v)` pure · `(del c k)` pure · `(<@ c k v)` in-place · `(.. n)` `(.. a b)` `(.. a b step)`
-`(~ f l..)` map · `(~? f l)` filter · `(~~ f l)` flatmap · `(~/ f init l)` `(~/ f l)` reduce · `sort`/`(sort keyfn l)` `rev zip uniq flat grp idx has any all keys vals prs sub take drop fst lst ap`
-typed arrays `f64 f32 i32 u32 i16 u16 i8 u8` `(f64 n)` or `(f64 [..])` — use with `@!`/`<@!` for numeric speed
-str `(++ a b..)` concat (lists too) · `$` tostr · `show` · `split join trim up lo rep starts ends padl padr chr ord num` · `(re pat flags)` `(match re s)`→groups|`_` · `rep` accepts a regex
-io `p pr ep`(print / no newline / stderr) `rd wr app ls ex in inall args env exit sh now clock sleep delay` · `json unjson` · `(ty x)`→`:num :str :kw :list :map :bool :nil :fn :arr :obj` · `(is :t x)` · `(err msg..)` · `(ev "src")`
+math `+ - * / % // ** < > <= >= == != !` `& | ^ << >> >>> bnot` `abs sqrt flr cel rnd int min max sum rand` (min/max/sum take args or a list)
+list `# @ push pop enum set del +> .. ~ ~? ~~ ~/ sort rev zip uniq flat grp idx has any all keys vals prs sub take drop fst lst ap` — `(~ f xs)` map · `(~? f xs)` filter · `(~~ f xs)` flatmap · `(~/ f init xs)` reduce · `(sort xs)` `(sort keyfn xs)` (maps sort as `[k v]` entries) · `(+> l x)` pure append · `(set c k v)` pure update · `(has c x)` in
+typed arrays `f64 f32 i32 u32 i16 u16 i8 u8` (`(u8 n)`) · fast unchecked access `(@! a i)` `(<@! a i v)`
+text `++ $ show split join trim up lo rep starts ends rpt padl padr chr ord num re match fmt` — `(fmt "%-8s%4d%6.2f%03b" ..)` · `(rep s from to)`(regex ok) · `(rpt x n)` string/list repeat
+io `p pr ep in inall rd wr app ls ex args env exit sh now clock sleep delay err` · `(p a b)` prints space-joined · `json unjson` · `ty is` · `ev` · `imp`
 ## CLI
-`node ak.js file.ak [args]` run · `-e 'code'` · `js file.ak` print generated JS · `build file.ak [out.js]` standalone bundle (needs only node)
-Errors: compile errors `file:line: msg`, exit 1; runtime `error: msg`, exit 1; `AK_DEBUG=1` adds JS stack.
+`ak f.ak [args]` run · `ak -e 'code'` · `ak check f.ak` · `ak fmt f.ak` (canonical, drops comments) · `ak js f.ak` (generated JS) · `ak build f.ak out.js` (standalone bundle) · `ak exe f.ak out` (native executable)
+## Cheap style (fewer tokens)
+One top-level form per line, no indentation. `f(x)` inside expressions. Use truthiness (`(wh q ..)`), destructuring, `..xs` spread (`(p ..xs)`), ranges (`(for i 0..n ..)`), `x+=1`, `??`, and `fmt`. Prefer short common-word names (1 token): rare names split into several.

@@ -129,13 +129,28 @@ function slowAdd(a, b) {
   if (ta === 'string') return a + tostr(b);
   if (tb === 'string') return tostr(a) + b;
   if (Array.isArray(a) && Array.isArray(b)) return a.concat(b);
-  if ((ta === 'number' || ta === 'bigint') && ta === tb) return a + b;
+  if ((ta === 'number' || ta === 'bigint' || ta === 'boolean') && (tb === 'number' || tb === 'boolean') && ta !== 'bigint') return a + b;
+  if (ta === 'bigint' && tb === 'bigint') return a + b;
   throw new AkError('cannot add ' + tyOf(a) + ' and ' + tyOf(b));
 }
 
 // strict arithmetic: operands must be numbers (or bigints); nil/strings/lists never silently coerce
 function bad(x) { throw new AkError('expected number, got ' + tyOf(x)); }
-const n = x => (typeof x === 'number' || typeof x === 'bigint') ? x : bad(x);
+const n = x => (typeof x === 'number' || typeof x === 'bigint' || typeof x === 'boolean') ? x : bad(x);   // booleans count as 0/1 (like Python)
+// integer overflow detection: doubles are exact integers only up to 2^53. A result beyond that whose operands were
+// exact integers is a silent-corruption hazard (Python would be exact), so it throws; genuine float math is untouched.
+const MAXI = 9007199254740992;
+function over(r, a, b, op) {
+  if (Number.isSafeInteger(a) && Number.isSafeInteger(b)) throw new AkError('integer overflow: ' + op + ' exceeds 2^53 (use BigInt, e.g. 10n)');
+  return r;
+}
+function ckadd(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') { const r = a + b; return (r > MAXI || r < -MAXI) ? over(r, a, b, '+') : r; }
+  return slowAdd(a, b);
+}
+function cksub(a, b) { n(a); n(b); const r = a - b; return (typeof r === 'number' && (r > MAXI || r < -MAXI)) ? over(r, a, b, '-') : r; }
+function ckmul(a, b) { n(a); n(b); const r = a * b; return (typeof r === 'number' && (r > MAXI || r < -MAXI)) ? over(r, a, b, '*') : r; }
+function ckpow(a, b) { n(a); n(b); const r = a ** b; return (typeof r === 'number' && (r > MAXI || r < -MAXI)) ? over(r, a, b, '**') : r; }
 function div(a, b) {
   n(a); n(b);
   if (b == 0) throw new AkError('division by zero');
@@ -280,11 +295,11 @@ function minmax(sign) {
 
 const B = {
   // math (also inlined by the compiler when called directly)
-  '+': (...a) => { if (!a.length) return 0; let r = a[0]; for (let i = 1; i < a.length; i++) r = add(r, a[i]); return r; },
-  '-': (...a) => { if (!a.length) return 0; if (a.length === 1) return -n(a[0]); let r = n(a[0]); for (let i = 1; i < a.length; i++) r -= n(a[i]); return r; },
-  '*': (...a) => { let r = 1; for (let i = 0; i < a.length; i++) r *= n(a[i]); return r; },
+  '+': (...a) => { if (!a.length) return 0; let r = a[0]; for (let i = 1; i < a.length; i++) r = ckadd(r, a[i]); return r; },
+  '-': (...a) => { if (!a.length) return 0; if (a.length === 1) return -n(a[0]); let r = n(a[0]); for (let i = 1; i < a.length; i++) r = cksub(r, a[i]); return r; },
+  '*': (...a) => { let r = 1; for (let i = 0; i < a.length; i++) r = ckmul(r, a[i]); return r; },
   '/': (...a) => { if (a.length === 1) return div(1, a[0]); let r = a[0]; for (let i = 1; i < a.length; i++) r = div(r, a[i]); return r; },
-  '%': mod, '//': fdiv, '**': (a, b) => n(a) ** n(b),
+  '%': mod, '//': fdiv, '**': ckpow,
   '<': chain(lt), '>': chain(gt), '<=': chain(le), '>=': chain(ge),
   '==': eq, '!=': (a, b) => !eq(a, b), '!': a => !tr(a),
   '&': (...a) => a.reduce((x, y) => n(x) & n(y)), '|': (...a) => a.reduce((x, y) => n(x) | n(y)), '^': (...a) => a.reduce((x, y) => n(x) ^ n(y)),
@@ -367,7 +382,19 @@ const B = {
   trim: s => s.trim(), up: s => s.toUpperCase(), lo: s => s.toLowerCase(),
   rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
-  rpt: (s, n) => s.repeat(Math.max(0, n)),
+  rpt: (s, k) => { k = Math.max(0, n(k)); if (typeof s === 'string') return s.repeat(k); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
+  fmt: (f, ...a) => { let i = 0; return f.replace(/%(-?)(0?)(\d*)(?:\.(\d+))?([sdfxXbo%])/g, (m, left, zero, w, prec, t) => {
+      if (t === '%') return '%';
+      const v = a[i++]; let s;
+      switch (t) {
+        case 's': s = tostr(v); break; case 'd': s = String(Math.trunc(n(v))); break;
+        case 'f': s = n(v).toFixed(prec === undefined ? 6 : +prec); break;
+        case 'x': s = n(v).toString(16); break; case 'X': s = n(v).toString(16).toUpperCase(); break; case 'b': s = n(v).toString(2); break; default: s = n(v).toString(8);
+      }
+      if (prec !== undefined && t === 's') s = s.slice(0, +prec);
+      const width = +w || 0;
+      return left ? s.padEnd(width) : (zero ? (s[0] === '-' ? '-' + s.slice(1).padStart(width - 1, '0') : s.padStart(width, '0')) : s.padStart(width));
+    }); },
   padl: (s, n, c) => tostr(s).padStart(n, c === undefined ? ' ' : c), padr: (s, n, c) => tostr(s).padEnd(n, c === undefined ? ' ' : c),
   chr: n => String.fromCodePoint(n), ord: s => s.codePointAt(0),
   num,
@@ -401,7 +428,7 @@ const B = {
   },
 };
 
-const H = { tr, eq, fn, at, put, len, it, toArr, dot, setdot, add, n, lt, gt, le, ge, div, mod, fdiv, msg,
+const H = { tr, eq, fn, at, put, len, it, toArr, dot, setdot, add, ckadd, cksub, ckmul, ckpow, n, lt, gt, le, ge, div, mod, fdiv, msg,
   // two-operand strict helpers: both operands are evaluated first, then type-checked (used when a later operand may have effects)
   sub: (a, b) => n(a) - n(b), mul: (a, b) => n(a) * n(b), pow: (a, b) => n(a) ** n(b),
   band: (a, b) => n(a) & n(b), bor: (a, b) => n(a) | n(b), bxor: (a, b) => n(a) ^ n(b),
@@ -412,15 +439,42 @@ const api = { B, H };
 // ---------------------------------------------------------------- launcher
 const LIMITS = { stackSizeMb: 512, maxOldGenerationSizeMb: 16384 };
 
+// map an error back to an Ak source position using the //@line:col markers the compiler leaves in the generated JS
+function locate(e, body, file) {
+  try {
+    const stack = String(e && e.stack || '');
+    let genLine = 0, src = null;
+    for (const ln of stack.split('\n')) {
+      let m = /<anonymous>:(\d+):\d+\)?$/.exec(ln);
+      if (m && body) { genLine = +m[1]; src = body.toString().split('\n'); break; }
+      m = /\(?((?:\/|[A-Za-z]:)[^()]*?):(\d+):\d+\)?$/.exec(ln);
+      if (m && !m[1].endsWith('runtime.js') && !m[1].startsWith('node:') && fs.existsSync(m[1])) {
+        const lines = fs.readFileSync(m[1], 'utf8').split('\n');
+        const start = lines.indexOf('//@@PROGRAM');          // bundles inline the runtime: skip frames before the program
+        if (start >= 0 && +m[2] <= start) continue;
+        genLine = +m[2]; src = lines; break;
+      }
+    }
+    if (!src) return '';
+    for (let i = Math.min(genLine, src.length) - 1; i >= 0; i--) {
+      const m = /^\/\/@(\d+):(\d+)$/.exec(src[i]);
+      if (m) return ' (' + (file || '') + ':' + m[1] + ':' + m[2] + ')';
+    }
+  } catch (_) { /* best effort */ }
+  return '';
+}
+let CUR = { body: null, file: '' };
+
 function fail(e) {
-  flush(); wfd(2, 'error: ' + msg(e) + '\n');
+  flush(); wfd(2, 'error: ' + msg(e) + locate(e, CUR.body, CUR.file) + '\n');
   if (process.env.AK_DEBUG && e && e.stack) wfd(2, e.stack + '\n');
   process.exit(1);
 }
 
-function exec(body, argv, dir) {
-  ARGV = argv;
+function exec(body, argv, dir, file) {
+  ARGV = argv; CUR = { body, file: file || '' };
   process.on('exit', flush);
+  process.on('unhandledRejection', fail);
   const req = require('module').createRequire(path.join(dir, 'x.js'));
   try {
     const r = body(api, req);
@@ -435,25 +489,31 @@ function spawn(file, data) {
 }
 
 // run compiled code string (from the CLI)
-function launch(code, argv) {
+function launch(code, argv, file) {
   if (process.env.AK_NOWORKER) {
-    exec(new Function('R', 'require', code), argv, process.cwd());
-  } else spawn(__filename, { akcode: code, argv, dir: process.cwd() });
+    exec(new Function('R', 'require', code), argv, process.cwd(), file);
+  } else spawn(__filename, { akcode: code, argv, dir: process.cwd(), file });
 }
-// entry for bundled standalone programs
-function standalone(file, body) {
+// entry for bundled standalone programs (also works inside a Node single-executable app, where the
+// worker is started from the embedded script text because the executable cannot be re-run as a script)
+function standalone(file, body, name) {
   if (WT.isMainThread) {
     const argv = process.argv.slice(2);
-    if (process.env.AK_NOWORKER) exec(body, argv, process.cwd());
-    else spawn(file, { standalone: true, argv, dir: process.cwd() });
-  } else exec(body, WT.workerData.argv, WT.workerData.dir);
+    if (process.env.AK_NOWORKER) return exec(body, argv, process.cwd(), name);
+    let sea = null; try { const m = require('node:sea'); if (m.isSea()) sea = m; } catch (_) { /* not a SEA */ }
+    if (sea) {
+      const w = new WT.Worker(sea.getAsset('main.js', 'utf8'), { eval: true, workerData: { standalone: true, argv, dir: process.cwd(), name }, resourceLimits: LIMITS });
+      w.on('error', e => { wfd(2, 'error: ' + msg(e) + '\n'); process.exit(1); });
+      w.on('exit', c => process.exit(c));
+    } else spawn(file, { standalone: true, argv, dir: process.cwd(), name });
+  } else exec(body, WT.workerData.argv, WT.workerData.dir, WT.workerData.name);
 }
 // for tests/embedding: compile+run in-process, return value
 function evalCode(code) { return new Function('R', 'require', code)(api, require); }
 
 if (!WT.isMainThread && WT.workerData && WT.workerData.akcode !== undefined) {
   const d = WT.workerData;
-  exec(new Function('R', 'require', d.akcode), d.argv, d.dir);
+  exec(new Function('R', 'require', d.akcode), d.argv, d.dir, d.file);
 }
 
 module.exports = { B, H, AkError, launch, standalone, evalCode, show, eq, flush };

@@ -1,0 +1,4 @@
+g={:a {:b 7 :c 9 :f 14} :b {:a 7 :c 10 :d 15} :c {:a 9 :b 10 :d 11 :f 2} :d {:b 15 :c 11 :e 6} :e {:d 6 :f 9} :f {:a 14 :c 2 :e 9}}
+(= (dij s) (let (dist {s 0} pq [[0 s]]) (wh #pq>0 pq=(sort pq) (let (top pq[0] d top[0] u top[1]) pq=(drop 1 pq) (? d<=(dist[u]??1000000000) (for e (prs g[u]) (let (v e[0] nd d+e[1]) (? nd<(dist[v]??1000000000) (: dist[v]=nd (push pq [nd v])))))))) dist))
+d=(dij "a")
+(for k (sort (keys d)) (p k d[k]))

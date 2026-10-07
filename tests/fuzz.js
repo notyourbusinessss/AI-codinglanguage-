@@ -210,7 +210,7 @@ class Gen {
     this.frames.pop(); this.fnDepth--;
     if (kind === 0) {          // destructured + default params; calls pass a list
       this.cur.fns.push({ name, arity: 1, fancy: 'pat' });
-      return call('=', [S(name), L(S(a), S(b)), call('=', S(c), 7)], e);
+      return call('=', [S(name), L(S(a), S(b)), call('=', S(c), pick([7, 0, -1, false]))], e);
     }
     if (kind === 1) {          // rest parameter
       this.cur.fns.push({ name, arity: 0, fancy: 'rest' });
@@ -218,7 +218,7 @@ class Gen {
       return call('=', [S(name), [S('%spread'), S(r)]], call('+', call('#', S(r)), call('sum', S(r))));
     }
     this.cur.fns.push({ name, arity: 2, fancy: 'def' });    // default param referencing earlier param
-    return call('=', [S(name), S(a), call('=', S(b), call('*', S(a), 2))], call('+', S(a), S(b)));
+    return call('=', [S(name), S(a), call('=', S(b), chance(0.3) ? 0 : call('*', S(a), 2))], call('+', S(a), S(b)));
   }
   defRec(d) {
     const name = this.name('r');
