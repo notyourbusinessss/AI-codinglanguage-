@@ -8,7 +8,8 @@
 L={:cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot"]
-INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp"]
+INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn"]
+PREDS={"islist" "$islist" "isstr" "$isstr" "ismap" "$ismap" "issym" "$issym" "isfn" "$isfn" "isnum" "$isnum"}
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (S n) (sym n))
 (= (issym x) (is "sym" x))
@@ -363,6 +364,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
           (? v==nil (lerr (++ "undefined: " name) h))
           (? (&& v.kind=="local" v.fn.id!=L.cf.id) (capture L.cf v))
           (? (&& v.pre (has INLINE name) !hasspread) ["prim" name (~ a=>(lower a false) args)]
+             (&& v.pre PREDS[name] #args==1 !hasspread) ["prim" PREDS[name] (~ a=>(lower a false) args)]
              (&& v.intrinsic) ["prim" name (~ a=>(lower a false) args)]
              (: (? (&& v.arity !hasspread (: [mn mx]=v.arity (|| #args<mn #args>mx)))
                    (lerr (++ name " takes " (arity_text v.arity) " argument" (? v.arity[1]==1 "" "s") ", got " #args) x))

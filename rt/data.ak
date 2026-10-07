@@ -5,11 +5,13 @@
 
 ; ---- strings (UTF-8 byte strings)
 (= (strnew n) ($newb 1 n n))
-(= (chr1 b) s=(strnew 1) ($stb s 0 b) s)
+CHARS=nil
+(= (chr1 b) (? ($isnil CHARS) (: s=(strnew 1) ($stb s 0 b) s) (lget CHARS b)))
+(= (chars_init) l=(mklist 256) (for b 256 s=(strnew 1) ($stb s 0 b) (lpush l s)) (<- CHARS l))
 (= (strcat2 a b) la=($hlen a) lb=($hlen b) s=(strnew la+lb) ($copy s 0 a 0 la) ($copy s la b 0 lb) s)
 (= (strslice s a b) n=b-a r=(strnew n) ($copy r 0 s a n) r)
 (= (streq a b) n=($hlen a)
-  (? (!= n ($hlen b)) false
+  (? ($eqp a b) true (!= n ($hlen b)) false
      (: i=0 (wh (&& (< i n) (== ($ldb a i) ($ldb b i))) i+=1) (== i n))))
 (= (strcmp a b) na=($hlen a) nb=($hlen b) m=(? na<nb na nb) i=0
   (wh (&& (< i m) (== ($ldb a i) ($ldb b i))) i+=1)
