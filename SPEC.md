@@ -1,5 +1,5 @@
 # Ak spec
-Compiles to JS, runs on V8. Statements are S-forms; expressions are **tight infix chunks: no spaces inside a chunk** (`a+b`, never `a + b`; spaces/commas separate elements).
+Native x86-64 Linux executables from a self-hosted compiler (default, `ak`), or JS on V8 (`node boot/ak.js`). Statements are S-forms; expressions are **tight infix chunks: no spaces inside a chunk** (`a+b`, never `a + b`; spaces/commas separate elements).
 ## Syntax
 `12 1.5 0xff 1_000 10n(BigInt) "s" :key(="key") true false nil ; comment`
 `(f a b)` or `f(a b)` call · `[1 2]` list · `{:k v}` map (keys are expressions) · `a[i]` `a[i j]`(=a[i][j]) `a[1..3]` `a[2..]` `a[..n]` · `m.k` `m.k=v` `o.method(x)` · `..xs` spread · `0..n` range [0,n) · `#x` len · `!x` `-x` `~x`
@@ -24,6 +24,8 @@ typed arrays `f64 f32 i32 u32 i16 u16 i8 u8` (`(u8 n)`) · fast unchecked access
 text `++ $ show split join trim up lo rep starts ends rpt padl padr chr ord num re match fmt` — `(fmt "%-8s%4d%6.2f%03b" ..)` · `(rep s from to)`(regex ok) · `(rpt x n)` string/list repeat
 io `p pr ep in inall rd wr wrx app ls ex rm mkdir mv isdir runx args env exit sh now clock sleep delay err` (`wr`/`app`/`wrx` take a string or a list of byte values; `wrx` makes the file executable) · `sym mksym symline symcol bytes f64bits` · `(p a b)` prints space-joined · `json unjson` · `ty is` · `ev` · `imp`
 ## CLI
-`ak f.ak [args]` run · `ak -e 'code'` · `ak check f.ak` · `ak fmt f.ak` (canonical, drops comments) · `ak js f.ak` (generated JS) · `ak build f.ak out.js` (standalone bundle) · `ak exe f.ak out` (native executable)
+`ak f.ak [args]` compile+run · `ak -e 'code' [args]` · `ak build f.ak out` native executable · `ak check f.ak` · `ak fmt f.ak` (canonical, drops comments) · `ak --version`. The JS target: `node boot/ak.js f.ak` (also `js` generated JS · `build f.ak out.js` bundle · `exe` embeds node).
+## Targets
+Native (default): no libc, no JS. Strings are UTF-8 bytes (`#s` counts bytes; `chr`/`ord`/regex handle code points). Not available natively: `aw req js new imp ev delay`, host objects, Node modules (`fs.readFileSync`, `fetch`, `Math.max` → use `rd wr ex ... max sin`). `o.f(x)` calls the function stored under key `f` of map `o`. `pow`/`**` with fractional exponents may differ from V8 in the last digit; all other math functions are bit-identical to V8. Uncaught errors print `error: msg (file:line:col)` and exit 1. Memory is garbage-collected (copying GC); set `AK_GCMIN` (bytes) to tune it.
 ## Cheap style (fewer tokens)
 One top-level form per line, no indentation. `f(x)` inside expressions. Use truthiness (`(wh q ..)`), destructuring, `..xs` spread (`(p ..xs)`), ranges (`(for i 0..n ..)`), `x+=1`, `??`, and `fmt`. Prefer short common-word names (1 token): rare names split into several.

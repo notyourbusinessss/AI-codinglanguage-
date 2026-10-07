@@ -138,7 +138,7 @@ NANV=($fsub INF INF)
                      (? i>49 (: t=r w=fn*2.02226624871116645580e-21 r=t-w w=fn*8.47842766036889956997e-32-((t-r)-w) y0=r-w))))
           y1=(r-y0)-w
           (? neg (list (- n) (- y0) (- y1)) (list n y0 y1)))
-     (list 0 NANV NANV)))
+     (rempio2_big x)))
 (= (sin x)
   x=(tonum x) ix=(iabs (hw x))
   (? ix<=1072243195 (ksin x 0 0)
@@ -413,3 +413,50 @@ NANV=($fsub INF INF)
            (: z=1))
         (? (&& ix<1043333120) x (? (isneg jx) (- z) z)))))
 (= (sign x) x=(tonum x) (? (> x 0) 1 (< x 0) -1 x))
+
+; ---- argument reduction for huge arguments: exact bignum computation of x*(2/pi) with 1200 fraction bits
+PIFIX=nil          ; pi * 2^1344
+INV2PI=nil         ; floor(2^1200 * 2/pi)
+(= (bn_bitlen a) n=#a (? n==0 0 (: top=(lget a n-1) b=0 (wh top>0 top=($ffloor ($fdiv top 2)) b+=1) (+ (* (- n 1) 24) b))))
+(= (bn_atan_inv m f)             ; atan(1/m) * 2^f  (m small)
+  t=(bn_divmod_small (bn_shl [1] f) m) t=(lget t 0) m2=m*m sum=t neg=true k=1
+  (wh #t>0
+    t=(lget (bn_divmod_small t m2) 0) k+=2
+    q=(lget (bn_divmod_small t k) 0)
+    sum=(? neg (bn_sub sum q) (bn_add sum q))
+    neg=(! neg))
+  sum)
+(= (pi_init)
+  (? ($isnil PIFIX)
+     (: f=1344
+        a=(bn_atan_inv 5 f) b=(bn_atan_inv 239 f)
+        (<- PIFIX (bn_sub (bn_mul_small a 16) (bn_mul_small b 4)))
+        (<- INV2PI (lget (bn_divmod (bn_shl [1] 1201+f) PIFIX) 0)))))
+(= (pow2d e) ($frombits (* (+ e 1023) 1048576) 0))
+(= (bn_top53 a)                  ; leading 53 bits of a -> [value shift] with a ~ value * 2^shift
+  l=(bn_bitlen a)
+  (? l<=53 (list (bigtonum_bn a) 0)
+     (: sh=l-53 (list (bigtonum_bn (bn_shr a sh)) sh))))
+(= (bigtonum_bn a) r=0 i=#a-1 (wh i>=0 r=($fadd ($fmul r BNB) (lget a i)) i-=1) r)
+(= (rempio2_big x)
+  (pi_init)
+  neg=x<0 d=(decomp (abs x)) mz=d[0] ez=d[1]
+  S=1200-ez
+  m=(bn_mul_big (bn_small mz) INV2PI)
+  nint=(bn_shr m S) n=($band (? #nint>0 (lget nint 0) 0) 3)
+  frac=(bn_sub m (bn_shl nint S))
+  half=(bn_shl [1] S-1)
+  (: up=(>= (bn_cmp frac half) 0)
+     f2=(? up (bn_sub (bn_shl [1] S) frac) frac)
+     n=(? up ($band n+1 3) n)
+     g=(bn_shr f2 S-160)
+     pi2=(bn_shr PIFIX 1344-160+1)
+     h=(bn_mul_big g pi2)
+     t=(bn_top53 h)
+     hi=t[0]*(pow2d t[1]-320)
+     rem=(bn_sub h (bn_shl (bn_shr h t[1]) t[1]))
+     t2=(bn_top53 rem)
+     lo=(? #rem==0 0 t2[0]*(pow2d t2[1]-320))
+     y0=hi+lo y1=(hi-y0)+lo
+     (? up (: y0=(- y0) y1=(- y1)))
+     (? neg (list (- n) (- y0) (- y1)) (list n y0 y1))))

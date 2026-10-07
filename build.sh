@@ -14,7 +14,7 @@ fi
 for i in 1 2 3 4 5; do
   bin/ak.next build src/main.ak bin/ak.new
   if cmp -s bin/ak.next bin/ak.new; then
-    mv bin/ak.new bin/ak; rm -f bin/ak.next; echo "bin/ak rebuilt (fixpoint after $i self-build(s))"; exit 0
+    mv bin/ak.new bin/ak; rm -f bin/ak.next; bin/ak -e '(p "smoke test ok")' >/dev/null || { echo "error: the new compiler cannot compile programs (runtime error?)" >&2; exit 1; }; echo "bin/ak rebuilt (fixpoint after $i self-build(s))"; exit 0
   fi
   mv bin/ak.new bin/ak.next
 done
