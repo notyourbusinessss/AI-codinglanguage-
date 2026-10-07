@@ -28,7 +28,7 @@ OBN=0
   (? n>65536 (rawwrite 1 s n)
      (: ($copy OBUF OBN s 0 n) (<- OBN OBN+n))))
 (= (eout s) (flush) (rawwrite 2 s ($hlen s)))
-(= (finish) (flush) (? PROFH (profdump)))
+(= (finish) (flush) (? PROFH (profdump)) (? (env "AK_GCSTATS") (eout (strcat2 (strcat2 "gc: " (fmtint GCCOUNT)) " collections\n"))))
 (= (exit code) (flush) (? PROFH (profdump)) ($syscall 231 (? ($isnil code) 0 code)))
 INFATAL=false
 (= (fatal msg) (? INFATAL ($syscall 231 1)) (<- INFATAL true) (flush) (eout "error: ") (eout (? (isstr msg) msg "runtime error")) (eout "\n") (tracedump) ($syscall 231 1))
