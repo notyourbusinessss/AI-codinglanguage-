@@ -37,7 +37,8 @@ const CASES = [
   ['(= (f x) x*2) f(4)', '8'], ['(= (f x) x*2) (f 4)', '8'], ['((x)=>x+1)(2)', '3'], ['((a b)=>a+b)(1 2)', '3'], ['(\\ (x) x*x)(5)', '25'],
   ['(= (f a b=10) a+b) [f(1) f(1 2)]', '[11 3]'], ['(= (f a ..r) r) [f(1) f(1 2 3)]', '[[] [2 3]]'], ['(= (f ..r) #r) f(1 2 3)', '3'],
   ['(= (f [a b]) a+b) f([3 4])', '7'], ['((a [b c])=>a+b+c)(1 [2 3])', '6'], ['(= (f a b=a*2) b) f(4)', '8'],
-  ['(= (f) 7) f()', '7'], ['(= (f x) (? x>0 "pos" x<0 "neg" "zero")) [f(1) f(-1) f(0)]', '["pos" "neg" "zero"]'],
+  ['(= (f) 7) f()', '7'], ['(= (f a b=0) a+b) [f(1) f(1 2)]', '[1 3]'], ['(= (f a b=false) b) f(1)', 'false'], ['(= (f a b="") b) f(1)', '""'], ['(= (f a b=nil) b) f(1)', 'nil'],
+  ['s=0 (for 3 s+=2) s', '6'], ['s=0 (for 0 s+=2) s', '0'], ['(= (f x) (? x>0 "pos" x<0 "neg" "zero")) [f(1) f(-1) f(0)]', '["pos" "neg" "zero"]'],
   ['(= (fact n) (? n<2 1 n*fact(n-1))) fact(10)', '3628800'],
   ['(= (c i) (? i<5000000 (c i+1) i)) (c 0)', '5000000'],                            // self tail call -> loop
   ['(= (c i a) (? i==0 a (c i-1 a+i))) (c 1000000 0)', '500000500000'],
@@ -91,6 +92,11 @@ const CASES = [
   ['x=1 x="s" (try x-1 e=>e)', '"expected number, got str"'],
   ['(= (f n) s=0 (for i n s+=i) s) f(5)', '10'], ['(= (f) s=0 (for i 4 s+=i*2) s) f()', '12'], ['s=0 (for i 1..4 s+=i) s*2', '12'],
   ['n=3 s=0 (for i n s+=i) s', '3'], ['s=1 (wh s<100 s*=2) s', '128'], ['a=2 b=3 a=a*b b=a+1 [a b]', '[6 7]'],
+  // --- integer overflow is loud (exact integers only up to 2^53); genuine float math is unaffected
+  ['2**52', '4503599627370496'], ['(try 2**60 e=>e)', '"integer overflow: ** exceeds 2^53 (use BigInt, e.g. 10n)"'], ['(try 3037000500*3037000500 e=>e)', '"integer overflow: * exceeds 2^53 (use BigInt, e.g. 10n)"'],
+  ['(= (fib n a=0 b=1) (? n==0 a (fib n-1 b a+b))) [fib(70) (try fib(80) e=>"ovf")]', '[190392490709135 "ovf"]'],
+  ['1e20*3', '300000000000000000000'], ['(try 0.5*2**70 e=>"ovf")', '"ovf"'], ['0.5*2**40', '549755813888'], ['9007199254740991+0', '9007199254740991'], ['(try 9007199254740991+9007199254740991 e=>"ovf")', '"ovf"'],
+  ['2n**100n', '1267650600228229401496703205376n'], ['(try (- -9007199254740991 9007199254740991) e=>"ovf")', '"ovf"'], ['1.5*1e300', '1.5e+300'],
   // --- compile errors (must be caught at compile time with a useful message)
   ['(p undefinedthing)', 'ERR undefined: undefinedthing'], ['(= f 1) (<- g 2)', 'ERR undefined variable g'],
   ['x=1 f=()=>(x+=1) f()', 'ERR belongs to an enclosing'], ['x=1 f=()=>(: x=x+1 x) f()', 'ERR local to this function'],

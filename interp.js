@@ -48,7 +48,7 @@ function parseParams(list) {
   const ps = []; let rest = null;
   list.forEach(p => {
     if (p instanceof Sym) ps.push({ name: p.n });
-    else if (isForm(p, '=') && p.length === 3) ps.push({ name: p[1].n, def: p[2] });
+    else if (isForm(p, '=') && p.length === 3) ps.push({ name: p[1].n, def: p[2], hasDef: true });
     else if (isSpread(p)) rest = p[1].n;
     else if (isPat(p)) ps.push({ pat: p });
   });
@@ -67,7 +67,7 @@ function callFn(f, args) {
     if (p.pat) { /* destructure after */ }
     else e.vars.set(p.name, args[i] === undefined ? null : args[i]);
   });
-  ps.forEach((p, i) => { if (p.def && args[i] === undefined) e.vars.set(p.name, ev(p.def, e)); });
+  ps.forEach((p, i) => { if (p.hasDef && args[i] === undefined) e.vars.set(p.name, ev(p.def, e)); });
   if (rest) e.vars.set(rest, args.slice(ps.length));
   ps.forEach((p, i) => { if (p.pat) bindPat(p.pat, args[i], e, (n, v) => assign(e, n, v)); });
   return evSeq(f.body, e);
@@ -181,6 +181,7 @@ function ev(x, env) {
       }
       case 'wh': { while (H.tr(ev(x[1], env))) evSeq(x.slice(2), env); return null; }
       case 'for': {
+        if (x.length >= 3 && typeof x[1] === 'number') x = [x[0], S('_'), ...x.slice(1)];
         const v = x[1], coll = ev(x[2], env);
         const items = typeof coll === 'number' ? null : H.it(coll);
         const count = items === null ? coll : items.length;      // length fixed at loop start; elements read live

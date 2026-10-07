@@ -3,14 +3,14 @@
 const { Sym, S, isSym, isForm } = require('./ast.js');
 
 // precedence (mirror of syntax.js)
-const BINPREC = { '||': 3, '??': 3, '&&': 4, '|': 5, '^': 6, '&': 7, '==': 8, '!=': 8, '<': 9, '>': 9, '<=': 9, '>=': 9, '..': 10, '<<': 11, '>>': 11, '>>>': 11, '+': 12, '-': 12, '*': 13, '/': 13, '%': 13, '//': 13, '**': 15 };
+const BINPREC = { '||': 3, '??': 3, '&&': 4, '==': 8, '!=': 8, '<': 8, '>': 8, '<=': 8, '>=': 8, '..': 9, '|': 10, '^': 11, '&': 12, '<<': 13, '>>': 13, '>>>': 13, '+': 14, '-': 14, '*': 15, '/': 15, '%': 15, '//': 15, '**': 17 };
 const ASSIGN_OPS = new Set(['+=', '-=', '*=', '/=', '%=', '**=', '//=', '||=', '??=']);
 const ID = /^[A-Za-z_$\u0080-￿][A-Za-z0-9_$\u0080-￿]*$/;
 const RESERVED = new Set(['true', 'false', 'nil']);
 const isIdentStr = s => typeof s === 'string' && ID.test(s) && !RESERVED.has(s);
 const OPSYM = /^[+\-*\/%<>=!&|^~?@#\\:.]+$/;
 
-const P_ASSIGN = 1, P_LAMBDA = 2, P_UNARY = 15, P_POSTFIX = 20, P_ATOM = 100;
+const P_ASSIGN = 1, P_LAMBDA = 2, P_UNARY = 17, P_POSTFIX = 20, P_ATOM = 100;
 
 function atom(x, keyOk) {
   if (x === true) return 'true'; if (x === false) return 'false'; if (x === null || x === undefined) return 'nil';
@@ -36,9 +36,9 @@ class Printer {
         case '%map': return ['{' + a.map((e, i) => this.arg(e, i % 2 === 0)).join(' ') + '}', P_ATOM];
         case '%spread': if (n === 1) return ['..' + this.at(a[0], P_UNARY), P_UNARY]; break;
         case '%cmp': {
-          let s = this.at(a[0], 10);
-          for (let i = 1; i < a.length; i += 2) s += a[i] + this.at(a[i + 1], 10);
-          return [s, 9];
+          let s = this.at(a[0], 9);
+          for (let i = 1; i < a.length; i += 2) s += a[i] + this.at(a[i + 1], 9);
+          return [s, 8];
         }
         case '=': if (n === 2 && !Array.isArray(a[0])) return [this.at(a[0], P_POSTFIX) + '=' + this.at(a[1], P_ASSIGN), P_ASSIGN];
           if (n === 2 && (isForm(a[0], '%list') || isForm(a[0], '%map'))) return [this.pr(a[0])[0] + '=' + this.at(a[1], P_ASSIGN), P_ASSIGN];
@@ -53,7 +53,7 @@ class Printer {
             return [this.at(base, P_POSTFIX) + '[' + idx.join(' ') + ']', P_POSTFIX];
           }
           if (n === 3) {
-            const lo = a[1] === null ? '' : this.at(a[1], 11), hi = a[2] === null ? '' : this.at(a[2], 11);
+            const lo = a[1] === null ? '' : this.at(a[1], 10), hi = a[2] === null ? '' : this.at(a[2], 10);
             return [this.at(a[0], P_POSTFIX) + '[' + lo + '..' + hi + ']', P_POSTFIX];
           }
           break;
@@ -85,7 +85,8 @@ class Printer {
       if (p !== undefined && n >= 2 && (n === 2 || h.n === '+' || h.n === '*' || h.n === '&&' || h.n === '||' || h.n === '??')) {
         if (CHAIN_NONASSOC.has(h.n) && n !== 2) return this.sform(x);
         const rightAssoc = h.n === '**';
-        let s = this.at(a[0], rightAssoc ? p + 1 : p);
+        const isCmp = p === 8;                 // comparisons chain (a<b<c), so a nested comparison operand must be parenthesized
+        let s = this.at(a[0], rightAssoc || isCmp ? p + 1 : p);
         for (let i = 1; i < a.length; i++) s += h.n + this.at(a[i], rightAssoc ? p : p + 1);
         return [s, p];
       }
@@ -104,7 +105,13 @@ class Printer {
     throw new Error('bad param');
   }
 
-  callForm(x) { return [this.sform(x)[0], P_ATOM]; }
+  callForm(x) {
+    if (this.o.calls === 'call' && x.length >= 1 && !(x.length === 1)) {
+      const args = x.slice(1).map(e => this.arg(e, false)).join(' ');
+      return [x[0].n + '(' + args + ')', P_POSTFIX];
+    }
+    return [this.sform(x)[0], P_ATOM];
+  }
   // S-form text: (h a b c)
   sform(x) {
     const parts = x.map((e, i) => this.arg(e, false, i));

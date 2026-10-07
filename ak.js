@@ -41,7 +41,7 @@ function cerr(m, node) {
   const n = node && node.line ? node : null;
   throw new CErr(`${ST.file}:${n ? n.line : ST.line}:${n ? n.col : ST.col}: ${m}`);
 }
-const at_ = x => { if (Array.isArray(x) && x.line) { ST.line = x.line; ST.col = x.col; } };
+const at_ = x => { if ((Array.isArray(x) || x instanceof Sym) && x.line) { ST.line = x.line; ST.col = x.col; } };
 
 const mg = n => '$' + n.replace(/[^A-Za-z0-9]/g, c => c === '_' ? '__' : '_' + c.charCodeAt(0).toString(16) + '_');
 const bj = n => 'R_' + n.replace(/[^A-Za-z0-9]/g, c => '_' + c.charCodeAt(0).toString(16) + '_');
@@ -317,7 +317,7 @@ function parseParams(list, node) {
   const ps = []; let rest = null, min = 0, seenDef = false;
   list.forEach((p, i) => {
     if (p instanceof Sym) { if (seenDef) cerr(`parameter ${p.n} without default follows a default`, node); ps.push({ name: p.n }); min++; }
-    else if (isForm(p, '=') && p.length === 3 && p[1] instanceof Sym) { ps.push({ name: p[1].n, def: p[2] }); seenDef = true; }
+    else if (isForm(p, '=') && p.length === 3 && p[1] instanceof Sym) { ps.push({ name: p[1].n, def: p[2], hasDef: true }); seenDef = true; }
     else if (isSpread(p) && p[1] instanceof Sym) { if (i !== list.length - 1) cerr('rest parameter must be last', node); rest = p[1].n; }
     else if (isPat(p)) { if (seenDef) cerr('pattern parameter follows a default', node); ps.push({ pat: p }); min++; }
     else cerr('bad parameter', node);
@@ -342,10 +342,10 @@ function compileFn(jsName, plist, body, selfName, selfInfo, node) {
       }
       if (rest) { const i = declareIn(sc, rest, { param: true }); jsParams.push('...' + i.js); }
       fn.params = jsParams.slice();
-      fn.tco = !!selfName && !rest && ps.every(p => !p.pat && !p.def) && !body.some(hasClosure);
+      fn.tco = !!selfName && !rest && ps.every(p => !p.pat && !p.hasDef) && !body.some(hasClosure);
       fn.numCand = numCandidates(body, plist);
       predeclare(decls([...body, ...ps.filter(p => p.pat).map(p => [S('='), p.pat, null])]));
-      for (const p of ps) if (p.def) {
+      for (const p of ps) if (p.hasDef) {
         const i = lookupLocal(p.name);
         const [pre, e] = capture(() => expr(p.def));
         emit(`if(${i.js}===undefined){`); pre.forEach(emit); emit(`${i.js}=${e};}`);
@@ -468,9 +468,10 @@ function orderSafe(args) {
   return true;
 }
 const HELP2 = { '-': 'sub', '*': 'mul', '**': 'pow', '&': 'band', '|': 'bor', '^': 'bxor', '<<': 'shl', '>>': 'shr', '>>>': 'ushr' };
-function strictBin(n, args) {   // left fold of 2-operand helpers
+function strictBin(n, args) {   // left fold of 2-operand helpers (checked variants when integer-overflow detection is on)
   const es = exprs(args);
-  return es.slice(1).reduce((a, e) => `${href(HELP2[n])}(${a},${e})`, es[0]);
+  const hn = ST.safe && ['-', '*', '**'].includes(n) ? { '-': 'cksub', '*': 'ckmul', '**': 'ckpow' }[n] : HELP2[n];
+  return es.slice(1).reduce((a, e) => `${href(hn)}(${a},${e})`, es[0]);
 }
 
 function inlineOp(n, args, node) {
@@ -483,18 +484,18 @@ function inlineOp(n, args, node) {
       let r = es[0], numeric = isNum(args[0]);
       for (let i = 1; i < k; i++) {
         numeric = numeric && isNum(args[i]);      // both sides statically numbers -> native +; otherwise strict polymorphic add
-        r = numeric ? `(${r}+${es[i]})` : `${href('add')}(${r},${es[i]})`;
+        r = (numeric && !ST.safe) ? `(${r}+${es[i]})` : `${href(ST.safe ? 'ckadd' : 'add')}(${r},${es[i]})`;
       }
       return r;
     }
     case '*': {
       if (k === 0) return '1';
-      if (k >= 2 && !orderSafe(args)) return strictBin(n, args);
+      if (k >= 2 && (ST.safe || !orderSafe(args))) return strictBin(n, args);
       const es = exprs(args).map(numArg(args)); return k === 1 ? es[0] : `(${es.join('*')})`;
     }
     case '-': {
       if (k === 0) return '0';
-      if (k >= 2 && !orderSafe(args)) return strictBin(n, args);
+      if (k >= 2 && (ST.safe || !orderSafe(args))) return strictBin(n, args);
       const es = exprs(args).map(numArg(args)); return k === 1 ? `(-${es[0]})` : `(${es.join('-')})`;
     }
     case '/': {
@@ -510,7 +511,7 @@ function inlineOp(n, args, node) {
       }
       // fallthrough
     case '//': if (k === 2) return `${href(n === '%' ? 'mod' : 'fdiv')}(${exprs(args).join(',')})`; return;
-    case '**': if (k === 2 && !orderSafe(args)) return strictBin(n, args); if (k === 2) { const es = exprs(args).map(numArg(args)); return `(${es[0]}**${es[1]})`; } return;
+    case '**': if (k === 2 && (ST.safe || !orderSafe(args))) return strictBin(n, args); if (k === 2) { const es = exprs(args).map(numArg(args)); return `(${es[0]}**${es[1]})`; } return;
     case '<': case '>': case '<=': case '>=': {
       if (k !== 2) return;
       const es = exprs(args);
@@ -738,6 +739,7 @@ function whStmt(x) {
 }
 
 function forStmt(x) {
+  if (x.length >= 3 && typeof x[1] === 'number') x = [x[0], S('_'), ...x.slice(1)];     // (for 3 body..): repeat
   if (x.length < 3) cerr('(for var coll body..)', x);
   const v = x[1], c = x[2], body = x.slice(3);
   if (!(v instanceof Sym || isPat(v))) cerr('for: variable must be a name or [pattern]', x);
@@ -832,7 +834,7 @@ function stmt(x, d) {
 function compile(src, opts = {}) {
   const file = opts.file || '<ak>';
   const dir = opts.dir || (fs.existsSync(file) ? path.dirname(path.resolve(file)) : process.cwd());
-  ST = { buf: [], usedB: new Set(), usedH: new Set(), usedMods: new Set(), uid: 0, fn: null, scope: null, line: 1, col: 1, file, lastMark: 0 };
+  ST = { safe: opts.safe !== false, buf: [], usedB: new Set(), usedH: new Set(), usedMods: new Set(), uid: 0, fn: null, scope: null, line: 1, col: 1, file, lastMark: 0 };
   const seen = new Set([path.resolve(file)]);
   const forms = parse(src, file).map(f => expandUse(f, dir, seen, file)).filter(f => f !== null);
   ST.fn = { tmps: [], async: false, tryDepth: 0, tco: false, tcoUsed: false, label: 'L0', params: [], selfName: null, selfInfo: null, root: null };
@@ -845,35 +847,64 @@ function compile(src, opts = {}) {
   return `"use strict";\n${head.join('\n')}\nreturn (${ST.fn.async ? 'async ' : ''}function main(){\n${tm}${ST.buf.join('\n')}\n})();`;
 }
 
-function bundle(code) {
+function bundle(code, name) {
   const rt = fs.readFileSync(path.join(__dirname, 'runtime.js'), 'utf8').replace(/^#!.*\n/, '');
   return `#!/usr/bin/env node\n'use strict';\nconst R=(function(module,exports){\n${rt}\n;return module.exports})({exports:{}},{});\n` +
-    `R.standalone(__filename,function(R,require){\n${code.replace(/^"use strict";\n/, '')}\n});\n`;
+    `R.standalone(__filename,function(R,require){\n//@@PROGRAM\n${code.replace(/^"use strict";\n/, '')}\n},${JSON.stringify(name || '')});\n`;
 }
 
 function usage() {
-  console.error(`ak - fast Ak compiler/runner
+  console.error(`ak - fast Ak compiler/runner   (prefix any command with --fast to skip integer-overflow checks)
   ak file.ak [args..]        compile and run
   ak -e 'code' [args..]      run code
   ak js file.ak              print generated JavaScript
-  ak build file.ak [out.js]  standalone executable JS bundle`);
+  ak build file.ak [out.js]  standalone JS bundle (needs only node)
+  ak exe file.ak [out]       native single-file executable (embeds node; needs npm access once for 'postject')
+  ak check file.ak           compile only; report errors
+  ak fmt file.ak             print canonical, token-cheap source (comments are dropped)`);
   process.exit(2);
 }
 
 function main(argv) {
-  const a = argv.slice(2);
+  let a = argv.slice(2);
+  const fast = a[0] === '--fast'; if (fast) a = a.slice(1);      // --fast: skip integer-overflow checks (speed)
+  const copts = { safe: !fast };
   if (!a.length) usage();
   try {
+    if (a[0] === 'check') {
+      if (!a[1]) usage();
+      compile(fs.readFileSync(a[1], 'utf8'), { file: a[1] }); console.log('ok'); return;
+    }
+    if (a[0] === 'fmt') {
+      if (!a[1]) usage();
+      const forms = require('./syntax.js').parse(fs.readFileSync(a[1], 'utf8'), a[1]);
+      process.stdout.write(require('./fmt.js').fmt(forms, { layout: 'lines' })); return;
+    }
+    if (a[0] === 'exe') {
+      if (!a[1]) usage();
+      const cp = require('child_process'), os = require('os');
+      const out = path.resolve(a[2] || a[1].replace(/\.ak$/, ''));
+      const tmpd = fs.mkdtempSync(path.join(os.tmpdir(), 'akexe-'));
+      const js = path.join(tmpd, 'main.js');
+      fs.writeFileSync(js, bundle(compile(fs.readFileSync(a[1], 'utf8'), { file: a[1], ...copts }), a[1]));
+      fs.writeFileSync(path.join(tmpd, 'sea.json'), JSON.stringify({ main: js, output: path.join(tmpd, 'sea.blob'), disableExperimentalSEAWarning: true, assets: { 'main.js': js } }));
+      const run = (cmd, args) => { const r = cp.spawnSync(cmd, args, { stdio: ['ignore', 'ignore', 'inherit'], cwd: tmpd }); if (r.status !== 0) throw new CErr(`${cmd} ${args[0]} failed`); };
+      run(process.execPath, ['--experimental-sea-config', path.join(tmpd, 'sea.json')]);
+      fs.copyFileSync(process.execPath, out); fs.chmodSync(out, 0o755);
+      run('npx', ['--yes', 'postject', out, 'NODE_SEA_BLOB', path.join(tmpd, 'sea.blob'), '--sentinel-fuse', 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2']);
+      fs.rmSync(tmpd, { recursive: true, force: true });
+      console.error('wrote ' + out); return;
+    }
     if (a[0] === 'js' || a[0] === 'build') {
       if (!a[1]) usage();
-      const code = compile(fs.readFileSync(a[1], 'utf8'), { file: a[1] });
+      const code = compile(fs.readFileSync(a[1], 'utf8'), { file: a[1], ...copts });
       if (a[0] === 'js') { console.log(code); return; }
       const outf = a[2] || a[1].replace(/\.ak$/, '') + '.js';
-      fs.writeFileSync(outf, bundle(code)); fs.chmodSync(outf, 0o755);
+      fs.writeFileSync(outf, bundle(code, a[1])); fs.chmodSync(outf, 0o755);
       console.error('wrote ' + outf); return;
     }
-    if (a[0] === '-e') RT.launch(compile(a[1], { file: '<-e>', dir: process.cwd() }), a.slice(2));
-    else RT.launch(compile(fs.readFileSync(a[0], 'utf8'), { file: a[0] }), a.slice(1));
+    if (a[0] === '-e') RT.launch(compile(a[1], { file: '<-e>', dir: process.cwd(), ...copts }), a.slice(2), '<-e>');
+    else RT.launch(compile(fs.readFileSync(a[0], 'utf8'), { file: a[0], ...copts }), a.slice(1), a[0]);
   } catch (e) {
     if (e instanceof CErr || e.name === 'SyntaxError' && e.message.includes(':') || e.code === 'ENOENT') { console.error('error: ' + e.message); process.exit(1); }
     throw e;

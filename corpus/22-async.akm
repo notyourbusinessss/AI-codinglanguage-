@@ -1,0 +1,2 @@
+(= (work n d) (: (aw (delay d)) n*n))
+(p (join (aw Promise.all((~ i=>(work i 10*(5-i)) (.. 5)))) " "))

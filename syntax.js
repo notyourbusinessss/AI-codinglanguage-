@@ -11,21 +11,26 @@ const IDS = /[A-Za-z_$\u0080-￿]/, IDC = /[A-Za-z0-9_$\u0080-￿]/, DIG = /[0-9
 
 // binary operators, longest first. prec: higher binds tighter
 const BIN = [
-  ['>>>', 11], ['**=', 1], ['//=', 1], ['||=', 1], ['??=', 1],
-  ['=>', 2], ['==', 8], ['!=', 8], ['<=', 9], ['>=', 9], ['&&', 4], ['||', 3], ['??', 3], ['**', 15], ['//', 13], ['<<', 11], ['>>', 11], ['..', 10],
+  ['>>>', 13], ['**=', 1], ['//=', 1], ['||=', 1], ['??=', 1],
+  ['=>', 2], ['==', 8], ['!=', 8], ['<=', 8], ['>=', 8], ['&&', 4], ['||', 3], ['??', 3], ['**', 17], ['//', 15], ['<<', 13], ['>>', 13], ['..', 9],
   ['+=', 1], ['-=', 1], ['*=', 1], ['/=', 1], ['%=', 1],
-  ['+', 12], ['-', 12], ['*', 13], ['/', 13], ['%', 13], ['<', 9], ['>', 9], ['=', 1], ['&', 7], ['|', 5], ['^', 6],
+  ['+', 14], ['-', 14], ['*', 15], ['/', 15], ['%', 15], ['<', 8], ['>', 8], ['=', 1], ['&', 12], ['|', 10], ['^', 11],
 ];
 const ASSIGN = new Set(['=', '+=', '-=', '*=', '/=', '%=', '**=', '//=', '||=', '??=']);
-const CMP = new Set(['<', '>', '<=', '>=']);
+const CMP = new Set(['<', '>', '<=', '>=', '==', '!=']);
 const UNARY_PRE = { '-': '-', '!': '!', '#': '#', '~': 'bnot' };
-const PREC_UNARY = 15;
+const PREC_UNARY = 17;
 
 class Parser {
   constructor(src, file) { this.s = src; this.i = 0; this.line = 1; this.lineStart = 0; this.file = file || '<ak>'; this.idx = false; }
 
   err(msg, at) { const p = at === undefined ? this.i : at; const { line, col } = this.lc(p); throw new AkSyntaxError(`${this.file}:${line}:${col}: ${msg}`); }
-  lc(p) { let line = 1, ls = 0; for (let k = 0; k < p; k++) if (this.s.charCodeAt(k) === 10) { line++; ls = k + 1; } return { line, col: p - ls + 1 }; }
+  lc(p) {
+    if (!this.starts) { this.starts = [0]; for (let k = 0; k < this.s.length; k++) if (this.s.charCodeAt(k) === 10) this.starts.push(k + 1); }
+    let lo = 0, hi = this.starts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (this.starts[mid] <= p) lo = mid; else hi = mid - 1; }
+    return { line: lo + 1, col: p - this.starts[lo] + 1 };
+  }
   pos(p) { return this.lc(p === undefined ? this.i : p); }
 
   peek(o = 0) { return this.s[this.i + o]; }
@@ -193,7 +198,7 @@ class Parser {
       const st = this.i; while (this.i < this.s.length && IDC.test(this.s[this.i])) this.i++;
       const w = this.s.slice(st, this.i);
       if (w === 'true') return true; if (w === 'false') return false; if (w === 'nil') return null;
-      return S(w);
+      const sym = S(w); const sp = this.pos(st); sym.line = sp.line; sym.col = sp.col; return sym;
     }
     if (OPCH.has(c)) {
       // standalone operator symbol: `+` `~?` `<@!` `++` `\` `?` `:` `@` ...
