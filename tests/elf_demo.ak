@@ -1,0 +1,30 @@
+(use "../src/x86.ak")
+; builds a tiny native program with the Ak assembler: prints a string, sums 1..10 in a loop, calls a function that does SSE math,
+; and exits with the total as the exit status (55 + 7 = 62).
+(asm_reset)
+msg="hello from Ak\n"
+(label "_start")
+(asm "mov rax, 1")
+(asm "mov rdi, 1")
+(asm "mov rsi, 0x10000000")
+(asm (++ "mov rdx, " #msg))
+(asm "syscall")
+(asm "xor rbx, rbx")
+(asm "mov rcx, 10")
+(label ".loop")
+(asm "add rbx, rcx")
+(asm "sub rcx, 1")
+(asm "jne .loop")
+(asm "call .fsum")
+(asm "add rbx, rax")
+(asm "mov rdi, rbx")
+(asm "mov rax, 60")
+(asm "syscall")
+(label ".fsum")            ; returns int(3.5 + 3.5) in rax
+(mov_imm64 0 0x400C0000 0)  ; 3.5 as an IEEE double
+(asm "movq xmm0, rax")
+(asm "addsd xmm0, xmm0")
+(asm "cvttsd2si rax, xmm0")
+(asm "ret")
+(link)
+(wrx (args)[0] (elf_bytes A.code (bytes msg) 0 A.labels["_start"]))
