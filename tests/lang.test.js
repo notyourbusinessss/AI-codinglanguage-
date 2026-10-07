@@ -81,6 +81,16 @@ const CASES = [
   ['(+ 10000000000000000000n 1n)', '10000000000000000001n'], ['(** 2n 70n)', '1180591620717411303424n'],
   ['(f64 3)', '[0 0 0]'], ['a=(i32 [1 2 3]) (<@! a 0 9) (@! a 0)', '9'], ['a=(u8 4) a[1]=300 a[1]', '44'],
   ['(@ [1 2 3] 1)', '2'], ['(+> [1] 2 3)', '[1 2 3]'], ['xs=[1] (push xs 2 3) xs', '[1 2 3]'], ['xs=[1 2] (pop xs)', '2'], ['(fst [5 6])+(lst [5 6])', '11'], ['(take 2 [1 2 3])', '[1 2]'], ['(drop 2 [1 2 3])', '[3]'],
+  // --- strictness: no silent coercion; numeric inference must stay sound
+  ['(try nil+1 e=>e)', '"cannot add nil and num"'], ['(try nil-1 e=>e)', '"expected number, got nil"'], ['(try "5"*2 e=>e)', '"expected number, got str"'], ['(try nil<1 e=>e)', '"cannot compare nil and num"'],
+  ['(try (sum ["a"]) e=>e)', '"expected number, got str"'], ['(try (abs nil) e=>e)', '"expected number, got nil"'], ['(try "x"%5 e=>e)', '"expected number, got str"'], ['(try -"x" e=>e)', '"expected number, got str"'],
+  ['(try #5 e=>e)', '"len of num"'], ['(try [1]<[2] e=>e)', 'true'], ['"a"<"b"', 'true'], ['(try 1<"b" e=>e)', '"cannot compare num and str"'],
+  ['s=0 f=()=>(<- s nil) f() (try s-1 e=>e)', '"expected number, got nil"'],                       // numeric var reassigned via closure: not statically numeric
+  ['(= (g) t=(try y-1 e=>e) y=5 t) g()', '"expected number, got nil"'],                           // read before assignment
+  ['r=[] (for i 2 (r.push((try prev-1 e=>"E"))) prev=i) r', '["E" -1]'],                           // loop-carried
+  ['x=1 x="s" (try x-1 e=>e)', '"expected number, got str"'],
+  ['(= (f n) s=0 (for i n s+=i) s) f(5)', '10'], ['(= (f) s=0 (for i 4 s+=i*2) s) f()', '12'], ['s=0 (for i 1..4 s+=i) s*2', '12'],
+  ['n=3 s=0 (for i n s+=i) s', '3'], ['s=1 (wh s<100 s*=2) s', '128'], ['a=2 b=3 a=a*b b=a+1 [a b]', '[6 7]'],
   // --- compile errors (must be caught at compile time with a useful message)
   ['(p undefinedthing)', 'ERR undefined: undefinedthing'], ['(= f 1) (<- g 2)', 'ERR undefined variable g'],
   ['x=1 f=()=>(x+=1) f()', 'ERR belongs to an enclosing'], ['x=1 f=()=>(: x=x+1 x) f()', 'ERR local to this function'],

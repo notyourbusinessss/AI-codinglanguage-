@@ -1,2 +1,2 @@
 { "name": "ak-lang", "version": "0.3.0", "description": "Ak: token-cheap, fast LLM-oriented language compiled to JS", "bin": { "ak": "ak.js" },
-  "scripts": { "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/examples.test.js && node tests/corpus.js" }, "license": "MIT" }
+  "scripts": { "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/examples.test.js && node tests/corpus.js && node tests/fuzz.js 3000 1", "fuzz": "node tests/fuzz.js 20000 7 -v" }, "license": "MIT" }

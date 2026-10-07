@@ -100,6 +100,7 @@ function put(c, k, v) {
 
 function len(c) {
   if (c == null) return 0;
+  if (typeof c === 'number' || typeof c === 'boolean' || typeof c === 'function') throw new AkError('len of ' + tyOf(c));
   if (c.length !== undefined) return c.length;
   if (c instanceof Map || c instanceof Set) return c.size;
   return Object.keys(c).length;
@@ -132,16 +133,22 @@ function slowAdd(a, b) {
   throw new AkError('cannot add ' + tyOf(a) + ' and ' + tyOf(b));
 }
 
+// strict arithmetic: operands must be numbers (or bigints); nil/strings/lists never silently coerce
+function bad(x) { throw new AkError('expected number, got ' + tyOf(x)); }
+const n = x => (typeof x === 'number' || typeof x === 'bigint') ? x : bad(x);
 function div(a, b) {
+  n(a); n(b);
   if (b == 0) throw new AkError('division by zero');
-  return typeof a === 'bigint' && typeof b === 'bigint' ? a / b : a / b;
+  return a / b;
 }
 function mod(a, b) {
+  n(a); n(b);
   if (b == 0) throw new AkError('division by zero');
   const r = a % b;
   return (r != 0 && (r < 0) !== (b < 0)) ? r + b : r;
 }
 function fdiv(a, b) {
+  n(a); n(b);
   if (b == 0) throw new AkError('division by zero');
   if (typeof a === 'bigint') { const q = a / b; return (a % b != 0n && ((a < 0n) !== (b < 0n))) ? q - 1n : q; }
   return Math.floor(a / b);
@@ -159,6 +166,18 @@ function cmp(a, b) {
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
+function slowCmp(a, b, op) {
+  const ta = typeof a, tb = typeof b;
+  if ((ta === 'string' && tb === 'string') || ((ta === 'number' || ta === 'bigint') && (tb === 'number' || tb === 'bigint'))) {
+    switch (op) { case '<': return a < b; case '>': return a > b; case '<=': return a <= b; default: return a >= b; }
+  }
+  if (Array.isArray(a) && Array.isArray(b)) { const c = cmp(a, b); switch (op) { case '<': return c < 0; case '>': return c > 0; case '<=': return c <= 0; default: return c >= 0; } }
+  throw new AkError('cannot compare ' + tyOf(a) + ' and ' + tyOf(b));
+}
+const lt = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a < b : slowCmp(a, b, '<');
+const gt = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a > b : slowCmp(a, b, '>');
+const le = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a <= b : slowCmp(a, b, '<=');
+const ge = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a >= b : slowCmp(a, b, '>=');
 function chain(op) {
   return (...a) => { for (let i = 0; i < a.length - 1; i++) if (!op(a[i], a[i + 1])) return false; return true; };
 }
@@ -254,7 +273,7 @@ function minmax(sign) {
   return (...a) => {
     const l = a.length === 1 && a[0] != null && typeof a[0] === 'object' ? a[0] : a;
     let r; let first = true;
-    for (const x of l) { if (first || (sign < 0 ? x < r : x > r)) r = x; first = false; }
+    for (const x of l) { n(x); if (first || (sign < 0 ? x < r : x > r)) r = x; first = false; }
     return first ? null : r;
   };
 }
@@ -262,18 +281,18 @@ function minmax(sign) {
 const B = {
   // math (also inlined by the compiler when called directly)
   '+': (...a) => { if (!a.length) return 0; let r = a[0]; for (let i = 1; i < a.length; i++) r = add(r, a[i]); return r; },
-  '-': (...a) => { if (!a.length) return 0; if (a.length === 1) return -a[0]; let r = a[0]; for (let i = 1; i < a.length; i++) r -= a[i]; return r; },
-  '*': (...a) => { let r = 1; for (let i = 0; i < a.length; i++) r *= a[i]; return r; },
+  '-': (...a) => { if (!a.length) return 0; if (a.length === 1) return -n(a[0]); let r = n(a[0]); for (let i = 1; i < a.length; i++) r -= n(a[i]); return r; },
+  '*': (...a) => { let r = 1; for (let i = 0; i < a.length; i++) r *= n(a[i]); return r; },
   '/': (...a) => { if (a.length === 1) return div(1, a[0]); let r = a[0]; for (let i = 1; i < a.length; i++) r = div(r, a[i]); return r; },
-  '%': mod, '//': fdiv, '**': (a, b) => a ** b,
-  '<': chain((a, b) => a < b), '>': chain((a, b) => a > b), '<=': chain((a, b) => a <= b), '>=': chain((a, b) => a >= b),
+  '%': mod, '//': fdiv, '**': (a, b) => n(a) ** n(b),
+  '<': chain(lt), '>': chain(gt), '<=': chain(le), '>=': chain(ge),
   '==': eq, '!=': (a, b) => !eq(a, b), '!': a => !tr(a),
-  '&': (...a) => a.reduce((x, y) => x & y), '|': (...a) => a.reduce((x, y) => x | y), '^': (...a) => a.reduce((x, y) => x ^ y),
-  '<<': (a, b) => a << b, '>>': (a, b) => a >> b, '>>>': (a, b) => a >>> b, bnot: a => ~a,
-  abs: Math.abs, sqrt: Math.sqrt, flr: Math.floor, cel: Math.ceil, rnd: Math.round,
-  int: x => typeof x === 'bigint' ? x : Math.trunc(Number(x)),
+  '&': (...a) => a.reduce((x, y) => n(x) & n(y)), '|': (...a) => a.reduce((x, y) => n(x) | n(y)), '^': (...a) => a.reduce((x, y) => n(x) ^ n(y)),
+  '<<': (a, b) => n(a) << n(b), '>>': (a, b) => n(a) >> n(b), '>>>': (a, b) => n(a) >>> n(b), bnot: a => ~n(a),
+  abs: x => Math.abs(n(x)), sqrt: x => Math.sqrt(n(x)), flr: x => Math.floor(n(x)), cel: x => Math.ceil(n(x)), rnd: x => Math.round(n(x)),
+  int: x => typeof x === 'bigint' ? x : Math.trunc(n(x)),
   min: minmax(-1), max: minmax(1),
-  sum: l => { let s = 0; for (const x of it(l)) s += x; return s; },
+  sum: l => { let s = 0; for (const x of it(l)) s += n(x); return s; },
   rand: (n) => n === undefined ? Math.random() : Math.floor(Math.random() * n),
   // data
   list: (...a) => a,
@@ -382,7 +401,11 @@ const B = {
   },
 };
 
-const H = { tr, eq, fn, at, put, len, it, toArr, dot, setdot, add, div, mod, fdiv, msg,
+const H = { tr, eq, fn, at, put, len, it, toArr, dot, setdot, add, n, lt, gt, le, ge, div, mod, fdiv, msg,
+  // two-operand strict helpers: both operands are evaluated first, then type-checked (used when a later operand may have effects)
+  sub: (a, b) => n(a) - n(b), mul: (a, b) => n(a) * n(b), pow: (a, b) => n(a) ** n(b),
+  band: (a, b) => n(a) & n(b), bor: (a, b) => n(a) | n(b), bxor: (a, b) => n(a) ^ n(b),
+  shl: (a, b) => n(a) << n(b), shr: (a, b) => n(a) >> n(b), ushr: (a, b) => n(a) >>> n(b),
   mcall: (o, m, a) => o[m](...a) };
 const api = { B, H };
 
