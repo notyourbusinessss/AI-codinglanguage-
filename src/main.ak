@@ -4,6 +4,7 @@
 (use "parse.ak")
 (use "lower.ak")
 (use "gen.ak")
+(use "fmt.ak")
 PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/num.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak") "\n" (embed "../rt/regex.ak") "\n" (embed "../rt/big.ak") "\n" (embed "../rt/json.ak") "\n" (embed "../rt/typed.ak") "\n" (embed "../rt/gc.ak") "\n" (embed "../rt/prof.ak"))
 VERSION="0.5.0"
 
@@ -43,6 +44,7 @@ ROOTS=["at" "dot" "put" "setdot" "dotc" "setdotc" "slice" "apply" "concat" "isnu
        "-e" (? #a<2 (usage) (runx (compile_src a[1] "<-e>") a[2..]))
        ["build" "exe"] (? #a!=3 (usage) (wrx a[2] (compile_src (rd a[1]) a[1])))
        "check" (? #a!=2 (usage) (: (front (rd a[1]) a[1]) (p "ok")))
+       "fmt" (? #a!=2 (usage) (pr (fmtforms (parse (rd a[1]) a[1]))))
        "run" (? #a<2 (usage) (runx (compile_src (rd a[1]) a[1]) a[2..]))
        "compile" (? #a!=3 (usage) (wrx a[2] (compile_src (rd a[1]) a[1])))
        (runx (compile_src (rd a[0]) a[0]) a[1..]))))
