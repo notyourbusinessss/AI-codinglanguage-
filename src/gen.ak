@@ -13,7 +13,7 @@ GBASE=0x10000080
 T_STR=1 T_LIST=2 T_ARR=3 T_MAP=4 T_CLOSURE=5 T_BOX=6 T_SYM=7 T_BYTES=8
 HEAP_SIZE=17179869184
 GC_FIRST=67108864
-G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
+G={:postab [] :curpos nil :fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
 
 TRACE_ADDR=268435480
 TRACE_BASE=268435488
@@ -69,6 +69,7 @@ TRACE_BASE=268435488
 (= (alloc_reg r)        (a "mov rax, r13") (af "add r13, %s" r) (a "cmp r13, [268435464]") (a "ja .oom"))
 
 ; ---- expression codegen: result in rax
+(= (recpos) (? G.curpos (push G.postab [(here) G.curpos])))
 (= (gen x) (sw x[0]
   "nil" (a "mov rax, r11")
   "true" (a "lea rax, [r11+2]")
@@ -85,10 +86,10 @@ TRACE_BASE=268435488
   "nilor" (gen_nilor x)
   "not" (: (gen x[1]) (a "call .truthy") (a "lea rax, [r11+2]") (a "lea rcx, [r11+1]") (a "test rdx, rdx") (a "cmovnz rax, rcx"))
   "while" (gen_while x)
-  "call" (gen_call x false)
-  "tcall" (gen_call x true)
+  "call" (: old=G.curpos G.curpos=x[3] (gen_call x false) G.curpos=old)
+  "tcall" (: old=G.curpos G.curpos=x[3] (gen_call x true) G.curpos=old)
   "fn" (gen_closure x[1])
-  "prim" (gen_prim x[1] x[2])
+  "prim" (: old=G.curpos G.curpos=x[3] (gen_prim x[1] x[2]) G.curpos=old)
   "try" (gen_try x)
   (err (++ "internal: unknown IR node " x[0]))))
 
@@ -172,7 +173,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
      (: (for i n+1 (af "mov rax, [r15-%d]" 8*(n+1-i)) (af "mov [r14+%d], rax" 8*i))
         (af "lea r15, [r14+%d]" 8*(n+1))
         (a "pop r14") (? G.trace (trace_pop)) (af "mov rcx, %d" n) (a (? d (++ "jmp .f" d.id) "jmp .callclosure")))
-     (: (af "mov rcx, %d" n) (a (? d (++ "call .f" d.id) "call .callclosure")))))
+     (: (af "mov rcx, %d" n) (a (? d (++ "call .f" d.id) "call .callclosure")) (recpos))))
 
 ; ---- closures
 (= (gen_closure f) k=#f.free
@@ -202,7 +203,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (label lend))
 
 ; ---- primitives
-(= (slow2 name) (a (++ "call .slow_" name)))          ; operands [a, b] on the value stack -> prelude function name -> rax
+(= (slow2 name) (a (++ "call .slow_" name)) (recpos))          ; operands [a, b] on the value stack -> prelude function name -> rax
 (= (binop_slow x y name)       ; both operands on the value stack, no fast path
   (gen x) (push_rax) (gen y) (push_rax) (slow2 name))
 
@@ -224,7 +225,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
 (= (gen_neg e) slow=(nl) done=(nl)
   (gen e) (a "cmp rax, r11") (a (++ "jae " slow))
   (mov_imm64 1 0x80000000 0) (a "xor rax, rcx") (a (++ "jmp " done))
-  (label slow) (push_rax) (a "call .slow1_neg1") (label done))
+  (label slow) (push_rax) (a "call .slow1_neg1") (recpos) (label done))
 
 (= (eqconst args) ; for == / != with a nil/true/false/string constant on either side: [other const]
   (? (has ["str" "nil" "true" "false"] args[1][0]) [args[0] args[1]]
@@ -282,11 +283,11 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
     ["+" "-" "*" "/"] (gen_arith op args)
     ["<" ">" "<=" ">=" "==" "!="] (gen_cmpvalue op args[0] args[1])
     "!" (gen [ "not" args[0] ])
-    "num" (: (gen args[0]) (a "cmp rax, r11") (a "jae .err_num"))
+    "num" (: (gen args[0]) (a "cmp rax, r11") (: ok=(nl) (a (++ "jb " ok)) (a "call .err_num") (recpos) (label ok)))
     "isundef" (: (gen args[0]) (a "lea rcx, [r11+3]") (a "cmp rax, rcx") (a "lea rax, [r11+1]") (a "lea rcx, [r11+2]") (a "cmove rax, rcx"))
     ["%" "//" "**" "&" "|" "^" "<<" ">>" ">>>"]
       (binop_slow args[0] args[1] ({"%" "mod2" "//" "fdiv2" "**" "pow2" "&" "band2" "|" "bor2" "^" "bxor2" "<<" "shl2" ">>" "shr2" ">>>" "ushr2"}[op]))
-    "bnot" (: (gen args[0]) (push_rax) (a "call .slow1_bnot1"))
+    "bnot" (: (gen args[0]) (push_rax) (a "call .slow1_bnot1") (recpos))
     (gen_intrinsic op args)))
 
 ; ---- number <-> int helpers (rax holds a NaN-boxed double)
@@ -352,6 +353,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
     "$rawcopy" (: (for e args (gen e) (push_rax)) (popr "rcx") (num2int "rcx" "rcx") (popr "rsi") (num2int "rsi" "rsi") (popr "rdi") (num2int "rdi" "rdi") (a "rep movsb") (a "mov rax, r11"))
     "$envp" (: (a "mov rcx, [268435472]") (a "mov rax, [rcx]") (a "lea rax, [rcx+rax*8+16]") (int2num "rax"))
     "$gbase" (numconst 0 GBASE)
+    "$sp" (: (a "mov rax, rsp") (int2num "rax"))
     "$ld16" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (untag "rcx") (num2int "rax" "rdx") (a "movzx rax, word ptr [rcx+rdx+8]") (int2num "rax"))
     "$st16" (: (gen args[0]) (push_rax) (gen args[1]) (push_rax) (gen args[2]) (a "mov rdi, rax") (num2int "rax" "rsi")
                (popr "rdx") (popr "rcx") (untag "rcx") (num2int "rdx" "rdx") (a "mov byte ptr [rcx+rdx+8], sil") (a "shr rsi, 8") (a "mov byte ptr [rcx+rdx+9], sil") (a "mov rax, rdi"))
@@ -543,13 +545,14 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (a "mov rcx, r13") (af "mov rdx, %d" GC_FIRST) (a "add rcx, rdx") (a "mov [268435496], rcx")
   (? G.trace (: (mmap_to 1073741824 "rax") (a "mov [268435480], rax") (a "mov [268435488], rax")))
   (mmap_to 1073741824 "r15") (a "mov [268435512], r15")
-  (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx")
+  (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx") (a "mov [268435576], rsp")
   (reload_consts)
   (a "mov r14, r15")
   (a "mov [r15], r11") (a "add r15, 8") (a "mov rcx, 0") (a (++ "call .f" main.id))
   (af "mov rsi, [%d]" (gaddr (prelude_gid "finish"))) (a "mov [r15], rsi") (a "add r15, 8") (a "mov rcx, 0") (a "call .callclosure")
   (a "mov rdi, 0") (a "mov rax, 231") (a "syscall"))
 
+(= (patch64 arr pos v) (for i 8 arr[pos+i]=v%256 v=v//256))
 (= (patch32 arr pos v) (for i 4 arr[pos+i]=(v>>(8*i))&255))
 (= (gen_program main)
   (asm_reset)
@@ -563,6 +566,9 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (for f L.funcs (gen_fn f))
   (? (env "AK_TIME") (ep "codegen done" (clock)))
   (link)
+  (dalign) postab=0x10000000+(dpos)
+  (for [off pos] G.postab (dword off (pos//1048576)%1048576) (dword pos%1048576 pos//1099511627776))
+  (patch64 G.data 88 postab) (patch64 G.data 96 #G.postab) (patch64 G.data 104 (strobj (join L.files "\n"))) (patch64 G.data 112 CODE_BASE+(here))
   (? (env "AK_TIME") (ep "linked" (clock)))
   (for [off lbl] G.dfix
     t=A.labels[lbl]

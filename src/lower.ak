@@ -5,10 +5,10 @@
 ;   ["if" c a b] ["seq" e..] ["and" a b] ["or" a b] ["nilor" a b] ["not" e] ["while" c body]
 ;   ["call" f args] ["tcall" f args] ["fn" F] ["prim" op args] ["try" body V handler] ["throw" e]
 ; Records are maps compared by :id only (never ==, which would recurse through the cycles).
-L={:cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
+L={:files [] :cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot"]
-INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32"]
+INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32"]
 PREDS={"islist" "$islist" "isstr" "$isstr" "ismap" "$ismap" "issym" "$issym" "isfn" "$isfn" "isnum" "$isnum"}
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (S n) (sym n))
@@ -24,6 +24,9 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   (? (is "list" x) (: p=POS[x] (? p (: L.line=p[0] L.col=p[1])))
      (is "sym" x) (? (symline x)>0 (: L.line=(symline x) L.col=(symcol x)))))
 (= (lerr msg node=nil) (? node (note node)) (err (++ L.file ":" L.line ":" L.col ": " msg)))
+
+(= (fileidx f) i=(idx L.files f) (? i>=0 i (: (push L.files f) #L.files-1)))
+(= (curpos) (+ (* (+ (* (fileidx L.file) 1048576) L.line) 1048576) L.col))
 
 ; ---- records
 (= (newfn name parent)
@@ -87,8 +90,10 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   (? (issym x) (lower_ref x)
      (! (is "list" x)) (const x)
      #x==0 ["nil"]
-     (: (note x) h=x[0]
-        (? (issym h) (lower_form ($ h) x tail) (lower_call x tail)))))
+     (: (note x) pos=(curpos) h=x[0]
+        r=(? (issym h) (lower_form ($ h) x tail) (lower_call x tail))
+        (? (&& (is "list" r) #r==3 (has ["call" "tcall" "prim"] r[0])) (push r pos))
+        r)))
 (= (lowerseq forms tail)
   (? #forms==0 ["nil"]
      #forms==1 (lower forms[0] tail)
@@ -101,6 +106,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "%spread" (lerr "..x spread is only allowed in call arguments and list literals" x)
     "%cmp" (lower (cmp_chain x) tail)
     "%bigint" (lower_rt "bigfrom" [x[1]])
+    "%file" (: saved=L.file L.file=x[1] r=(lowerseq x[2..] tail) L.file=saved r)
     "?" (lower_if x[1..] tail)
     ":" (lowerseq x[1..] tail)
     "=" (lower_assign x)
@@ -398,7 +404,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
           (? seen[f] ["nil"]
              (: seen[f]=true
                 forms=(parse (rd f) f)
-                r=[(S ":") ..(~ y=>(expand y (dirname f) seen) forms)]
+                r=[(S "%file") f ..(~ y=>(expand y (dirname f) seen) forms)]
                 (? POS[x] POS[r]=POS[x]) r)))
      (: r=(~ y=>(expand y dir seen) x) (? POS[x] POS[r]=POS[x]) r)))
 

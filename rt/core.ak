@@ -32,7 +32,30 @@ OBN=0
 (= (finish) (flush) (? PROFH (profdump)) (? (env "AK_GCSTATS") (eout (strcat2 (strcat2 "gc: " (fmtint GCCOUNT)) " collections\n"))))
 (= (exit code) (flush) (? PROFH (profdump)) ($syscall 231 (? ($isnil code) 0 code)))
 INFATAL=false
-(= (fatal msg) (? INFATAL ($syscall 231 1)) (<- INFATAL true) (flush) (eout "error: ") (eout (? (isstr msg) msg "runtime error")) (eout "\n") (tracedump) ($syscall 231 1))
+(= (hdrw addr) w=($peekw addr) (+ (* ($bitshi w) 4294967296) ($bitslo w)))
+(= (srcpos)         ; "file:line:col" of the innermost user call site on the machine stack, or nil
+  n=(hdrw 268435552)
+  (? n==0 nil
+     (: tab=(hdrw 268435544) cend=(hdrw 268435568) top=(hdrw 268435576) a=($sp) found=nil
+        (wh (&& ($isnil found) a<top)
+          w=($peekw a)
+          (? (&& (== ($bitshi w) 0) (>= ($bitslo w) 4198400) (< ($bitslo w) cend))
+             (: e=(posfind tab n ($bitslo w)-4198400) (? (&& e (> (lget e 3) 0)) found=e)))
+          a+=8)
+        (? found
+           (: files=(split ($peekstr (+ (hdrw 268435560) 8)) "\n")
+              (strcat2 (strcat2 (strcat2 (strcat2 (lget files (lget found 3)) ":") (fmtint (lget found 1))) ":") (fmtint (lget found 2))))))))
+(= ($peekstr p) n=0 (wh (> ($peek p+n) 0) n+=1) r=(strnew n) (for i n ($stb r i ($peek p+i))) r)
+(= (posfind tab n off)   ; binary search in the call-site table: [offset line col fid] or nil
+  lo=0 hi=n-1 r=nil
+  (wh (&& ($isnil r) lo<=hi)
+    m=($ffloor ($fdiv (+ lo hi) 2)) w=($peekw tab+16*m) o=($bitslo w)
+    (? o==off (: w2=($peekw tab+16*m+8) r=(list o ($bitshi w) ($bitslo w2) ($bitshi w2)))
+       o<off lo=m+1
+       hi=m-1))
+  r)
+(= (fatal msg) (? INFATAL ($syscall 231 1)) (<- INFATAL true) (flush) (eout "error: ") (eout (? (isstr msg) msg "runtime error"))
+  p=(srcpos) (? p (eout (strcat2 (strcat2 " (" p) ")"))) (eout "\n") (tracedump) ($syscall 231 1))
 (= (tracedump)
   base=($tracebase) top=($tracetop)
   (? top>base
