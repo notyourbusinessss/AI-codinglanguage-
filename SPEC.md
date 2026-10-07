@@ -20,7 +20,7 @@ Lambda: `x=>x*2` `(a b)=>a+b` `[a b]=>a` `()=>1`; several statements: `(\ (x) s1
 ## Builtins
 math `+ - * / % // ** < > <= >= == != !` `& | ^ << >> >>> bnot` `abs sqrt flr cel rnd int min max sum rand sin cos tan asin acos atan atan2 exp log log2 log10 pow cbrt hypot sinh cosh tanh sign` (min/max/sum take args or a list)
 list `# @ push pop enum set del +> .. ~ ~? ~~ ~/ sort rev zip uniq flat grp idx has any all keys vals prs sub take drop fst lst ap` — `(~ f xs)` map · `(~? f xs)` filter · `(~~ f xs)` flatmap · `(~/ f init xs)` reduce · `(sort xs)` `(sort keyfn xs)` (maps sort as `[k v]` entries) · `(+> l x)` pure append · `(set c k v)` pure update · `(has c x)` in
-typed arrays `f64 f32 i32 u32 i16 u16 i8 u8` (`(u8 n)`) · fast unchecked access `(@! a i)` `(<@! a i v)`
+typed arrays `f64 f32 i32 u32 i16 u16 i8 u8 bcat` (`(u8 n)`, `(bcat a b ..)` joins byte lists/arrays into one `u8`) · fast unchecked access `(@! a i)` `(<@! a i v)`
 text `++ $ show split join trim up lo rep starts ends rpt padl padr chr ord num re match fmt` — `(fmt "%-8s%4d%6.2f%03b" ..)` · `(rep s from to)`(regex ok) · `(rpt x n)` string/list repeat
 io `p pr ep in inall rd wr wrx app ls ex rm mkdir mv isdir runx args env exit sh now clock sleep delay err` (`wr`/`app`/`wrx` take a string or a list of byte values; `wrx` makes the file executable) · `sym mksym symline symcol bytes f64bits` · `(p a b)` prints space-joined · `json unjson` · `ty is` · `ev` · `imp`
 ## CLI

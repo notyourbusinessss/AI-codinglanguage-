@@ -41,3 +41,12 @@
 (= (typed_list x) n=(tlen x) r=(mklist n) (for i n (lpush r (tget x i))) r)
 (= (@! c i) (at c i))
 (= (<@! c i v) (put c i v))
+(= (blen p) (? (istyped p) ($hlen p) (islist p) #p ($throw "bcat: expected a list or u8 array")))
+(= (bcat ..parts)
+  total=0 (for p parts total+=(blen p))
+  r=(u8 total) off=0
+  (for p parts
+    (? (istyped p) ($copy r off p 0 ($hlen p))
+       (for i #p ($stb r off+i (lget p i))))
+    off+=(blen p))
+  r)

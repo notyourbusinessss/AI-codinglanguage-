@@ -3,6 +3,7 @@
 A={:code [] :labels {} :fix []}
 CODE_BASE=0x401000
 DATA_BASE=0x10000000
+GLOB_BASE=0x30000000
 (= (asm_reset) A.code=[] A.labels={} A.fix=[])
 (= (here) #A.code)
 (= (emit b) (push A.code b&255))
@@ -135,19 +136,17 @@ NOARG={"ret" [0xC3] "syscall" [0x0F 0x05] "cqo" [0x48 0x99] "nop" [0x90] "int3" 
 
 ; ---- ELF64 static executable: code segment (R+X) and data segment (R+W, plus bss)
 (= (le v n) r=[] (for _ n (push r v%256) v=v//256) r)
-(= (elf_bytes code data bss entry)
+(= (elf_bytes code data gsize entry)     ; code, data: lists of bytes or u8 arrays; gsize: bytes of zero-initialised globals at GLOB_BASE
   codeoff=0x1000
   dataoff=((codeoff+#code+0xFFF)//0x1000)*0x1000
+  nph=(? gsize>0 3 2)
   hdr=[0x7F 0x45 0x4C 0x46 2 1 1 0 0 0 0 0 0 0 0 0
-       ..(le 2 2) ..(le 0x3E 2) ..(le 1 4) ..(le CODE_BASE+entry 8) ..(le 64 8) ..(le 0 8) ..(le 0 4) ..(le 64 2) ..(le 56 2) ..(le 2 2) ..(le 64 2) ..(le 0 2) ..(le 0 2)]
+       ..(le 2 2) ..(le 0x3E 2) ..(le 1 4) ..(le CODE_BASE+entry 8) ..(le 64 8) ..(le 0 8) ..(le 0 4) ..(le 64 2) ..(le 56 2) ..(le nph 2) ..(le 64 2) ..(le 0 2) ..(le 0 2)]
   ph1=[..(le 1 4) ..(le 5 4) ..(le codeoff 8) ..(le CODE_BASE 8) ..(le CODE_BASE 8) ..(le #code 8) ..(le #code 8) ..(le 0x1000 8)]
-  ph2=[..(le 1 4) ..(le 6 4) ..(le dataoff 8) ..(le DATA_BASE 8) ..(le DATA_BASE 8) ..(le #data 8) ..(le #data+bss 8) ..(le 0x1000 8)]
-  out=[..hdr ..ph1 ..ph2]
-  (wh #out<codeoff (push out 0))
-  (for b code (push out b))
-  (wh #out<dataoff (push out 0))
-  (for b data (push out b))
-  out)
+  ph2=[..(le 1 4) ..(le 6 4) ..(le dataoff 8) ..(le DATA_BASE 8) ..(le DATA_BASE 8) ..(le #data 8) ..(le #data 8) ..(le 0x1000 8)]
+  ph3=(? gsize>0 [..(le 1 4) ..(le 6 4) ..(le 0 8) ..(le GLOB_BASE 8) ..(le GLOB_BASE 8) ..(le 0 8) ..(le gsize 8) ..(le 0x1000 8)] [])
+  head=[..hdr ..ph1 ..ph2 ..ph3]
+  (bcat head (u8 codeoff-#head) code (u8 dataoff-codeoff-#code) data))
 
 ; ---- text front end (Intel syntax), for tests and debugging
 (= (regno name) (idx REG64 name))

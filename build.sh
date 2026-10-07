@@ -9,7 +9,9 @@ mkdir -p bin
 if [ "$1" = "--boot" ] || [ ! -x bin/ak ]; then
   node boot/ak.js src/main.ak build src/main.ak bin/ak.next
 else
-  bin/ak build src/main.ak bin/ak.next
+  bin/ak build src/main.ak bin/ak.next 2>/dev/null || {
+    echo "the seed cannot build the current sources (they use a newer runtime); bootstrapping with Node" >&2
+    node boot/ak.js src/main.ak build src/main.ak bin/ak.next; }
 fi
 for i in 1 2 3 4 5; do
   bin/ak.next build src/main.ak bin/ak.new

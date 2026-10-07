@@ -16,7 +16,7 @@
 (= (wrfile f s flags mode)
   fd=($syscall 2 ($addr (cstr f)) flags mode)
   (? fd<0 ($throw (strcat2 "cannot write " f)))
-  d=(? (islist s) (frombytes s) (tostr s))
+  d=(? (islist s) (frombytes s) (istyped s) s (tostr s))
   (rawwrite fd d ($hlen d)) ($syscall 3 fd) s)
 (= (wr f s) (wrfile f s 577 420))
 (= (app f s) (wrfile f s 1089 420))

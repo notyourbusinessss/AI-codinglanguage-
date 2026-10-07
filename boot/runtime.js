@@ -441,6 +441,7 @@ const B = {
   mkdir: d => { fs.mkdirSync(d, { recursive: true }); return null; },
   mv: (a, b) => { fs.renameSync(a, b); return null; },
   isdir: p => { try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } },
+  bcat: (...parts) => { let n = 0; for (const p of parts) n += p.length; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; },
   ls: d => fs.readdirSync(d === undefined ? '.' : d), ex: f => fs.existsSync(f),
   in: inLine, inall: inAll, args: () => ARGV.slice(),
   env: k => k === undefined ? new Map(Object.entries(process.env)) : (process.env[k] ?? null),
