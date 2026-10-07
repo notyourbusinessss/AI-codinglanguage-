@@ -20,7 +20,7 @@ SSE_RR={"addsd" [0xF2 0x58] "mulsd" [0xF2 0x59] "subsd" [0xF2 0x5C] "minsd" [0xF
         "ucomisd" [0x66 0x2E] "xorpd" [0x66 0x57] "andpd" [0x66 0x54] "andnpd" [0x66 0x55] "orpd" [0x66 0x56]}
 SCALE={1 0 2 1 4 2 8 3}
 NOARG={"ret" [0xC3] "syscall" [0x0F 0x05] "cqo" [0x48 0x99] "nop" [0x90] "int3" [0xCC] "ud2" [0x0F 0x0B] "leave" [0xC9] "cld" [0xFC] "hlt" [0xF4]
-       "rep_movsb" [0xF3 0xA4] "rep_stosb" [0xF3 0xAA] "rep_movsq" [0xF3 0x48 0xA5] "rep_stosq" [0xF3 0x48 0xAB]}
+       "rep_movsb" [0xF3 0xA4] "rep_stosb" [0xF3 0xAA] "rep_movsq" [0xF3 0x48 0xA5] "rep_stosq" [0xF3 0x48 0xAB] "rep_cmpsb" [0xF3 0xA6]}
 
 ; ---- operands: ["r" n] 64-bit reg, ["r8" n] byte reg, ["x" n] xmm, ["i" v] imm, ["m" base idx scale disp size] mem, ["l" name] label
 (= (R n) ["r" n])
@@ -171,14 +171,30 @@ NOARG={"ret" [0xC3] "syscall" [0x0F 0x05] "cqo" [0x48 0x99] "nop" [0x90] "int3" 
      (&& (starts s "xmm") (num s[3..])!=nil) (X (num s[3..]))
      (starts s ".") (LB s)
      (I (parse_num s))))
-(= (asm line)
+ASMC={}
+ASMP={}
+(= (asm_parse line)
   line=(trim line)
-  (? (starts line "rep ") (ins (++ "rep_" (trim line[4..])))
+  (? (starts line "rep ") ["rep" (++ "rep_" (trim line[4..]))]
+     (starts line "repe ") ["rep" (++ "rep_" (trim line[5..]))]
      (: sp=(idx line " ")
         mn=(? sp<0 line line[..sp])
         rest=(? sp<0 "" (trim line[sp..]))
         (? mn=="movabs" (: [rn vt]=(~ trim (split rest ","))
-                           (? (starts vt "0x") (: h=(padl vt[2..] 16 "0") (mov_imm64 (regno rn) (parse_num (++ "0x" h[..8])) (parse_num (++ "0x" h[8..]))))
-                              (: v=(num vt) (mov_imm64 (regno rn) ((v//4294967296)&0xFFFFFFFF) (v%4294967296)))))
+                           (? (starts vt "0x") (: h=(padl vt[2..] 16 "0") ["mov_imm64" (regno rn) (parse_num (++ "0x" h[..8])) (parse_num (++ "0x" h[8..]))])
+                              (: v=(num vt) ["mov_imm64" (regno rn) ((v//4294967296)&0xFFFFFFFF) (v%4294967296)])))
            (: ops=(? rest=="" [] (~ parse_op (split rest ",")))
-              (ins mn ops[0] ops[1] ops[2]))))))
+              ["ins" mn ops[0] ops[1] ops[2]])))))
+(= (asm_exec p)
+  (sw p[0]
+    "rep" (ins p[1])
+    "mov_imm64" (mov_imm64 p[1] p[2] p[3])
+    (ins p[1] p[2] p[3] p[4])))
+(= (asm line)             ; text -> machine code; parse results and label-free encodings are memoized
+  b=ASMC[line]
+  (? b (emit_all b)
+     (: p=ASMP[line]
+        (? p==nil (: p=(asm_parse line) ASMP[line]=p))
+        n0=(here) f0=#A.fix
+        (asm_exec p)
+        (? (== #A.fix f0) ASMC[line]=A.code[n0..]))))

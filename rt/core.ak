@@ -86,7 +86,8 @@ INFATAL=false
      ($eqp a b) true
      (: ta=($type a)
         (? (!= ta ($type b)) false
-           (|| ta==1 ta==7) (streq a b)
+           ta==1 ($streq a b)
+           ta==7 (streq a b)
            ta==2 (listeq a b)
            ta==4 (mapeq a b)
            ta==8 (streq a b)

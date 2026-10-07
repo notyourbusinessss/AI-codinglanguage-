@@ -8,7 +8,7 @@
 L={:cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot"]
-INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn"]
+INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$strhash" "$streq"]
 PREDS={"islist" "$islist" "isstr" "$isstr" "ismap" "$ismap" "issym" "$issym" "isfn" "$isfn" "isnum" "$isnum"}
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (S n) (sym n))
@@ -117,8 +117,8 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "q" (lower_quote x[1])
     "@" (lower_at x tail)
     "<@" (lower_rt "put" x[1..])
-    ".@" (lower_rt "dot" [x[1] x[2]])
-    ".=" (lower_rt "setdot" x[1..])
+    ".@" (? (is "str" x[2]) (lower_rt "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
+    ".=" (? (is "str" x[2]) (lower_rt "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
     ["aw" "req" "js" "new" "."] (lerr (++ "(" n " ..) needs the JS target; the native target has no JS interop") x)
     (lower_call x tail)))
 
@@ -130,8 +130,10 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
      (is "list" x) ["call" (rtref "list") (~ lower_quote (? (ispat x) x[1..] x))]
      (const x)))
 
+(= (hash23 s) h=0 (for c (bytes s) h=(h*31+c)&8388607) h)
 (= (lower_at x tail)
-  (? #x==3 (lower_rt "at" x[1..]) #x==4 (lower_rt "slice" x[1..]) (lerr "(@ obj index) or (@ obj lo hi)" x)))
+  (? (&& #x==3 (is "str" x[2])) (lower_rt "dotc" [x[1] x[2] (hash23 x[2])])
+     #x==3 (lower_rt "at" x[1..]) #x==4 (lower_rt "slice" x[1..]) (lerr "(@ obj index) or (@ obj lo hi)" x)))
 
 ; ---- list / map literals (spread -> concatenation of pieces)
 (= (lower_list x) items=x[1..]
@@ -285,10 +287,13 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
                 (lerr (++ "undefined: " ($ t)) x)))
           (lower [(S "<-") t [(S op) t v]] false))
      (|| (isform t "@") (isform t ".@"))
-       (: a=(++ "%o" (newid)) i=(++ "%i" L.uid) (newtemp a) (newtemp i)
+       (: a=(++ "%o" (newid)) i=(++ "%i" L.uid) (newtemp a)
+          constkey=(is "str" t[2])
+          (? !constkey (newtemp i))
           (note x)
-          (seq_ [["init" (lookup a) (lower t[1] false)] ["init" (lookup i) (lower t[2] false)]
-                 (lower (? (isform t "@") [(S "<@") (S a) (S i) [(S op) [t[0] (S a) (S i)] v]] [(S ".=") (S a) (S i) [(S op) [t[0] (S a) (S i)] v]]) false)]))
+          ik=(? constkey t[2] (S i))
+          (seq_ [["init" (lookup a) (lower t[1] false)] (? constkey ["nil"] ["init" (lookup i) (lower t[2] false)])
+                 (lower (? (isform t "@") [(S "<@") (S a) ik [(S op) [t[0] (S a) ik] v]] [(S ".=") (S a) ik [(S op) [t[0] (S a) ik] v]]) false)]))
      (lerr (++ "invalid target for " n) x)))
 (= (seq_ es) ["seq" ..es])
 

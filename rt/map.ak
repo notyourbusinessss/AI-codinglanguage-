@@ -3,12 +3,7 @@
 ;   deleted entries keep their slot with key UNDEF until the next rehash.
 HID=0
 (= (hashid o slot) h=($ldw o slot) (? ($isnil h) (: (<- HID HID+1) h=HID ($stw o slot h))) h)
-(= (hashstr s)       ; 23-bit content hash, cached in the header (bit 8 = valid, bits 9..31 = hash)
-  hd=($ldw s 0) lo=($bitslo hd)
-  (? (!= ($band lo 256) 0) ($ushr lo 9)
-     (: h=0 n=($hlen s) (for i n h=($band h*31+($ldb s i) 8388607))
-        ($stw s 0 ($frombits ($bitshi hd) ($fadd ($fadd ($band lo 255) 256) ($fmul h 512))))
-        h)))
+(= (hashstr s) ($strhash s))
 (= (hashof k)
   (? ($isnum k)
        (? (== k 0) 0
@@ -21,7 +16,7 @@ HID=0
      ($isnum a) (&& ($isnum b) (== a b))
      (! ($isptr a)) ($eqp a b)
      (! ($isptr b)) false
-     (== ($type a) 1) (&& (== ($type b) 1) (streq a b))
+     ($isstr a) ($streq a b)
      ($eqp a b)))
 (= (mapnew cap)
   m=($new 4 5 5) ($stw m 1 0) ($stw m 2 ($new 3 cap*2 cap*2)) ($stw m 3 ($new 3 cap*2 cap*2)) ($stw m 4 0) m)
@@ -78,3 +73,23 @@ HID=0
         ok)))
 (= (map ..a) n=#a/2 cap=4 (wh cap<n cap*=2) m=(mapnew cap) i=0
   (wh i<#a (mapset m (lget a i) (lget a i+1)) i+=2) m)
+
+; field access with a literal key: k is the static key string, h its hash (computed by the compiler)
+(= (dotc o k h)
+  (? ($ismap o)
+     (: idx=($ldw o 3) ent=($ldw o 2) mask=($hlen idx)-1 i=($band h mask) e=($ldw idx i+1) r=nil
+        (wh (! ($isnil e))
+          ek=($ldw ent 2*e+1)
+          (? (|| ($eqp ek k) (&& ($isstr ek) ($streq ek k))) (: r=($ldw ent 2*e+2) e=nil)
+             (: i=($band i+1 mask) e=($ldw idx i+1))))
+        r)
+     (dot o k)))
+(= (setdotc o k h v)
+  (? ($ismap o)
+     (: idx=($ldw o 3) ent=($ldw o 2) mask=($hlen idx)-1 i=($band h mask) e=($ldw idx i+1) found=false
+        (wh (! ($isnil e))
+          ek=($ldw ent 2*e+1)
+          (? (|| ($eqp ek k) (&& ($isstr ek) ($streq ek k))) (: ($stw ent 2*e+2 v) found=true e=nil)
+             (: i=($band i+1 mask) e=($ldw idx i+1))))
+        (? found v (mapset o k v)))
+     (setdot o k v)))
