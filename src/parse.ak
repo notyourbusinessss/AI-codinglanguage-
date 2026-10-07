@@ -173,7 +173,7 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
   out)
 
 (= (parse src file)
-  src=(? (starts src "#!") (rep src (re "^#!.*") "") src)
+  src=(? (starts src "#!") (: j=(idx src "\n") (? j<0 "" src[j..])) src)
   P.s=src P.i=0 P.file=file P.idx=false
   st=[0] (for i #src (? src[i]=="\n" (push st i+1)))
   P.starts=st

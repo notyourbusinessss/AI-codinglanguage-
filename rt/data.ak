@@ -280,3 +280,4 @@ RNGI=nil
         r=(strnew total) off=0 (for i #a s=(lget parts i) ($copy r off s 0 ($hlen s)) off+=($hlen s)) r)))
 (= ($ x) (tostr x))
 (= (err ..a) ($throw (join a " ")))
+(= (f64bits x) (list ($bitshi x) ($bitslo x)))
