@@ -1,0 +1,219 @@
+; Native runtime: regular expressions (JS flavour: classes, groups, alternation, greedy/lazy quantifiers, anchors, \b, backreferences,
+; lookahead/lookbehind, flags i g m s). Backtracking matcher over UTF-8 bytes; `.` and classes consume whole characters.
+;   regex object: a map {"%re" true "src" pattern "flags" flags "prog" node "ngroups" n "names" map}
+;   nodes: [char c] [any] [set neg items] [seq nodes] [alt nodes] [rep node min max greedy] [group idx node] [bol] [eol] [wordb neg]
+;          [backref n] [look ahead neg node] [empty]     set items: [lo hi] ranges | "d" "D" "w" "W" "s" "S"
+RXP=""
+RXI=0
+RXN=0
+RXNAMES=nil
+(= (rxerr msg) ($throw (strcat2 "Invalid regular expression: /" (strcat2 RXP (strcat2 "/: " msg)))))
+(= (rxpeek) (? RXI<($hlen RXP) ($ldb RXP RXI) -1))
+(= (rxeat c) (? (== (rxpeek) c) (: (<- RXI RXI+1) true) false))
+(= (rxnum) v=nil (wh (&& (>= (rxpeek) 48) (<= (rxpeek) 57)) v=(+ (* (?? v 0) 10) (- (rxpeek) 48)) (<- RXI RXI+1)) v)
+(= (rxcp)                          ; next code point of the pattern
+  c=(rxpeek) (<- RXI RXI+1)
+  (? c<128 c
+     (: n=(? c>=240 3 c>=224 2 1) v=(? c>=240 ($band c 7) c>=224 ($band c 15) ($band c 31))
+        (for k n v=(+ (* v 64) ($band (rxpeek) 63)) (<- RXI RXI+1)) v)))
+(= (rxhex n) v=0 (for k n d=(digitval (rxpeek)) (? d>=16 (rxerr "Invalid escape")) v=v*16+d (<- RXI RXI+1)) v)
+(= (rxescape)                      ; after the backslash: -> node or set item
+  c=(rxpeek) (<- RXI RXI+1)
+  (sw c
+    100 ["set" false ["d"]] 68 ["set" false ["D"]] 119 ["set" false ["w"]] 87 ["set" false ["W"]] 115 ["set" false ["s"]] 83 ["set" false ["S"]]
+    98 ["wordb" false] 66 ["wordb" true]
+    110 ["char" 10] 114 ["char" 13] 116 ["char" 9] 102 ["char" 12] 118 ["char" 11] 48 ["char" 0]
+    120 ["char" (rxhex 2)]
+    117 (: (? (rxeat 123) (: v=0 (wh (!= (rxpeek) 125) v=v*16+(digitval (rxpeek)) (<- RXI RXI+1)) (<- RXI RXI+1) ["char" v]) ["char" (rxhex 4)]))
+    107 (: (rxeat 60) st=RXI (wh (!= (rxpeek) 62) (<- RXI RXI+1)) nm=(strslice RXP st RXI) (<- RXI RXI+1) ["backref" (?? RXNAMES[nm] 0)])
+    (? (&& c>=49 c<=57) (: (<- RXI RXI-1) ["backref" (rxnum)])
+       ["char" c])))
+(= (rxclass)                       ; after [
+  neg=(rxeat 94) items=[]
+  (wh (!= (rxpeek) 93)
+    (? (== (rxpeek) -1) (rxerr "Unterminated character class"))
+    lo=(? (rxeat 92) (: e=(rxescape) (? (== e[0] "set") (: (push items e[2][0]) nil) (== e[0] "char") e[1] (== e[0] "wordb") 8 nil)) (rxcp))
+    (? (! ($isnil lo))
+       (? (&& (== (rxpeek) 45) (< RXI+1 ($hlen RXP)) (!= ($ldb RXP RXI+1) 93))
+          (: (<- RXI RXI+1) hi=(? (rxeat 92) (: e=(rxescape) (? (== e[0] "char") e[1] 0)) (rxcp)) (push items [lo hi]))
+          (push items [lo lo]))))
+  (<- RXI RXI+1)
+  ["set" neg items])
+(= (rxatom)
+  c=(rxpeek)
+  (? c==40 (: (<- RXI RXI+1)
+              (? (rxeat 63)
+                 (: k=(rxpeek) (<- RXI RXI+1)
+                    (sw k
+                      58 (: n=(rxalt) (rxclose) ["ncgroup" n])
+                      61 (: n=(rxalt) (rxclose) ["look" true false n])
+                      33 (: n=(rxalt) (rxclose) ["look" true true n])
+                      60 (: (? (rxeat 61) (: n=(rxalt) (rxclose) ["look" false false n])
+                              (rxeat 33) (: n=(rxalt) (rxclose) ["look" false true n])
+                              (: st=RXI (wh (!= (rxpeek) 62) (<- RXI RXI+1)) nm=(strslice RXP st RXI) (<- RXI RXI+1)
+                                 (<- RXN RXN+1) idx=RXN RXNAMES[nm]=idx
+                                 n=(rxalt) (rxclose) ["group" idx n])))
+                      (rxerr "Invalid group")))
+                 (: (<- RXN RXN+1) idx=RXN n=(rxalt) (rxclose) ["group" idx n])))
+     c==91 (: (<- RXI RXI+1) (rxclass))
+     c==46 (: (<- RXI RXI+1) ["any"])
+     c==94 (: (<- RXI RXI+1) ["bol"])
+     c==36 (: (<- RXI RXI+1) ["eol"])
+     c==92 (: (<- RXI RXI+1) (rxescape))
+     (: (? (|| c==42 c==43 c==63) (rxerr "Nothing to repeat"))
+        ["char" (rxcp)])))
+(= (rxclose) (? (! (rxeat 41)) (rxerr "Unterminated group")))
+(= (rxquant a)
+  c=(rxpeek)
+  (? (|| c==42 c==43 c==63)
+     (: (<- RXI RXI+1) lazy=(rxeat 63) ["rep" a (? c==43 1 0) (? c==63 1 1e9) (! lazy)])
+     (&& c==123 (>= (rxpeek2) 48) (<= (rxpeek2) 57))
+       (: (<- RXI RXI+1) mn=(rxnum) mx=mn
+          (? (rxeat 44) (? (== (rxpeek) 125) mx=1e9 mx=(rxnum)))
+          (? (! (rxeat 125)) (rxerr "Incomplete quantifier"))
+          lazy=(rxeat 63) ["rep" a mn mx (! lazy)])
+     a))
+(= (rxpeek2) (? RXI+1<($hlen RXP) ($ldb RXP RXI+1) -1))
+(= (rxseq) items=[]
+  (wh (&& (!= (rxpeek) -1) (!= (rxpeek) 124) (!= (rxpeek) 41))
+    (push items (rxquant (rxatom))))
+  (? #items==1 items[0] ["seq" items]))
+(= (rxalt) alts=[(rxseq)]
+  (wh (rxeat 124) (push alts (rxseq)))
+  (? #alts==1 alts[0] ["alt" alts]))
+(= (re p f=nil)
+  (? (ismap p) p
+     (: (<- RXP (tostr p)) (<- RXI 0) (<- RXN 0) (<- RXNAMES {})
+        prog=(rxalt)
+        (? (< RXI ($hlen RXP)) (rxerr "Unmatched ')'"))
+        {"%re" true "src" RXP "flags" (?? f "") "prog" prog "ngroups" RXN "names" RXNAMES})))
+(= (isre x) (&& (ismap x) (mapget x "%re")))
+
+; ---- matcher
+RXS=""
+RXC=nil           ; capture positions: [start0 end0 start1 end1 ...], -1 when unset
+RXCI=false
+RXML=false
+RXDOT=false
+(= (rxlow b) (? (&& b>=65 b<=90) b+32 b))
+(= (rxdecode i)                    ; code point at byte i -> code point; second value via RXLEN
+  c=($ldb RXS i)
+  (? c<128 (: (<- RXLEN 1) c)
+     c>=240 (: (<- RXLEN 4) (+ (* ($band c 7) 262144) (* ($band ($ldb RXS i+1) 63) 4096) (* ($band ($ldb RXS i+2) 63) 64) ($band ($ldb RXS i+3) 63)))
+     c>=224 (: (<- RXLEN 3) (+ (* ($band c 15) 4096) (* ($band ($ldb RXS i+1) 63) 64) ($band ($ldb RXS i+2) 63)))
+     (: (<- RXLEN 2) (+ (* ($band c 31) 64) ($band ($ldb RXS i+1) 63)))))
+RXLEN=1
+(= (rxisword b) (|| (&& b>=48 b<=57) (&& b>=65 b<=90) (&& b>=97 b<=122) b==95))
+(= (rxclassmatch k c)
+  (sw k
+    "d" (&& c>=48 c<=57) "D" (! (&& c>=48 c<=57))
+    "w" (rxisword c) "W" (! (rxisword c))
+    "s" (|| c==32 (&& c>=9 c<=13) c==160 c==65279 c==8232 c==8233) "S" (! (|| c==32 (&& c>=9 c<=13) c==160 c==65279 c==8232 c==8233))
+    false))
+(= (rxsetmatch n c)
+  hit=false
+  (for it n[2]
+    (? (isstr it) (? (rxclassmatch it c) hit=true)
+       (|| (&& c>=it[0] c<=it[1])
+           (&& RXCI (: lc=(rxlow c) uc=(? (&& c>=97 c<=122) c-32 c) (|| (&& lc>=it[0] lc<=it[1]) (&& uc>=it[0] uc<=it[1]))))) (? true hit=true)))
+  (? n[1] (! hit) hit))
+(= (rxm n i k)
+  (sw n[0]
+    "char" (: c=n[1]
+              (? c<128 (: b=(? i<($hlen RXS) ($ldb RXS i) -1) (? (|| (== b c) (&& RXCI (>= b 0) (== (rxlow b) (rxlow c)))) (k i+1) false))
+                 (? (&& i<($hlen RXS) (== (rxdecode i) c)) (k i+RXLEN) false)))
+    "any" (? (&& i<($hlen RXS) (|| RXDOT (&& (!= ($ldb RXS i) 10) (!= ($ldb RXS i) 13)))) (: (rxdecode i) (k i+RXLEN)) false)
+    "set" (? (< i ($hlen RXS)) (: c=(rxdecode i) l=RXLEN (? (rxsetmatch n c) (k i+l) false)) false)
+    "seq" (rxseq_m n[1] 0 i k)
+    "alt" (: r=false (for a n[1] (? (! r) (? (rxm a i k) r=true))) r)
+    "ncgroup" (rxm n[1] i k)
+    "group" (: idx=n[1] os=(lget RXC 2*idx) oe=(lget RXC 2*idx+1)
+               (? (rxm n[2] i (j=>(: ps=(lget RXC 2*idx) pe=(lget RXC 2*idx+1) (lset RXC 2*idx i) (lset RXC 2*idx+1 j)
+                                       (? (k j) true (: (lset RXC 2*idx ps) (lset RXC 2*idx+1 pe) false)))))
+                  true
+                  (: (lset RXC 2*idx os) (lset RXC 2*idx+1 oe) false)))
+    "rep" (rxrep n i 0 k)
+    "bol" (? (|| i==0 (&& RXML (== ($ldb RXS i-1) 10))) (k i) false)
+    "eol" (? (|| i==($hlen RXS) (&& RXML (== ($ldb RXS i) 10))) (k i) false)
+    "wordb" (: a=(&& i>0 (rxisword ($ldb RXS i-1))) b=(&& i<($hlen RXS) (rxisword ($ldb RXS i))) at=(!= a b) (? (== at n[1]) false (k i)))
+    "backref" (: s=(lget RXC 2*n[1]) e=(lget RXC 2*n[1]+1)
+                 (? (|| (< s 0) (< e 0)) (k i)
+                    (: l=e-s (? (&& i+l<=($hlen RXS) (== (strslice RXS s e) (strslice RXS i i+l))) (k i+l) false))))
+    "look" (? n[1]
+              (: saved=(copylist RXC) r=(rxm n[3] i (j=>true))
+                 (? n[2] (: (rxrestore saved) (? r false (k i)))
+                    (? r (? (k i) true (: (rxrestore saved) false)) (: (rxrestore saved) false))))
+              (: found=false j=0
+                 (wh (&& (! found) j<=i) (? (rxm n[3] j (e=>(== e i))) found=true) j+=1)
+                 (? n[2] (? found false (k i)) (? found (k i) false))))
+    (rxerr "bad node")))
+(= (rxrestore saved) (for i #saved (lset RXC i (lget saved i))))
+(= (rxseq_m items idx i k)
+  (? idx==#items (k i)
+     (rxm items[idx] i (j=>(rxseq_m items idx+1 j k)))))
+(= (rxrep n i count k)
+  mn=n[2]
+  (? n[4] (|| (rxtry_more n i count k) (&& count>=mn (k i)))
+          (|| (&& count>=mn (k i)) (rxtry_more n i count k))))
+(= (rxtry_more n i count k)
+  (? count<n[3] (rxm n[1] i (j=>(? (&& (== j i) count>=n[2]) false (rxrep n j count+1 k)))) false))
+(= (rxexec r s start)              ; first match at or after start -> capture list [s0 e0 s1 e1 ...] or nil
+  (<- RXS s) (<- RXCI (has r.flags "i")) (<- RXML (has r.flags "m")) (<- RXDOT (has r.flags "s"))
+  ng=r.ngroups i=start res=nil
+  (wh (&& ($isnil res) i<=($hlen s))
+    (<- RXC (mklist 2*(ng+1))) (for q 2*(ng+1) (lpush RXC -1))
+    endpos=-1
+    (? (rxm r.prog i (j=>(: (<- endpos j) true)))
+       (: (lset RXC 0 i) (lset RXC 1 endpos) res=RXC))
+    i+=1)
+  res)
+(= (rxgroups s caps)               ; capture list -> [full g1 g2 ..] with nil for unset groups
+  r=(mklist 4) (for g (// #caps 2) a=(lget caps 2*g) b=(lget caps 2*g+1) (lpush r (? (|| (< a 0) (< b 0)) nil (strslice s a b)))) r)
+(= (match r s)
+  r=(re r nil) s=(tostr s) caps=(rxexec r s 0)
+  (? ($isnil caps) nil (rxgroups s caps)))
+(= (rxexpand tpl s caps)           ; JS replacement patterns: $& $1..$99 $$ $` $'
+  (? (! (has tpl "$")) tpl
+     (: out=(mklist 8) i=0 n=#tpl
+        (wh i<n
+          c=($ldb tpl i)
+          (? (&& c==36 i+1<n)
+             (: d=($ldb tpl i+1)
+                (? d==36 (: (lpush out "$") i+=2)
+                   d==38 (: (lpush out (strslice s (lget caps 0) (lget caps 1))) i+=2)
+                   d==96 (: (lpush out (strslice s 0 (lget caps 0))) i+=2)
+                   d==39 (: (lpush out (strslice s (lget caps 1) #s)) i+=2)
+                   (&& d>=48 d<=57)
+                     (: g=d-48 used=2
+                        (? (&& i+2<n (>= ($ldb tpl i+2) 48) (<= ($ldb tpl i+2) 57) (<= (+ (* g 10) (- ($ldb tpl i+2) 48)) (// #caps 2)))
+                           (: g=g*10+(($ldb tpl i+2)-48) used=3))
+                        (? (&& g>=1 g<(// #caps 2))
+                           (: a=(lget caps 2*g) b=(lget caps 2*g+1) (? (&& (>= a 0) (>= b 0)) (lpush out (strslice s a b))) i+=used)
+                           (: (lpush out "$") i+=1)))
+                   (: (lpush out "$") i+=1)))
+             (: j=i (wh (&& j<n (!= ($ldb tpl j) 36)) j+=1) (? j==i j+=1) (lpush out (strslice tpl i j)) i=j)))
+        (join out ""))))
+(= (rxreplace s r repl)
+  r=(re r nil) s=(tostr s) out=(mklist 8) pos=0 last=0 g=true
+  done=false
+  (wh (&& (! done) pos<=#s)
+    caps=(rxexec r s pos)
+    (? ($isnil caps) done=true
+       (: a=(lget caps 0) b=(lget caps 1)
+          (lpush out (strslice s last a))
+          (lpush out (? (isfn repl) (tostr (apply repl (rxgroups s caps))) (rxexpand (tostr repl) s caps)))
+          last=b pos=(? b==a b+1 b)
+          (? (! g) done=true))))
+  (lpush out (strslice s last #s))
+  (join out ""))
+(= (rxsplit s r)
+  r=(re r nil) s=(tostr s) out=(mklist 8) pos=0 last=0 done=false
+  (? #s==0 (? ($isnil (rxexec r s 0)) [s] [])
+     (: (wh (&& (! done) pos<#s)
+          caps=(rxexec r s pos)
+          (? (|| ($isnil caps) (>= (lget caps 0) #s)) done=true
+             (: a=(lget caps 0) b=(lget caps 1)
+                (? (&& (== b a) (== a last)) pos=pos+1
+                   (== b a) (: (lpush out (strslice s last a)) (for g 1..(// #caps 2) (lpush out (? (< (lget caps 2*g) 0) nil (strslice s (lget caps 2*g) (lget caps 2*g+1))))) last=a pos=a+1)
+                   (: (lpush out (strslice s last a)) (for g 1..(// #caps 2) (lpush out (? (< (lget caps 2*g) 0) nil (strslice s (lget caps 2*g) (lget caps 2*g+1))))) last=b pos=b)))))
+        (lpush out (strslice s last #s)) out)))

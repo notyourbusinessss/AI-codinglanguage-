@@ -61,6 +61,7 @@ P10=nil
         (? t==1 (jquote x)
            t==7 (symstr x)
            t==2 (: parts=(mklist ($ldw x 1)) (for i ($ldw x 1) (lpush parts (show (lget x i)))) (strcat2 (strcat2 "[" (join parts " ")) "]"))
+           (&& t==4 (isre x)) (strcat2 (strcat2 (strcat2 "/" x.src) "/") x.flags)
            t==4 (: parts=(mklist ($ldw x 1)) ent=($ldw x 2)
                    (for e ($ldw x 4) k=($ldw ent 2*e+1)
                      (? (! ($eqp k UNDEF)) (lpush parts (strcat2 (strcat2 (show k) " ") (show ($ldw ent 2*e+2))))))

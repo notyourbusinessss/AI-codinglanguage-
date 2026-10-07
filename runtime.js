@@ -433,6 +433,10 @@ const B = {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
     process.exit(r.status === null ? 1 : r.status);
   },
+  rm: f => { fs.rmSync(f, { recursive: true, force: true }); return null; },
+  mkdir: d => { fs.mkdirSync(d, { recursive: true }); return null; },
+  mv: (a, b) => { fs.renameSync(a, b); return null; },
+  isdir: p => { try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } },
   ls: d => fs.readdirSync(d === undefined ? '.' : d), ex: f => fs.existsSync(f),
   in: inLine, inall: inAll, args: () => ARGV.slice(),
   env: k => k === undefined ? new Map(Object.entries(process.env)) : (process.env[k] ?? null),

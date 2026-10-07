@@ -120,9 +120,13 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "<@" (lower_rt "put" x[1..])
     ".@" (? (is "str" x[2]) (lower_rt "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
     ".=" (? (is "str" x[2]) (lower_rt "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
-    ["aw" "req" "js" "new" "."] (lerr (++ "(" n " ..) needs the JS target; the native target has no JS interop") x)
+    "." (lower_method x tail)
+    ["aw" "req" "js" "new"] (lerr (++ "(" n " ..) needs the JS target; the native target has no JS interop") x)
     (lower_call x tail)))
 
+(= (lower_method x tail)       ; (. obj "name" args..): call the function stored under that key
+  (? (|| #x<3 (! (is "str" x[2]))) (lerr "(. obj \"method\" args..) needs a literal method name on the native target" x))
+  (finish_call (lower [(S ".@") x[1] x[2]] false) x[3..] (any isspread x[3..]) tail))
 (= (lower_rt name args) ["call" (rtref name) (~ a=>(lower a false) args)])
 (= (rtref name) v=L.prelude.vars[name] (? v==nil (err (++ "runtime function missing: " name))) ["ref" v])
 
