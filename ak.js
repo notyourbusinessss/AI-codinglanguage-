@@ -14,6 +14,11 @@ const hasB = n => Object.prototype.hasOwnProperty.call(B, n);
 // ================================================================== `use` (compile-time include)
 function expandUse(x, dir, seen, file) {
   if (!Array.isArray(x)) return x;
+  if (x[0] instanceof Sym && x[0].n === 'embed' && typeof x[1] === 'string' && x.length === 2) {   // (embed "file"): file contents as a string, at compile time
+    const f = path.resolve(dir, x[1]);
+    if (!fs.existsSync(f)) throw new CErr(`${file}:${x.line}:${x.col}: embed: file not found: ${x[1]}`);
+    return fs.readFileSync(f, 'utf8');
+  }
   if (x[0] instanceof Sym && x[0].n === 'use' && typeof x[1] === 'string') {
     let f = path.resolve(dir, x[1]);
     if (!fs.existsSync(f) && fs.existsSync(f + '.ak')) f += '.ak';
@@ -146,7 +151,7 @@ function lit(x) {
   cerr('bad literal');
 }
 function quote(x) {
-  if (x instanceof Sym) return JSON.stringify(x.n);
+  if (x instanceof Sym) return `${bref('sym')}(${JSON.stringify(x.n)})`;
   if (Array.isArray(x)) return `[${(isSym(x[0], '%list') ? x.slice(1) : x).map(quote).join(',')}]`;
   return lit(x);
 }
@@ -848,7 +853,8 @@ function compile(src, opts = {}) {
 }
 
 function bundle(code, name) {
-  const rt = fs.readFileSync(path.join(__dirname, 'runtime.js'), 'utf8').replace(/^#!.*\n/, '');
+  const rt = fs.readFileSync(path.join(__dirname, 'runtime.js'), 'utf8').replace(/^#!.*\n/, '')
+    .replace("require('./ast.js')", '({ Sym: class Sym { constructor(n) { this.n = n; } toString() { return this.n; } } })');   // bundles are self-contained
   return `#!/usr/bin/env node\n'use strict';\nconst R=(function(module,exports){\n${rt}\n;return module.exports})({exports:{}},{});\n` +
     `R.standalone(__filename,function(R,require){\n//@@PROGRAM\n${code.replace(/^"use strict";\n/, '')}\n},${JSON.stringify(name || '')});\n`;
 }

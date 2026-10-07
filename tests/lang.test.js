@@ -97,6 +97,9 @@ const CASES = [
   ['(= (fib n a=0 b=1) (? n==0 a (fib n-1 b a+b))) [fib(70) (try fib(80) e=>"ovf")]', '[190392490709135 "ovf"]'],
   ['1e20*3', '300000000000000000000'], ['(try 0.5*2**70 e=>"ovf")', '"ovf"'], ['0.5*2**40', '549755813888'], ['9007199254740991+0', '9007199254740991'], ['(try 9007199254740991+9007199254740991 e=>"ovf")', '"ovf"'],
   ['2n**100n', '1267650600228229401496703205376n'], ['(try (- -9007199254740991 9007199254740991) e=>"ovf")', '"ovf"'], ['1.5*1e300', '1.5e+300'],
+  // --- symbols (code as data), bytes, embed
+  ['(q x)', 'x'], ['(ty (q x))', '"sym"'], ['(== (q a) (sym "a"))', 'true'], ['(q (a "s" 1 [b c]))', '[a "s" 1 [b c]]'], ['(++ "x" (q y))', '"xy"'], ['(== (q a) "a")', 'false'],
+  ['m={} m[(q k)]=1 m[(sym "k")]', '1'], ['(ty (sym "x"))', '"sym"'], ['(bytes "é!")', '[195 169 33]'], ['#(embed "SPEC.md")>1000', 'true'], ['(json [(q a)])', '"[\\"a\\"]"'],
   // --- compile errors (must be caught at compile time with a useful message)
   ['(p undefinedthing)', 'ERR undefined: undefinedthing'], ['(= f 1) (<- g 2)', 'ERR undefined variable g'],
   ['x=1 f=()=>(x+=1) f()', 'ERR belongs to an enclosing'], ['x=1 f=()=>(: x=x+1 x) f()', 'ERR local to this function'],
