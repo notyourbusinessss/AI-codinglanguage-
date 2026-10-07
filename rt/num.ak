@@ -139,3 +139,39 @@ BNB=16777216
         (? (<= #ds prec) ds=(strcat2 (rpt "0" prec+1-#ds) ds))
         r=(? prec==0 ds (strcat2 (strcat2 (strslice ds 0 #ds-prec) ".") (strslice ds #ds-prec #ds)))
         (? neg (strcat2 "-" r) r))))
+
+; ---- bignum long division (Knuth algorithm D, base 2^24): a, b non-negative, b != 0 -> [quotient remainder]
+(= (bn_divmod a b)
+  (? (< (bn_cmp a b) 0) (list [] a)
+     #b==1 (: qr=(bn_divmod_small a (lget b 0)) (list (lget qr 0) (bn_small (lget qr 1))))
+     (: d=($ffloor ($fdiv BNB ($fadd (lget b #b-1) 1)))
+        u=(copylist (bn_mul_small a d)) v=(bn_mul_small b d) n=#v
+        (wh #u<=#a (lpush u 0))
+        (? #u<#a+1 (lpush u 0))
+        m=#u-n-1 q=(mklist m+1) (for i m+1 (lpush q 0))
+        vt=(lget v n-1) vs=(lget v n-2)
+        j=m
+        (wh j>=0
+          num=($fadd ($fmul (lget u j+n) BNB) (lget u j+n-1))
+          qhat=($ffloor ($fdiv num vt)) rhat=($fsub num ($fmul qhat vt))
+          (wh (&& (>= qhat BNB) true) qhat=($fsub qhat 1) rhat=($fadd rhat vt))
+          done=false
+          (wh (&& (! done) (< rhat BNB) (> ($fmul qhat vs) ($fadd ($fmul rhat BNB) (lget u j+n-2))))
+            qhat=($fsub qhat 1) rhat=($fadd rhat vt) (? (>= rhat BNB) done=true))
+          borrow=0 carry=0
+          (for i n
+            p=($fadd ($fmul qhat (lget v i)) carry)
+            carry=($ffloor ($fdiv p BNB))
+            t=($fsub ($fsub (lget u i+j) ($fsub p ($fmul carry BNB))) borrow)
+            (? t<0 (: (lset u i+j ($fadd t BNB)) borrow=1) (: (lset u i+j t) borrow=0)))
+          t=($fsub ($fsub (lget u j+n) carry) borrow)
+          (? t<0
+             (: (lset u j+n ($fadd t BNB))
+                qhat=($fsub qhat 1) c=0
+                (for i n s=($fadd ($fadd (lget u i+j) (lget v i)) c) (? s>=BNB (: (lset u i+j ($fsub s BNB)) c=1) (: (lset u i+j s) c=0)))
+                (lset u j+n (let (w ($fadd (lget u j+n) c)) (? w>=BNB ($fsub w BNB) w))))
+             (lset u j+n t))
+          (lset q j qhat)
+          j-=1)
+        r=(bn_norm (slice u 0 n))
+        (list (bn_norm q) (lget (bn_divmod_small r d) 0)))))

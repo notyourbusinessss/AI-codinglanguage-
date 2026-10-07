@@ -67,6 +67,8 @@ P10=nil
                    (strcat2 (strcat2 "{" (join parts " ")) "}"))
            t==5 "<fn>"
            t==8 (strcat2 (strcat2 "[" (join (bytes x) " ")) "]")
+           t==10 (strcat2 (bigstr x) "n")
+           t==9 (strcat2 (strcat2 "[" (join (~ show (typed_list x)) " ")) "]")
            "<obj>"))))
 
 ; ---- printing
@@ -159,6 +161,7 @@ P10=nil
      (isbool x) (show x)
      (isstr x) (jquote x)
      (issym x) (jquote (symstr x))
+     (istyped x) (jstr (typed_list x) ind lvl)
      (islist x) (? #x==0 "[]"
                    (jwrap "[" "]" (~ y=>(jstr y ind lvl+1) x) ind lvl))
      (ismap x) (? #x==0 "{}"

@@ -43,7 +43,7 @@ for (const op of ['shl', 'shr', 'sar']) gens.push(() => `${op} ${reg()}, ${imm8(
 const xmm = () => `xmm${Math.floor(rnd() * 16)}`;
 for (const op of ['addsd', 'subsd', 'mulsd', 'divsd', 'sqrtsd', 'minsd', 'maxsd', 'ucomisd']) gens.push(() => `${op} ${xmm()}, ${xmm()}`, () => `${op} ${xmm()}, ${mem('qword')}`);
 for (const op of ['xorpd', 'andpd', 'andnpd', 'orpd']) gens.push(() => `${op} ${xmm()}, ${xmm()}`, () => `${op} ${xmm()}, ${mem('xmmword')}`);
-gens.push(() => `movq ${xmm()}, ${reg()}`, () => `movq ${reg()}, ${xmm()}`, () => `movsd ${xmm()}, ${xmm()}`, () => `movsd ${xmm()}, ${mem()}`, () => `movsd ${mem()}, ${xmm()}`,
+gens.push(() => `cvtss2sd ${xmm()}, ${xmm()}`, () => `cvtsd2ss ${xmm()}, ${xmm()}`, () => `cvtss2sd ${xmm()}, ${mem('dword')}`, () => `cvtsd2ss ${xmm()}, ${mem('qword')}`, () => `movss ${xmm()}, ${xmm()}`, () => `movss ${xmm()}, ${mem('dword')}`, () => `movss ${mem('dword')}, ${xmm()}`, () => `movq ${xmm()}, ${reg()}`, () => `movq ${reg()}, ${xmm()}`, () => `movsd ${xmm()}, ${xmm()}`, () => `movsd ${xmm()}, ${mem()}`, () => `movsd ${mem()}, ${xmm()}`,
   () => `cvtsi2sd ${xmm()}, ${reg()}`, () => `cvttsd2si ${reg()}, ${xmm()}`, () => `roundsd ${xmm()}, ${xmm()}, ${pick([8, 9, 10, 11])}`);
 for (const i of ['ret', 'syscall', 'cqo', 'nop', 'int3', 'ud2', 'leave', 'cld', 'hlt', 'rep movsb', 'rep stosb', 'rep movsq', 'rep stosq', 'repe cmpsb']) gens.push(() => i);
 

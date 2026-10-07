@@ -204,7 +204,7 @@ SYMTAB=nil
 
 ; ---- generic container access
 (= (len x)
-  (? ($isptr x) (: t=($type x) (? (|| t==1 t==7 t==8) ($hlen x) (|| t==2 t==4) ($ldw x 1) ($throw (strcat2 "len of " (ty x)))))
+  (? ($isptr x) (: t=($type x) (? (|| t==1 t==7 t==8) ($hlen x) (|| t==2 t==4) ($ldw x 1) t==9 (tlen x) ($throw (strcat2 "len of " (ty x)))))
      ($isnil x) 0
      ($throw (strcat2 "len of " (ty x)))))
 (= (# x) (len x))
@@ -214,6 +214,7 @@ SYMTAB=nil
                     (: n=($hlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (chr1 ($ldb x i)) nil)))
      (ismap x) (mapget x i)
      ($isnil x) nil
+     (istyped x) (: n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tget x i) nil))
      ($throw (strcat2 "cannot index " (ty x)))))
 (= (slice x a b=nil)
   (? ($isnil x) nil
@@ -227,11 +228,13 @@ SYMTAB=nil
      ($isnil x) (mklist 0)
      (isstr x) (: n=($hlen x) r=(mklist n) (for i n (lpush r (chr1 ($ldb x i)))) r)
      (ismap x) (mapentries x)
+     (istyped x) (typed_list x)
      (list x)))
 (= (iter x) (? ($isnum x) nil (toarr x)))
 (= (put x i v)
   (? (islist x) (: n=($ldw x 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lset x i v) i==n (lpush x v) ($throw "index out of range")) v)
      (ismap x) (mapset x i v)
+     (istyped x) (: n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tput x i v)) v)
      ($throw (strcat2 "cannot assign into " (ty x)))))
 (= (dot o k)
   (? (ismap o) (mapget o k)
@@ -273,7 +276,7 @@ RNGI=nil
   (? ($isnil n) r ($ffloor ($fmul r n))))
 
 (= (apply f l) ($apply f l))
-(= (tostr x) (? (isstr x) x (issym x) (symstr x) (show x)))
+(= (tostr x) (? (isstr x) x (issym x) (symstr x) (isbig x) (bigstr x) (show x)))
 (= (++ ..a)
   (? (&& #a>0 (islist a[0]))
        (: total=0 (for l a total+=(len l)) r=(mklist total) (for l a (for i #l (lpush r (lget l i)))) r)
