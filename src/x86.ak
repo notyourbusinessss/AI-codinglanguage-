@@ -72,7 +72,9 @@ NOARG={"ret" [0xC3] "syscall" [0x0F 0x05] "cqo" [0x48 0x99] "nop" [0x90] "int3" 
 
 (= (alu n a b)
   (? (isi b) (: v=b[1]
-              (? (&& (isr a) a[1]==0 !(fits8 v)) (: (emit 0x48) (emit 0x05+8*n) (emit32 v))
+              (? (&& (ism a) a[5]==1) (: (enc 0 false [0x80] n a) (emit v&255))
+                 (&& (ism a) a[5]==4) (? (fits8 v) (: (enc 0 false [0x83] n a) (emit v&255)) (: (enc 0 false [0x81] n a) (emit32 v)))
+                 (&& (isr a) a[1]==0 !(fits8 v)) (: (emit 0x48) (emit 0x05+8*n) (emit32 v))
                  (fits8 v) (: (enc 0 true [0x83] n a) (emit v))
                  (: (enc 0 true [0x81] n a) (emit32 v))))
      (ism b) (enc 0 true [0x03+8*n] a[1] b)

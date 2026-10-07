@@ -27,7 +27,7 @@ const cc = ['o', 'no', 'b', 'ae', 'e', 'ne', 'be', 'a', 's', 'ns', 'p', 'np', 'l
 const gens = [];
 for (const op of ['add', 'or', 'adc', 'sbb', 'and', 'sub', 'xor', 'cmp']) {
   gens.push(() => `${op} ${reg()}, ${reg()}`, () => `${op} ${reg()}, ${mem()}`, () => `${op} ${mem()}, ${reg()}`,
-    () => `${op} ${reg()}, ${imm()}`, () => `${op} ${mem()}, ${imm()}`);
+    () => `${op} ${reg()}, ${imm()}`, () => `${op} ${mem()}, ${imm()}`, () => `${op} ${mem('byte')}, ${imm8()}`, () => `${op} ${mem('dword')}, ${imm()}`);
 }
 gens.push(() => `mov ${reg()}, ${reg()}`, () => `mov ${reg()}, ${mem()}`, () => `mov ${mem()}, ${reg()}`, () => `mov ${reg()}, ${pick([0, 1, -1, 5, 1000, -1000, 0x7fffffff, -0x80000000])}`,
   () => `mov ${mem()}, ${pick([0, 1, -1, 5, 1000, -1000, 0x7fffffff])}`, () => `mov ${mem('byte')}, ${pick(R8)}`,

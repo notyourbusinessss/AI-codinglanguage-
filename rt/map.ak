@@ -3,7 +3,12 @@
 ;   deleted entries keep their slot with key UNDEF until the next rehash.
 HID=0
 (= (hashid o slot) h=($ldw o slot) (? ($isnil h) (: (<- HID HID+1) h=HID ($stw o slot h))) h)
-(= (hashstr s) h=0 n=($hlen s) (for i n h=($band h*31+($ldb s i) 2147483647)) h)
+(= (hashstr s)       ; 23-bit content hash, cached in the header (bit 8 = valid, bits 9..31 = hash)
+  hd=($ldw s 0) lo=($bitslo hd)
+  (? (!= ($band lo 256) 0) ($ushr lo 9)
+     (: h=0 n=($hlen s) (for i n h=($band h*31+($ldb s i) 8388607))
+        ($stw s 0 ($frombits ($bitshi hd) ($fadd ($fadd ($band lo 255) 256) ($fmul h 512))))
+        h)))
 (= (hashof k)
   (? ($isnum k)
        (? (== k 0) 0
@@ -12,7 +17,8 @@ HID=0
      (! ($isptr k)) (? ($isnil k) 1 ($eqp k true) 2 3)
      (: t=($type k) (? (|| t==1 t==7) (hashstr k) t==2 (hashid k 3) t==4 (hashid k 5) 5))))
 (= (keyeq a b)     ; a: stored key, b: probe key
-  (? ($isnum a) (&& ($isnum b) (== a b))
+  (? ($eqp a b) true
+     ($isnum a) (&& ($isnum b) (== a b))
      (! ($isptr a)) ($eqp a b)
      (! ($isptr b)) false
      (== ($type a) 1) (&& (== ($type b) 1) (streq a b))

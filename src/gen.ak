@@ -9,10 +9,10 @@
 HEAD_ADDR=0x10000000
 HLIM_ADDR=0x10000008
 ARGV_ADDR=0x10000010
-GBASE=0x10000040
+GBASE=0x10000080
 T_STR=1 T_LIST=2 T_ARR=3 T_MAP=4 T_CLOSURE=5 T_BOX=6 T_SYM=7 T_BYTES=8
 HEAP_SIZE=17179869184
-GC_FIRST=33554432
+GC_FIRST=67108864
 G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
 
 TRACE_ADDR=268435480
@@ -127,9 +127,30 @@ TRACE_BASE=268435488
     "or" (? when (: (genjump c[1] lbl true) (genjump c[2] lbl true))
                  (: skip=(nl) (genjump c[1] skip true) (genjump c[2] lbl false) (label skip)))
     "prim" (? (has ["<" ">" "<=" ">=" "==" "!="] c[1]) (gen_cmpjump c[1] c[2] lbl when)
+              (has PREDPRIMS c[1]) (gen_predjump c[1] c[2] lbl when)
               c[1]=="isundef" (: (gen c[2][0]) (a "lea rcx, [r11+3]") (a "cmp rax, rcx") (a (++ (? when "je " "jne ") lbl)))
               (gen_truthjump c lbl when))
     (gen_truthjump c lbl when)))
+; ---- type predicates compiled to compare+jump
+TYPEPREDS={"$islist" 2 "$isstr" 1 "$ismap" 4 "$issym" 7 "$isfn" 5}
+PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$isptr" "$eqp"]
+(= (typecheck_jump t lbl when)       ; value in rax; jump to lbl when (is type t) == when
+  skip=(nl)
+  (a "mov rcx, rax") (a "shr rcx, 48") (a "cmp rcx, 0xFFFA")
+  (? when (a (++ "jne " skip)) (a (++ "jne " lbl)))
+  (untag "rax") (af "cmp byte ptr [rax], %d" t)
+  (a (++ (? when "je " "jne ") lbl))
+  (? when (label skip)))
+(= (gen_predjump op args lbl when)
+  (? TYPEPREDS[op] (: (gen args[0]) (typecheck_jump TYPEPREDS[op] lbl when))
+     (== op "$isnum") (: (gen args[0]) (a "cmp rax, r11") (a (++ (? when "jb " "jae ") lbl)))
+     (== op "$isnil") (: (gen args[0]) (a "cmp rax, r11") (a (++ (? when "je " "jne ") lbl)))
+     (== op "$isptr") (: (gen args[0]) (a "mov rcx, rax") (a "shr rcx, 48") (a "cmp rcx, 0xFFFA") (a (++ (? when "je " "jne ") lbl)))
+     (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (a "cmp rcx, rax") (a (++ (? when "je " "jne ") lbl)))))
+(= (pred_value op args)
+  lt=(nl) ld=(nl)
+  (gen_predjump op args lt true)
+  (a "lea rax, [r11+1]") (a (++ "jmp " ld)) (label lt) (a "lea rax, [r11+2]") (label ld))
 (= (gen_truthjump c lbl when) (gen c) (a "call .truthy") (a "test rdx, rdx") (a (++ (? when "jnz " "jz ") lbl)))
 
 ; ---- calls
@@ -276,10 +297,7 @@ TRACE_BASE=268435488
     "$syscall" (: n=#args (for e args (gen e) (push_rax))
                   (for k (reverse_idx n) (popr "rcx") (num2int "rcx" ["rax" "rdi" "rsi" "rdx" "r10" "r8" "r9"][k]))
                   (a "syscall") (reload_consts) (int2num "rax"))
-    "$isptr" (: (gen args[0]) (a "shr rax, 48") (a "cmp rax, 0xFFFA") (boolcc "e"))
-    "$isnum" (: (gen args[0]) (a "cmp rax, r11") (boolcc "b"))
-    "$isnil" (: (gen args[0]) (a "cmp rax, r11") (boolcc "e"))
-    "$eqp" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (a "cmp rcx, rax") (boolcc "e"))
+    ["$isptr" "$isnum" "$isnil" "$eqp" "$islist" "$isstr" "$ismap" "$issym" "$isfn"] (pred_value op args)
     "$bitshi" (: (gen args[0]) (a "shr rax, 32") (int2num "rax"))
     "$bitslo" (: (gen args[0]) (a "shl rax, 32") (a "shr rax, 32") (int2num "rax"))
     "$frombits" (: (gen args[0]) (push_rax) (gen args[1]) (num2int "rax" "rax") (popr "rcx") (num2int "rcx" "rcx") (a "shl rcx, 32") (a "or rax, rcx"))
@@ -306,6 +324,8 @@ TRACE_BASE=268435488
     "$mkptr" (: (gen args[0]) (num2int "rax" "rax") (a "or rax, r10"))
     "$rawcopy" (: (for e args (gen e) (push_rax)) (popr "rcx") (num2int "rcx" "rcx") (popr "rsi") (num2int "rsi" "rsi") (popr "rdi") (num2int "rdi" "rdi") (a "rep movsb") (a "mov rax, r11"))
     "$envp" (: (a "mov rcx, [268435472]") (a "mov rax, [rcx]") (a "lea rax, [rcx+rax*8+16]") (int2num "rax"))
+    "$gbase" (numconst 0 GBASE)
+    "$label" (: (lea_l 0 args[0][1]) (int2num "rax"))
     "$vtop" (: (a "mov rax, r14") (int2num "rax"))
     "$vbase" (: (a "mov rax, [268435512]") (int2num "rax"))
     "$hptr" (: (a "mov rax, r13") (int2num "rax"))
@@ -369,6 +389,12 @@ TRACE_BASE=268435488
   (label ".gc")
   (mov_imm64 0 0x7FFFFFFF 0xFFFFFFFF) (a "mov [268435496], rax")
   (af "mov rsi, [%d]" (gaddr (prelude_gid "gc"))) (a "mov [r15], rsi") (a "add r15, 8") (a "mov rcx, 0") (a "call .callclosure") (a "ret")
+  (label ".sigprof")                                   ; SIGPROF handler (profiling): bump the sample counter of the innermost traced function
+  (a "mov rax, [268435480]") (a "mov rcx, [268435488]") (a "cmp rax, rcx") (a "jbe .sigdone")
+  (a "mov rax, [rax-8]") (a "and rax, 65535") (a "mov rcx, [268435520]") (a "test rcx, rcx") (a "jz .sigdone")
+  (a "mov rdx, [rcx+rax*8]") (a "add rdx, 1") (a "mov [rcx+rax*8], rdx")
+  (label ".sigdone") (a "ret")
+  (label ".sigret") (a "mov rax, 15") (a "syscall")
   (label ".callclosure")
   (a "mov rax, rcx") (a "shl rax, 3") (a "mov rdx, r15") (a "sub rdx, rax") (a "mov rdx, [rdx-8]")
   (a "mov rax, rdx") (a "shr rax, 48") (a "cmp rax, 0xFFFA") (a "jne .notcallable")
@@ -403,7 +429,7 @@ TRACE_BASE=268435488
   (a "mov rdi, r13") (a "add r13, rsi") (a "cmp r13, [268435464]") (a "ja .oom")
   (a "mov rax, r9") (a "shl rax, 32") (a "or rax, 3") (a "mov [rdi], rax")
   (a "mov rdx, rdi") (a "lea rdi, [rdx+8]") (a "mov rsi, r8") (a "mov rcx, r9") (a "rep movsq")
-  (a "test r9, r9") (a "jnz .Amk1") (a "add rdi, 8") (label ".Amk1")
+  (a "test r9, r9") (a "jnz .Amk1") (a "mov [rdi], r11") (a "add rdi, 8") (label ".Amk1")
   (mov_imm64 0 3 2) (a "mov [rdi], rax") (a "cvtsi2sd xmm0, r9") (a "movq rax, xmm0") (a "mov [rdi+8], rax")
   (a "mov rax, rdx") (a "or rax, r10") (a "mov [rdi+16], rax") (a "mov [rdi+24], r11") (a "mov rax, rdi") (a "or rax, r10")
   (a "mov r15, r8") (a "mov [r15], rax") (a "add r15, 8")
@@ -442,7 +468,7 @@ TRACE_BASE=268435488
   (asm_reset)
   G.trace=(!= (env "AK_TRACE") nil)
   G.tracetab=(join (~ f=>(++ f.id " " f.name " " f.pos) L.funcs) "\n")
-  G.data=[] (for i 64 (dbyte 0))
+  G.data=[] (for i 128 (dbyte 0))
   (for i L.nglob (dword 0 0xFFF90000))
   (for f L.funcs (collect_inits f.body))
   (gen_start main)
