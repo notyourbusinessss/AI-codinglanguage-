@@ -1,0 +1,5 @@
+(use "../src/parse.ak")
+; reads file names (one per line) from stdin; for each prints "--- name" then one dumped form per line, or "ERR message"
+(for f (split (trim (inall)) "\n")
+  (p "---" f)
+  (try (for x (parse (rd f) f) (p (dump x))) e=>(p "ERR" e)))

@@ -414,6 +414,8 @@ const B = {
   pr: (...a) => { out(a.map(tostr).join(' ')); return a.length ? a[a.length - 1] : null; },
   ep: (...a) => { eout(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
   sym,
+  mksym: (n, l, c) => { const s = new Sym(String(n)); s.line = l; s.col = c; return s; },   // fresh (non-interned) symbol that remembers its source position
+  symline: s => s.line ?? 0, symcol: s => s.col ?? 0,
   bytes: s => Array.from(Buffer.from(s, 'utf8')),
   rd: f => fs.readFileSync(f, 'utf8'),
   // wr/app/wrx take a string or a list of byte values; wrx also marks the file executable
