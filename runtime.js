@@ -3,6 +3,9 @@
 const fs = require('fs'), path = require('path');
 const { StringDecoder } = require('string_decoder');
 const WT = require('worker_threads');
+const { Sym } = require('./ast.js');
+const SYMS = new Map();
+const sym = x => { if (x instanceof Sym) x = x.n; let s = SYMS.get(x); if (!s) { s = new Sym(x); SYMS.set(x, s); } return s; };
 
 class AkError extends Error { constructor(m) { super(m); this.name = 'AkError'; } }
 
@@ -20,6 +23,7 @@ function tr(x) {
 
 function eq(a, b) {
   if (a === b) return true;
+  if (a instanceof Sym) return b instanceof Sym && a.n === b.n;
   if (a == null) return b == null;
   if (b == null || typeof a !== 'object' || typeof b !== 'object') return false;
   if (Array.isArray(a)) {
@@ -57,11 +61,12 @@ function show(x) {
   }
   if (Array.isArray(x) || ArrayBuffer.isView(x)) return '[' + Array.from(x, show).join(' ') + ']';
   if (x instanceof Map) { const o = []; for (const [k, v] of x) o.push(show(k) + ' ' + show(v)); return '{' + o.join(' ') + '}'; }
+  if (x instanceof Sym) return x.n;
   if (x instanceof Promise) return '<promise>';
   if (x instanceof Error) return '<error ' + x.message + '>';
   return require('util').inspect(x, { depth: 4, breakLength: Infinity });
 }
-const tostr = x => typeof x === 'string' ? x : typeof x === 'bigint' ? String(x) : show(x);
+const tostr = x => typeof x === 'string' ? x : typeof x === 'bigint' ? String(x) : show(x);   // symbols print as their name
 
 function msg(e) {
   if (e instanceof AkError) return e.message;
@@ -236,6 +241,7 @@ function toJ(x) {
   if (x instanceof Map) { const o = {}; for (const [k, v] of x) o[String(k)] = toJ(v); return o; }
   if (Array.isArray(x) || ArrayBuffer.isView(x)) return Array.from(x, toJ);
   if (typeof x === 'bigint') return Number(x);
+  if (x instanceof Sym) return x.n;
   return x;
 }
 function fromJ(x) {
@@ -256,6 +262,7 @@ const tyOf = x => {
   if (x instanceof Map) return 'map';
   if (ArrayBuffer.isView(x)) return 'arr';
   if (x instanceof Promise) return 'promise';
+  if (x instanceof Sym) return 'sym';
   return 'obj';
 };
 const arr = l => Array.isArray(l) ? l : Array.from(it(l));
@@ -406,7 +413,13 @@ const B = {
   p: (...a) => { out(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
   pr: (...a) => { out(a.map(tostr).join(' ')); return a.length ? a[a.length - 1] : null; },
   ep: (...a) => { eout(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
-  rd: f => fs.readFileSync(f, 'utf8'), wr: (f, s) => { fs.writeFileSync(f, s); return s; }, app: (f, s) => { fs.appendFileSync(f, s); return s; },
+  sym,
+  bytes: s => Array.from(Buffer.from(s, 'utf8')),
+  rd: f => fs.readFileSync(f, 'utf8'),
+  // wr/app/wrx take a string or a list of byte values; wrx also marks the file executable
+  wr: (f, s) => { fs.writeFileSync(f, Array.isArray(s) ? Buffer.from(s) : s); return s; },
+  app: (f, s) => { fs.appendFileSync(f, Array.isArray(s) ? Buffer.from(s) : s); return s; },
+  wrx: (f, s) => { fs.writeFileSync(f, Array.isArray(s) ? Buffer.from(s) : s, { mode: 0o755 }); fs.chmodSync(f, 0o755); return s; },
   ls: d => fs.readdirSync(d === undefined ? '.' : d), ex: f => fs.existsSync(f),
   in: inLine, inall: inAll, args: () => ARGV.slice(),
   env: k => k === undefined ? new Map(Object.entries(process.env)) : (process.env[k] ?? null),

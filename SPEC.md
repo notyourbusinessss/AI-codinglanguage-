@@ -9,7 +9,7 @@ Lambda: `x=>x*2` `(a b)=>a+b` `[a b]=>a` `()=>1`; several statements: `(\ (x) s1
 `(= x v)`=`x=v` · `(= (f a b=1 ..r) body..)` fn (last expr returned; patterns ok: `(= (f [x l r]) ..)`) · `[a [b ..c]]=v` destructure (`[a b]=[b a]` swaps; `_` ignores) · `(<- x v)` rebind an OUTER variable
 `(? c a)` `(? c a else)` `(? c1 a c2 b else)` · `(: a b c)` seq · `(&& ..)` `(|| ..)` `(?? ..)` return the deciding value · `(wh c body..)`
 `(for x coll body..)` · `(for [k v] map ..)` · `(for i 0..n ..)` · `(for 3 body)` · `(let (x 1 y 2) body..)` · `(sw v 1 a [2 3] b else)`
-`(try body e=>handler)` `(err "msg" ..)` · `(aw promise)`(async inferred) · `(req "mod")` `(new C args)` `(js "raw js")` `(use "file.ak")`(include) · Node built-in modules and JS globals are in scope: `fs.readFileSync(f)` `Math.max(1 2)` `path.basename(p)`
+`(try body e=>handler)` `(err "msg" ..)` · `(aw promise)`(async inferred) · `(req "mod")` `(new C args)` `(js "raw js")` `(use "file.ak")`(include) `(embed "file")`(file contents as a string, at compile time) `(q x)`(quote: symbols are a type, `ty`="sym", `(sym "x")`) · Node built-in modules and JS globals are in scope: `fs.readFileSync(f)` `Math.max(1 2)` `path.basename(p)`
 ## Semantics
 - Truthiness is Python's: false nil 0 "" [] {} are falsy. `??` replaces only nil: use `m[k]??0` for defaults (`||` would also replace a real 0).
 - `=` is function-local like Python and never changes an outer variable. `x+=1` on an outer variable is a compile error → use `(<- x x+1)`. Only `let` makes a block scope. Closures capture variables; loop variables are per-iteration.
@@ -22,7 +22,7 @@ math `+ - * / % // ** < > <= >= == != !` `& | ^ << >> >>> bnot` `abs sqrt flr ce
 list `# @ push pop enum set del +> .. ~ ~? ~~ ~/ sort rev zip uniq flat grp idx has any all keys vals prs sub take drop fst lst ap` — `(~ f xs)` map · `(~? f xs)` filter · `(~~ f xs)` flatmap · `(~/ f init xs)` reduce · `(sort xs)` `(sort keyfn xs)` (maps sort as `[k v]` entries) · `(+> l x)` pure append · `(set c k v)` pure update · `(has c x)` in
 typed arrays `f64 f32 i32 u32 i16 u16 i8 u8` (`(u8 n)`) · fast unchecked access `(@! a i)` `(<@! a i v)`
 text `++ $ show split join trim up lo rep starts ends rpt padl padr chr ord num re match fmt` — `(fmt "%-8s%4d%6.2f%03b" ..)` · `(rep s from to)`(regex ok) · `(rpt x n)` string/list repeat
-io `p pr ep in inall rd wr app ls ex args env exit sh now clock sleep delay err` · `(p a b)` prints space-joined · `json unjson` · `ty is` · `ev` · `imp`
+io `p pr ep in inall rd wr wrx app ls ex args env exit sh now clock sleep delay err` (`wr`/`app`/`wrx` take a string or a list of byte values; `wrx` makes the file executable) · `sym bytes` · `(p a b)` prints space-joined · `json unjson` · `ty is` · `ev` · `imp`
 ## CLI
 `ak f.ak [args]` run · `ak -e 'code'` · `ak check f.ak` · `ak fmt f.ak` (canonical, drops comments) · `ak js f.ak` (generated JS) · `ak build f.ak out.js` (standalone bundle) · `ak exe f.ak out` (native executable)
 ## Cheap style (fewer tokens)
