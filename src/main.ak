@@ -4,11 +4,11 @@
 (use "parse.ak")
 (use "lower.ak")
 (use "gen.ak")
-PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/num.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak") "\n" (embed "../rt/gc.ak") "\n" (embed "../rt/prof.ak"))
+PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/num.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak") "\n" (embed "../rt/big.ak") "\n" (embed "../rt/json.ak") "\n" (embed "../rt/typed.ak") "\n" (embed "../rt/gc.ak") "\n" (embed "../rt/prof.ak"))
 VERSION="0.5.0"
 
 ; ---- tree shaking: keep only the runtime functions the program can reach (by name)
-ROOTS=["at" "dot" "put" "setdot" "dotc" "setdotc" "slice" "apply" "concat" "isnum" "iter" "len" "list" "map" "sym" "toarr" "fatal" "finish" "gc" "chars_init"
+ROOTS=["at" "dot" "put" "setdot" "dotc" "setdotc" "slice" "apply" "concat" "isnum" "iter" "len" "list" "map" "sym" "toarr" "fatal" "finish" "gc" "chars_init" "bigfrom"
        "add2" "sub2" "mul2" "div2" "lt2" "gt2" "le2" "ge2" "eq2" "ne2" "mod2" "fdiv2" "pow2" "band2" "bor2" "bxor2" "shl2" "shr2" "ushr2" "neg1" "bnot1"]
 (= (collect x out) (? (is "sym" x) out[($ x)]=true (is "list" x) (for y x (collect y out))))
 (= (fdef x)

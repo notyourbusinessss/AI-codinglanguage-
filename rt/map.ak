@@ -10,13 +10,14 @@ HID=0
           (&& (< -2147483649 k) (< k 2147483648) (== k ($ffloor k))) ($band k 2147483647)
           (: hi=($bitshi k) lo=($bitslo k) ($band ($bxor ($bxor hi ($ushr hi 12)) ($bxor lo ($ushr lo 15))) 2147483647)))
      (! ($isptr k)) (? ($isnil k) 1 ($eqp k true) 2 3)
-     (: t=($type k) (? (|| t==1 t==7) (hashstr k) t==2 (hashid k 3) t==4 (hashid k 5) 5))))
+     (: t=($type k) (? (|| t==1 t==7) (hashstr k) t==2 (hashid k 3) t==4 (hashid k 5) t==10 (hashstr (bigstr k)) 5))))
 (= (keyeq a b)     ; a: stored key, b: probe key
   (? ($eqp a b) true
      ($isnum a) (&& ($isnum b) (== a b))
      (! ($isptr a)) ($eqp a b)
      (! ($isptr b)) false
      ($isstr a) ($streq a b)
+     (isbig a) (&& (isbig b) (== (bigcmp a b) 0))
      ($eqp a b)))
 (= (mapnew cap)
   m=($new 4 5 5) ($stw m 1 0) ($stw m 2 ($new 3 cap*2 cap*2)) ($stw m 3 ($new 3 cap*2 cap*2)) ($stw m 4 0) m)
