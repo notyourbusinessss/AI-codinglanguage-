@@ -95,7 +95,7 @@ INFATAL=false
 (= (pow2 a b) (? (|| (isbig a) (isbig b)) (bigop "**" a b) (pow2n a b)))
 (= (pow2n a b) a=(tonum a) b=(tonum b)
   (? (&& (isint b) (>= b 0)) (: r=1 (wh (> b 0) (? (== (mod2 b 2) 1) r=(mul2 r a)) (? b>1 a=(mul2 a a)) b=($ffloor ($fdiv b 2))) r)
-     (? (|| (!= b ($ffloor b)) (< b 0)) ($throw "unsupported exponent") 1)))
+     (fpow a b)))
 (= (band2 a b) a=(tonum a) b=(tonum b) ($band a b))
 (= (bor2 a b) a=(tonum a) b=(tonum b) ($bor a b))
 (= (bxor2 a b) a=(tonum a) b=(tonum b) ($bxor a b))

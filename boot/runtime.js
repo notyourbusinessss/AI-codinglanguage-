@@ -315,6 +315,10 @@ const B = {
   int: x => typeof x === 'bigint' ? x : Math.trunc(n(x)),
   min: minmax(-1), max: minmax(1),
   sum: l => { let s = 0; for (const x of it(l)) s += n(x); return s; },
+  sin: x => Math.sin(n(x)), cos: x => Math.cos(n(x)), tan: x => Math.tan(n(x)), asin: x => Math.asin(n(x)), acos: x => Math.acos(n(x)), atan: x => Math.atan(n(x)),
+  atan2: (y, x) => Math.atan2(n(y), n(x)), exp: x => Math.exp(n(x)), log: x => Math.log(n(x)), log2: x => Math.log2(n(x)), log10: x => Math.log10(n(x)),
+  pow: (a, b) => Math.pow(n(a), n(b)), cbrt: x => Math.cbrt(n(x)), hypot: (a, b) => Math.hypot(n(a), n(b)), sinh: x => Math.sinh(n(x)), cosh: x => Math.cosh(n(x)), tanh: x => Math.tanh(n(x)),
+  sign: x => Math.sign(n(x)),
   rand: (n) => n === undefined ? Math.random() : Math.floor(Math.random() * n),
   // data
   list: (...a) => a,
