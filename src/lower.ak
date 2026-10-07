@@ -7,7 +7,7 @@
 ; Records are maps compared by :id only (never ==, which would recurse through the cycles).
 L={:files [] :cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
-INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot"]
+INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot" "#"]
 INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32"]
 PREDS={"islist" "$islist" "isstr" "$isstr" "ismap" "$ismap" "issym" "$issym" "isfn" "$isfn" "isnum" "$isnum"}
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
@@ -123,7 +123,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "sw" (lower (swexpand x) tail)
     "q" (lower_quote x[1])
     "@" (lower_at x tail)
-    "<@" (lower_rt "put" x[1..])
+    "<@" (lower_put x[1..])
     ".@" (? (is "str" x[2]) (lower_rt "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
     ".=" (? (is "str" x[2]) (lower_rt "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
     "." (lower_method x tail)
@@ -142,9 +142,10 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
      (const x)))
 
 (= (hash23 s) h=0 (for c (bytes s) h=(h*31+c)&8388607) h)
+(= (lower_put args) ["prim" "<@" (~ a=>(lower a false) args)])
 (= (lower_at x tail)
   (? (&& #x==3 (is "str" x[2])) (lower_rt "dotc" [x[1] x[2] (hash23 x[2])])
-     #x==3 (lower_rt "at" x[1..]) #x==4 (lower_rt "slice" x[1..]) (lerr "(@ obj index) or (@ obj lo hi)" x)))
+     #x==3 ["prim" "@" (~ a=>(lower a false) x[1..])] #x==4 (lower_rt "slice" x[1..]) (lerr "(@ obj index) or (@ obj lo hi)" x)))
 
 ; ---- list / map literals (spread -> concatenation of pieces)
 (= (lower_list x) items=x[1..]
@@ -282,7 +283,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 
 (= (lower_set x) t=x[1]
   (? #x!=3 (lerr "(<- name value)" x))
-  (? (&& (isform t "@") #t==3) (lower_rt "put" [t[1] t[2] x[2]])
+  (? (&& (isform t "@") #t==3) (lower_put [t[1] t[2] x[2]])
      (! (issym t)) (lerr "<- target must be a name" x)
      (: v=(lookup ($ t))
         (? v==nil (lerr (++ "<-: undefined variable " ($ t)) x))
