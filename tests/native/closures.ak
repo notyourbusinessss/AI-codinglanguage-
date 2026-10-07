@@ -1,0 +1,20 @@
+(= (adder k) (\ (y) y+k))
+add5=(adder 5)
+(p (add5 10) ((adder 100) 1))
+(= (counter) n=0 ()=>(<- n n+1))
+c=(counter)
+(c) (c)
+(p (c))
+d=(counter)
+(p (d) (c))
+(= (mk) x=1 f=()=>x g=()=>(<- x x*2) (g) (g) (f))
+(p (mk))
+(= (compose f g) x=>(f (g x)))
+inc=x=>x+1
+dbl=x=>x*2
+(p ((compose inc dbl) 5) ((compose dbl inc) 5))
+fs=0
+(= (rec n) (? n==0 0 n+(rec n-1)))
+(p (rec 100))
+(= (outer) fact=n=>(? n<2 1 n*(fact n-1)) (fact 10))
+(p (outer))
