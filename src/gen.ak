@@ -12,11 +12,13 @@ ARGV_ADDR=0x10000010
 GBASE=0x10000040
 T_STR=1 T_LIST=2 T_ARR=3 T_MAP=4 T_CLOSURE=5 T_BOX=6 T_SYM=7 T_BYTES=8
 HEAP_SIZE=17179869184
+GC_FIRST=33554432
 G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
 
 TRACE_ADDR=268435480
 TRACE_BASE=268435488
 (= (a s) (asm s))
+(= (gen_poll) skip=(nl) (a "cmp r13, [268435496]") (a (++ "jb " skip)) (a "call .gc") (label skip))
 (= (trace_push f) (a "mov rax, [268435480]") (af "mov rdx, %d" f.id) (a "mov [rax], rdx") (a "add rax, 8") (a "mov [268435480], rax"))
 (= (trace_pop) (a "mov rcx, [268435480]") (a "sub rcx, 8") (a "mov [268435480], rcx"))
 (= (af f ..xs) (asm (fmt f ..xs)))
@@ -35,7 +37,7 @@ TRACE_BASE=268435488
 (= (strobj s)
   (? G.strs[s]!=nil G.strs[s]
      (: (dalign) addr=0x10000000+(dpos) bs=(bytes s)
-        (dword T_STR #bs) (for b bs (dbyte b)) (dalign)
+        (dword T_STR #bs) (for b bs (dbyte b)) (dbyte 0) (dalign)
         G.strs[s]=addr addr)))
 (= (staticclo f)
   (? f.static!=nil f.static
@@ -111,7 +113,7 @@ TRACE_BASE=268435488
   (gen x[1]) (a "cmp rax, r11") (a (++ "jne " lend)) (gen x[2]) (label lend))
 
 (= (gen_while x) ltop=(nl) lend=(nl)
-  (label ltop) (genjump x[1] lend false) (gen x[2]) (a (++ "jmp " ltop)) (label lend) (a "mov rax, r11"))
+  (label ltop) (gen_poll) (genjump x[1] lend false) (gen x[2]) (a (++ "jmp " ltop)) (label lend) (a "mov rax, r11"))
 
 ; jump to L when condition is `when` (true/false); otherwise fall through
 (= (genjump c lbl when)
@@ -260,12 +262,13 @@ TRACE_BASE=268435488
                  (popr "rcx") (num2int "rcx" "rcx") (popr "rdi") (untag "rdi") (a "shl rdx, 32") (a "or rdx, rcx") (a "mov [rdi], rdx") (a "mov rax, r11"))
     "$new" (: (gen args[0]) (push_rax) (gen args[1]) (push_rax) (gen args[2]) (num2int "rax" "rdx")
               (popr "rsi") (num2int "rsi" "rsi") (popr "rcx") (num2int "rcx" "rcx")
-              (a "lea rdi, [rsi*8+8]") (a "mov rax, r13") (a "add r13, rdi") (a "cmp r13, [268435464]") (a "ja .oom")
+              (a "mov r9, rsi") (a "test r9, r9") (: l1=(nl) (a (++ "jnz " l1)) (a "mov r9, 1") (label l1))
+              (a "lea rdi, [r9*8+8]") (a "mov rax, r13") (a "add r13, rdi") (a "cmp r13, [268435464]") (a "ja .oom")
               (a "shl rdx, 32") (a "or rdx, rcx") (a "mov [rax], rdx")
-              (a "mov r8, rax") (a "lea rdi, [rax+8]") (a "mov rcx, rsi") (a "mov rax, r11") (a "rep stosq") (a "mov rax, r8") (a "or rax, r10"))
+              (a "mov r8, rax") (a "lea rdi, [rax+8]") (a "mov rcx, r9") (a "mov rax, r11") (a "rep stosq") (a "mov rax, r8") (a "or rax, r10"))
     "$newb" (: (gen args[0]) (push_rax) (gen args[1]) (push_rax) (gen args[2]) (num2int "rax" "rdx")
                (popr "rsi") (num2int "rsi" "rsi") (popr "rcx") (num2int "rcx" "rcx")
-               (a "lea rdi, [rsi+7]") (a "and rdi, -8") (a "mov r9, rdi") (a "add rdi, 8")
+               (a "lea rdi, [rsi+8]") (a "and rdi, -8") (a "mov r9, rdi") (a "add rdi, 8")
                (a "mov rax, r13") (a "add r13, rdi") (a "cmp r13, [268435464]") (a "ja .oom")
                (a "shl rdx, 32") (a "or rdx, rcx") (a "mov [rax], rdx")
                (a "mov r8, rax") (a "lea rdi, [rax+8]") (a "mov rcx, r9") (a "xor rax, rax") (a "rep stosb") (a "mov rax, r8") (a "or rax, r10"))
@@ -297,6 +300,20 @@ TRACE_BASE=268435488
                 (a "mov rdx, [rax+8]") (a "movq xmm0, rdx") (a "cvttsd2si rdx, xmm0")
                 (a "mov rsi, [rax+16]") (untag "rsi") (a "add rsi, 8") (a "mov rdi, r15") (a "mov rcx, rdx") (a "rep movsq")
                 (a "mov r15, rdi") (a "mov rcx, rdx") (a "call .callclosure"))
+    "$peekw" (: (gen args[0]) (num2int "rax" "rcx") (a "mov rax, [rcx]"))
+    "$pokew" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (num2int "rcx" "rcx") (a "mov [rcx], rax"))
+    "$ptraddr" (: (gen args[0]) (untag "rax") (int2num "rax"))
+    "$mkptr" (: (gen args[0]) (num2int "rax" "rax") (a "or rax, r10"))
+    "$rawcopy" (: (for e args (gen e) (push_rax)) (popr "rcx") (num2int "rcx" "rcx") (popr "rsi") (num2int "rsi" "rsi") (popr "rdi") (num2int "rdi" "rdi") (a "rep movsb") (a "mov rax, r11"))
+    "$vtop" (: (a "mov rax, r14") (int2num "rax"))
+    "$vbase" (: (a "mov rax, [268435512]") (int2num "rax"))
+    "$hptr" (: (a "mov rax, r13") (int2num "rax"))
+    "$heapbase" (: (a "mov rax, [268435504]") (int2num "rax"))
+    "$nglob" (numconst 0 L.nglob)
+    "$gcset" (: (for e args (gen e) (push_rax))
+                (popr "rcx") (num2int "rcx" "rcx") (popr "rdx") (num2int "rdx" "rdx") (popr "rsi") (num2int "rsi" "rsi") (popr "r13") (num2int "r13" "r13")
+                (a "mov [268435464], rdx") (a "mov [268435504], rsi") (a "mov [268435496], rcx") (a "mov rax, r11"))
+    "$gclim" (: (gen args[0]) (num2int "rax" "rcx") (a "add rcx, r13") (a "mov [268435496], rcx") (a "mov rax, r11"))
     "$tracetop" (: (a "mov rax, [268435480]") (int2num "rax"))
     "$tracebase" (: (a "mov rax, [268435488]") (int2num "rax"))
     "$tracenames" (ptrconst 0 (strobj G.tracetab))
@@ -331,6 +348,7 @@ TRACE_BASE=268435488
   (? !f.rest (: (af "cmp rcx, %d" P) (a (++ "je " ok))))
   (af "mov rdx, %d" P) (a (? f.hasdef "lea rsi, [r11+3]" "mov rsi, r11")) (af "mov rdi, %d" (? f.rest 1 0)) (a "call .adjust")
   (label ok)
+  (gen_poll)
   (? G.trace (trace_push f))
   nloc=f.nslots-1-P-(? f.rest 1 0)
   (for k nloc (af "mov [r15+%d], r11" 8*k))
@@ -347,6 +365,9 @@ TRACE_BASE=268435488
 (= (gen_stubs)
   (label ".oom") (a "mov rdi, 137") (a "mov rax, 231") (a "syscall")
   (label ".err_num") (ptrconst 0 (strobj "expected number")) (a "jmp .throw")
+  (label ".gc")
+  (mov_imm64 0 0x7FFFFFFF 0xFFFFFFFF) (a "mov [268435496], rax")
+  (af "mov rsi, [%d]" (gaddr (prelude_gid "gc"))) (a "mov [r15], rsi") (a "add r15, 8") (a "mov rcx, 0") (a "call .callclosure") (a "ret")
   (label ".callclosure")
   (a "mov rax, rcx") (a "shl rax, 3") (a "mov rdx, r15") (a "sub rdx, rax") (a "mov rdx, [rdx-8]")
   (a "mov rax, rdx") (a "shr rax, 48") (a "cmp rax, 0xFFFA") (a "jne .notcallable")
@@ -377,10 +398,11 @@ TRACE_BASE=268435488
   (a "test rdi, rdi") (a "jz .Aret") (a "mov rax, 0") (a "mov r8, r15") (a "jmp .Amk")
   (label ".Arest") (a "mov rax, rcx") (a "sub rax, rdx") (a "lea r8, [r14+rdx*8+8]")
   (label ".Amk")                                    ; build a list of the rax values at [r8]; place it at r8
-  (a "mov r9, rax") (a "mov rsi, r9") (a "shl rsi, 3") (a "add rsi, 40")
+  (a "mov r9, rax") (a "mov rsi, r9") (a "test rsi, rsi") (a "jnz .Amk0") (a "mov rsi, 1") (label ".Amk0") (a "shl rsi, 3") (a "add rsi, 40")
   (a "mov rdi, r13") (a "add r13, rsi") (a "cmp r13, [268435464]") (a "ja .oom")
   (a "mov rax, r9") (a "shl rax, 32") (a "or rax, 3") (a "mov [rdi], rax")
   (a "mov rdx, rdi") (a "lea rdi, [rdx+8]") (a "mov rsi, r8") (a "mov rcx, r9") (a "rep movsq")
+  (a "test r9, r9") (a "jnz .Amk1") (a "add rdi, 8") (label ".Amk1")
   (mov_imm64 0 3 2) (a "mov [rdi], rax") (a "cvtsi2sd xmm0, r9") (a "movq rax, xmm0") (a "mov [rdi+8], rax")
   (a "mov rax, rdx") (a "or rax, r10") (a "mov [rdi+16], rax") (a "mov [rdi+24], r11") (a "mov rax, rdi") (a "or rax, r10")
   (a "mov r15, r8") (a "mov [r15], rax") (a "add r15, 8")
@@ -403,9 +425,10 @@ TRACE_BASE=268435488
 (= (gen_start main)
   (label "_start")
   (a "mov [268435472], rsp")
-  (mmap_to HEAP_SIZE "r13") (a "mov rcx, r13") (af "mov rdx, %d" HEAP_SIZE) (a "add rcx, rdx") (a "mov [268435464], rcx")
+  (mmap_to HEAP_SIZE "r13") (a "mov [268435504], r13") (a "mov rcx, r13") (af "mov rdx, %d" HEAP_SIZE) (a "add rcx, rdx") (a "mov [268435464], rcx")
+  (a "mov rcx, r13") (af "mov rdx, %d" GC_FIRST) (a "add rcx, rdx") (a "mov [268435496], rcx")
   (? G.trace (: (mmap_to 1073741824 "rax") (a "mov [268435480], rax") (a "mov [268435488], rax")))
-  (mmap_to 1073741824 "r15")
+  (mmap_to 1073741824 "r15") (a "mov [268435512], r15")
   (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx")
   (reload_consts)
   (a "mov r14, r15")
