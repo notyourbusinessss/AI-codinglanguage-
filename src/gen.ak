@@ -420,6 +420,11 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
     "$rawcopy" (: (for e args (gen e) (push_rax)) (popr "rcx") (num2int "rcx" "rcx") (popr "rsi") (num2int "rsi" "rsi") (popr "rdi") (num2int "rdi" "rdi") (a "rep movsb") (a "mov rax, r11"))
     "$envp" (: (a "mov rcx, [268435472]") (a "mov rax, [rcx]") (a "lea rax, [rcx+rax*8+16]") (int2num "rax"))
     "$gbase" (numconst 0 GBASE)
+    "$lget" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (untag "rcx") (a "mov rcx, [rcx+16]") (untag "rcx") (num2int "rax" "rdx") (a "mov rax, [rcx+rdx*8+8]"))
+    "$lset" (: (gen args[0]) (push_rax) (gen args[1]) (push_rax) (gen args[2]) (popr "rdx") (popr "rcx") (untag "rcx") (a "mov rcx, [rcx+16]") (untag "rcx") (num2int "rdx" "rdx") (a "mov [rcx+rdx*8+8], rax"))
+    "$hslot" (: (gen args[0]) (push_rax) (gen args[1]) (a "movq xmm1, rax") (popr "rcx") (a "movq xmm0, rcx")      ; floor(frac(h*phi) * size): multiplicative (Fibonacci) hashing
+                (mov_imm64 0 0x3FE3C6EF 0x372FE950) (a "movq xmm2, rax") (a "mulsd xmm0, xmm2") (a "roundsd xmm3, xmm0, 9") (a "subsd xmm0, xmm3")
+                (a "mulsd xmm0, xmm1") (a "roundsd xmm0, xmm0, 9") (a "movq rax, xmm0"))
     "$sp" (: (a "mov rax, rsp") (int2num "rax"))
     "$ld16" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (untag "rcx") (num2int "rax" "rdx") (a "movzx rax, word ptr [rcx+rdx+8]") (int2num "rax"))
     "$st16" (: (gen args[0]) (push_rax) (gen args[1]) (push_rax) (gen args[2]) (a "mov rdi, rax") (num2int "rax" "rsi")

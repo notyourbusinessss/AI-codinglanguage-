@@ -279,11 +279,11 @@ RNGI=nil
 (= (apply f l) ($apply f l))
 (= (tostr x) (? (isstr x) x (issym x) (symstr x) (isbig x) (bigstr x) (show x)))
 (= (++ ..a)
-  (? (&& #a>0 (islist a[0]))
+  n=#a
+  (? (&& n>0 (islist a[0]))
        (: total=0 (for l a total+=(len l)) r=(mklist total) (for l a (for i #l (lpush r (lget l i)))) r)
-     (: parts=(mklist #a) total=0
-        (for x a s=(tostr x) (lpush parts s) total+=($hlen s))
-        r=(strnew total) off=0 (for i #a s=(lget parts i) ($copy r off s 0 ($hlen s)) off+=($hlen s)) r)))
+     (: total=0 (for i n s=(tostr (lget a i)) (lset a i s) total+=($hlen s))
+        r=(strnew total) off=0 (for i n s=(lget a i) ($copy r off s 0 ($hlen s)) off+=($hlen s)) r)))
 (= ($ x) (tostr x))
 (= (err ..a) ($throw (join a " ")))
 (= (f64bits x) (list ($bitshi x) ($bitslo x)))
