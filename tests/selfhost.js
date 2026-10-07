@@ -12,16 +12,16 @@ const same = (a, b) => Buffer.compare(fs.readFileSync(a), fs.readFileSync(b)) ==
 const src = path.join(root, 'src/main.ak');
 const f = n => path.join(tmp, n);
 let t = Date.now();
-run('node', [path.join(root, 'boot', 'ak.js'), src, 'build', src, f('ak1')]); console.log(`bootstrap (JS) -> ak1   ${Date.now() - t}ms  ${fs.statSync(f('ak1')).size} bytes`);
-t = Date.now(); run(f('ak1'), ['build', src, f('ak2')]); console.log(`ak1 -> ak2              ${Date.now() - t}ms`);
-t = Date.now(); run(f('ak2'), ['build', src, f('ak3')]); console.log(`ak2 -> ak3              ${Date.now() - t}ms`);
-run(f('ak3'), ['build', src, f('ak4')], { AK_GCMIN: '2000000', AK_GCVERIFY: '1' });
+run('node', [path.join(root, 'boot', 'ak.js'), src, 'build', '--image', src, f('ak1')]); console.log(`bootstrap (JS) -> ak1   ${Date.now() - t}ms  ${fs.statSync(f('ak1')).size} bytes`);
+t = Date.now(); run(f('ak1'), ['build', '--image', src, f('ak2')]); console.log(`ak1 -> ak2              ${Date.now() - t}ms`);
+t = Date.now(); run(f('ak2'), ['build', '--image', src, f('ak3')]); console.log(`ak2 -> ak3              ${Date.now() - t}ms`);
+run(f('ak3'), ['build', '--image', src, f('ak4')], { AK_GCMIN: '2000000', AK_GCVERIFY: '1' });
 const ok = [same(f('ak1'), f('ak2')), same(f('ak2'), f('ak3')), same(f('ak3'), f('ak4'))];
 console.log(`fixpoint: ak1==ak2 ${ok[0]}, ak2==ak3 ${ok[1]}, GC-stress ak3==ak4 ${ok[2]}`);
 let seedOk = true;
 const seed = path.join(root, 'bin', 'ak');
 if (fs.existsSync(seed)) {
-  t = Date.now(); run(seed, ['build', src, f('b1')]); run(f('b1'), ['build', src, f('b2')]);
+  t = Date.now(); run(seed, ['build', '--image', src, f('b1')]); run(f('b1'), ['build', '--image', src, f('b2')]);
   seedOk = same(f('b2'), f('ak2'));
   console.log(`seed bin/ak -> b1 -> b2 (${Date.now() - t}ms): b2==ak2 ${seedOk}`);
 }
