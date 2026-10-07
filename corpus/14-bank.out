@@ -1,0 +1,5 @@
+ok 100
+ok 70
+error: insufficient funds
+error: bad op xfer
+ok 120

@@ -7,8 +7,16 @@ const WT = require('worker_threads');
 class AkError extends Error { constructor(m) { super(m); this.name = 'AkError'; } }
 
 // ---------------------------------------------------------------- core helpers
-const tr = x => x !== false && x !== null && x !== undefined;
-const isFnLike = x => typeof x === 'function' || typeof x === 'symbol';
+// Python-style truthiness: false nil 0 0n NaN "" [] {} are falsy
+function tr(x) {
+  if (!x) return false;
+  if (typeof x === 'object') {
+    if (Array.isArray(x)) return x.length > 0;
+    if (x instanceof Map) return x.size > 0;
+    if (ArrayBuffer.isView(x)) return x.length > 0;
+  }
+  return true;
+}
 
 function eq(a, b) {
   if (a === b) return true;
@@ -39,13 +47,12 @@ function demangle(s) {
 function fmtNum(x) { return Object.is(x, -0) ? '0' : String(x); }
 
 function show(x) {
-  if (x == null) return '_';
+  if (x == null) return 'nil';
   switch (typeof x) {
-    case 'boolean': return x ? 'T' : 'F';
+    case 'boolean': return x ? 'true' : 'false';
     case 'number': return fmtNum(x);
     case 'bigint': return x + 'n';
     case 'string': return JSON.stringify(x);
-    case 'symbol': return ':' + x.description;
     case 'function': return '<fn ' + (demangle(x.name || '') || '\\') + '>';
   }
   if (Array.isArray(x) || ArrayBuffer.isView(x)) return '[' + Array.from(x, show).join(' ') + ']';
@@ -54,7 +61,7 @@ function show(x) {
   if (x instanceof Error) return '<error ' + x.message + '>';
   return require('util').inspect(x, { depth: 4, breakLength: Infinity });
 }
-const tostr = x => typeof x === 'string' ? x : show(x);
+const tostr = x => typeof x === 'string' ? x : typeof x === 'bigint' ? String(x) : show(x);
 
 function msg(e) {
   if (e instanceof AkError) return e.message;
@@ -64,7 +71,6 @@ function msg(e) {
 
 function fn(f) {
   if (typeof f === 'function') return f;
-  if (typeof f === 'symbol') return m => at(m, f);
   if (Array.isArray(f) || f instanceof Map || typeof f === 'string' || ArrayBuffer.isView(f)) return i => at(f, i);
   throw new AkError('not callable: ' + show(f));
 }
@@ -79,14 +85,13 @@ function at(c, i, j) {
     return v === undefined ? null : v;
   }
   if (c instanceof Map) { const v = c.get(i); return v === undefined ? null : v; }
-  const v = c[typeof i === 'symbol' ? i.description : i];
+  const v = c[i];
   return v === undefined ? null : v;
 }
 
 function put(c, k, v) {
   if (c instanceof Map) c.set(k, v);
   else {
-    if (typeof k === 'symbol') k = k.description;
     if (typeof k === 'number' && k < 0) k += c.length;
     c[k] = v;
   }
@@ -102,17 +107,30 @@ function len(c) {
 
 function it(c) {
   if (Array.isArray(c) || typeof c === 'string' || ArrayBuffer.isView(c)) return c;
-  if (c instanceof Map) return Array.from(c.keys());
+  if (c instanceof Map) return Array.from(c);          // maps iterate as [key, value] entries
   if (c == null) return [];
-  if (typeof c[Symbol.iterator] === 'function') return c;
-  return Object.keys(c);
-}
-const ents = c => {
-  if (c instanceof Map) return Array.from(c);
-  if (Array.isArray(c) || typeof c === 'string' || ArrayBuffer.isView(c)) return Array.from(c, (v, i) => [i, v]);
-  if (c == null) return [];
+  if (typeof c[Symbol.iterator] === 'function') return Array.from(c);
   return Object.entries(c);
-};
+}
+// destructuring source: array-like -> array
+const toArr = c => Array.isArray(c) ? c : (c == null ? [] : Array.from(it(c)));
+// field access: maps look up the key (string); everything else is a JS property
+function dot(o, k) {
+  if (o == null) return null;
+  if (o instanceof Map) { const v = o.get(k); if (v !== undefined) return v; const p = o[k]; return typeof p === 'function' ? p.bind(o) : (p === undefined ? null : p); }
+  const v = o[k]; return v === undefined ? null : v;
+}
+function setdot(o, k, v) { if (o instanceof Map) o.set(k, v); else o[k] = v; return v; }
+// polymorphic +: numbers add, strings concat (other side stringified), lists concat
+function add(a, b) { return (typeof a === 'number' && typeof b === 'number') ? a + b : slowAdd(a, b); }
+function slowAdd(a, b) {
+  const ta = typeof a, tb = typeof b;
+  if (ta === 'string') return a + tostr(b);
+  if (tb === 'string') return tostr(a) + b;
+  if (Array.isArray(a) && Array.isArray(b)) return a.concat(b);
+  if ((ta === 'number' || ta === 'bigint') && ta === tb) return a + b;
+  throw new AkError('cannot add ' + tyOf(a) + ' and ' + tyOf(b));
+}
 
 function div(a, b) {
   if (b == 0) throw new AkError('division by zero');
@@ -181,9 +199,8 @@ function inAll() { flush(); while (!ineof) fill(); const s = inbuf; inbuf = ''; 
 // ---------------------------------------------------------------- json
 function toJ(x) {
   if (x === undefined) return null;
-  if (x instanceof Map) { const o = {}; for (const [k, v] of x) o[typeof k === 'symbol' ? k.description : String(k)] = toJ(v); return o; }
+  if (x instanceof Map) { const o = {}; for (const [k, v] of x) o[String(k)] = toJ(v); return o; }
   if (Array.isArray(x) || ArrayBuffer.isView(x)) return Array.from(x, toJ);
-  if (typeof x === 'symbol') return x.description;
   if (typeof x === 'bigint') return Number(x);
   return x;
 }
@@ -199,7 +216,7 @@ const tyOf = x => {
   if (x == null) return 'nil';
   switch (typeof x) {
     case 'boolean': return 'bool'; case 'number': case 'bigint': return 'num';
-    case 'string': return 'str'; case 'symbol': return 'kw'; case 'function': return 'fn';
+    case 'string': return 'str'; case 'function': return 'fn';
   }
   if (Array.isArray(x)) return 'list';
   if (x instanceof Map) return 'map';
@@ -244,15 +261,15 @@ function minmax(sign) {
 
 const B = {
   // math (also inlined by the compiler when called directly)
-  '+': (...a) => { if (!a.length) return 0; let r = a[0]; for (let i = 1; i < a.length; i++) r += a[i]; return a.length === 1 ? +r : r; },
+  '+': (...a) => { if (!a.length) return 0; let r = a[0]; for (let i = 1; i < a.length; i++) r = add(r, a[i]); return r; },
   '-': (...a) => { if (!a.length) return 0; if (a.length === 1) return -a[0]; let r = a[0]; for (let i = 1; i < a.length; i++) r -= a[i]; return r; },
   '*': (...a) => { let r = 1; for (let i = 0; i < a.length; i++) r *= a[i]; return r; },
   '/': (...a) => { if (a.length === 1) return div(1, a[0]); let r = a[0]; for (let i = 1; i < a.length; i++) r = div(r, a[i]); return r; },
   '%': mod, '//': fdiv, '**': (a, b) => a ** b,
   '<': chain((a, b) => a < b), '>': chain((a, b) => a > b), '<=': chain((a, b) => a <= b), '>=': chain((a, b) => a >= b),
   '==': eq, '!=': (a, b) => !eq(a, b), '!': a => !tr(a),
-  band: (...a) => a.reduce((x, y) => x & y), bor: (...a) => a.reduce((x, y) => x | y), bxor: (...a) => a.reduce((x, y) => x ^ y),
-  bnot: a => ~a, shl: (a, b) => a << b, shr: (a, b) => a >> b, ushr: (a, b) => a >>> b,
+  '&': (...a) => a.reduce((x, y) => x & y), '|': (...a) => a.reduce((x, y) => x | y), '^': (...a) => a.reduce((x, y) => x ^ y),
+  '<<': (a, b) => a << b, '>>': (a, b) => a >> b, '>>>': (a, b) => a >>> b, bnot: a => ~a,
   abs: Math.abs, sqrt: Math.sqrt, flr: Math.floor, cel: Math.ceil, rnd: Math.round,
   int: x => typeof x === 'bigint' ? x : Math.trunc(Number(x)),
   min: minmax(-1), max: minmax(1),
@@ -264,8 +281,9 @@ const B = {
   '@': at, '@!': (c, i) => c[i] ?? null, '<@': put, '<@!': (c, i, v) => c[i] = v,
   '#': len,
   '+>': (l, ...x) => l.concat(x),
-  '<<': (l, ...x) => { for (let i = 0; i < x.length; i++) l.push(x[i]); return l; },
-  '>>': l => { const v = l.pop(); return v === undefined ? null : v; },
+  push: (l, ...x) => { for (let i = 0; i < x.length; i++) l.push(x[i]); return l; },
+  pop: l => { const v = l.pop(); return v === undefined ? null : v; },
+  enum: l => Array.from(it(l), (v, i) => [i, v]),
   set: (c, k, v) => {
     if (c instanceof Map) { const m = new Map(c); m.set(k, v); return m; }
     if (Array.isArray(c) || ArrayBuffer.isView(c)) { const l = c.slice(); put(l, k, v); return l; }
@@ -274,7 +292,7 @@ const B = {
   del: (c, k) => {
     if (c instanceof Map) { const m = new Map(c); m.delete(k); return m; }
     if (Array.isArray(c)) { const l = c.slice(); l.splice(k < 0 ? k + l.length : k, 1); return l; }
-    const o = { ...c }; delete o[typeof k === 'symbol' ? k.description : k]; return o;
+    const o = { ...c }; delete o[k]; return o;
   },
   '..': rng,
   '~': mapf,
@@ -304,7 +322,7 @@ const B = {
     if (typeof c === 'string') return c.includes(x);
     if (c instanceof Map || c instanceof Set) return c.has(x);
     if (Array.isArray(c) || ArrayBuffer.isView(c)) { for (let i = 0; i < c.length; i++) if (eq(c[i], x)) return true; return false; }
-    return Object.prototype.hasOwnProperty.call(c, typeof x === 'symbol' ? x.description : x);
+    return Object.prototype.hasOwnProperty.call(c, x);
   },
   any: (f, l) => { f = fn(f); for (const x of arr(l)) if (tr(f(x))) return true; return false; },
   all: (f, l) => { f = fn(f); for (const x of arr(l)) if (!tr(f(x))) return false; return true; },
@@ -330,12 +348,13 @@ const B = {
   trim: s => s.trim(), up: s => s.toUpperCase(), lo: s => s.toLowerCase(),
   rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
+  rpt: (s, n) => s.repeat(Math.max(0, n)),
   padl: (s, n, c) => tostr(s).padStart(n, c === undefined ? ' ' : c), padr: (s, n, c) => tostr(s).padEnd(n, c === undefined ? ' ' : c),
   chr: n => String.fromCodePoint(n), ord: s => s.codePointAt(0),
   num,
   re: (p, f) => new RegExp(p, f), match: (r, s) => { const m = (r instanceof RegExp ? r : new RegExp(r)).exec(s); return m ? Array.from(m, x => x === undefined ? null : x) : null; },
   // types / errors
-  ty: x => Symbol.for(tyOf(x)), is: (t, x) => Symbol.for(tyOf(x)) === t,
+  ty: tyOf, is: (t, x) => tyOf(x) === t,
   err: (...a) => { throw new AkError(a.map(tostr).join(' ')); },
   // io / system
   p: (...a) => { out(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
@@ -363,8 +382,8 @@ const B = {
   },
 };
 
-const H = { tr, eq, fn, at, put, len, it, ents, div, mod, fdiv, msg,
-  mcall: (o, m, a) => o[typeof m === 'symbol' ? m.description : m](...a) };
+const H = { tr, eq, fn, at, put, len, it, toArr, dot, setdot, add, div, mod, fdiv, msg,
+  mcall: (o, m, a) => o[m](...a) };
 const api = { B, H };
 
 // ---------------------------------------------------------------- launcher
