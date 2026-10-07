@@ -1,0 +1,1 @@
+{ "name": "ak-lang", "version": "0.2.0", "description": "Ak: fast LLM-oriented language compiled to JS", "bin": { "ak": "ak.js" }, "scripts": { "test": "node tests/test.js" }, "license": "MIT" }
