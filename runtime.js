@@ -423,6 +423,16 @@ const B = {
   wr: (f, s) => { fs.writeFileSync(f, Array.isArray(s) ? Buffer.from(s) : s); return s; },
   app: (f, s) => { fs.appendFileSync(f, Array.isArray(s) ? Buffer.from(s) : s); return s; },
   wrx: (f, s) => { fs.writeFileSync(f, Array.isArray(s) ? Buffer.from(s) : s, { mode: 0o755 }); fs.chmodSync(f, 0o755); return s; },
+  // run an executable image (string or byte list) with arguments; never returns (exits with the program's status)
+  runx: (img, args) => {
+    flush();
+    const os = require('os'), cp = require('child_process');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akx-')), f = path.join(dir, 'a.out');
+    fs.writeFileSync(f, Array.isArray(img) ? Buffer.from(img) : img, { mode: 0o755 }); fs.chmodSync(f, 0o755);
+    const r = cp.spawnSync(f, Array.from(args || []).map(String), { stdio: 'inherit' });
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
+    process.exit(r.status === null ? 1 : r.status);
+  },
   ls: d => fs.readdirSync(d === undefined ? '.' : d), ex: f => fs.existsSync(f),
   in: inLine, inall: inAll, args: () => ARGV.slice(),
   env: k => k === undefined ? new Map(Object.entries(process.env)) : (process.env[k] ?? null),

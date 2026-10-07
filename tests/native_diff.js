@@ -1,5 +1,5 @@
 'use strict';
-// Differential test: native executable (compiled by src/native.ak running on the bootstrap) vs the JS backend.
+// Differential test: native executable (compiled by src/main.ak running on the bootstrap) vs the JS backend.
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
 const root = path.join(__dirname, '..');
 const dir = path.join(__dirname, 'native');
@@ -9,7 +9,7 @@ for (const f of files) {
   const src = path.isAbsolute(f) ? f : path.join(dir, f);
   const want = cp.spawnSync('node', [path.join(root, 'ak.js'), src], { encoding: 'utf8', timeout: 60000 });
   const exe = path.join(tmp, path.basename(f, '.ak'));
-  const c = cp.spawnSync('node', [path.join(root, 'ak.js'), path.join(root, 'src/native.ak'), 'compile', src, exe], { encoding: 'utf8', timeout: 120000 });
+  const c = cp.spawnSync('node', [path.join(root, 'ak.js'), path.join(root, 'src/main.ak'), 'compile', src, exe], { encoding: 'utf8', timeout: 120000 });
   if (c.status !== 0) { bad++; console.log('FAIL compile', f, '\n  ', (c.stderr || c.stdout).split('\n').slice(0, 3).join('\n   ')); continue; }
   const got = cp.spawnSync(exe, [], { encoding: 'utf8', timeout: 20000 });
   const ok = got.stdout === want.stdout && got.status === want.status;

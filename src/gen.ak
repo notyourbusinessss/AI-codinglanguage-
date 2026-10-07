@@ -305,6 +305,7 @@ TRACE_BASE=268435488
     "$ptraddr" (: (gen args[0]) (untag "rax") (int2num "rax"))
     "$mkptr" (: (gen args[0]) (num2int "rax" "rax") (a "or rax, r10"))
     "$rawcopy" (: (for e args (gen e) (push_rax)) (popr "rcx") (num2int "rcx" "rcx") (popr "rsi") (num2int "rsi" "rsi") (popr "rdi") (num2int "rdi" "rdi") (a "rep movsb") (a "mov rax, r11"))
+    "$envp" (: (a "mov rcx, [268435472]") (a "mov rax, [rcx]") (a "lea rax, [rcx+rax*8+16]") (int2num "rax"))
     "$vtop" (: (a "mov rax, r14") (int2num "rax"))
     "$vbase" (: (a "mov rax, [268435512]") (int2num "rax"))
     "$hptr" (: (a "mov rax, r13") (int2num "rax"))
@@ -447,7 +448,9 @@ TRACE_BASE=268435488
   (gen_start main)
   (gen_stubs)
   (for f L.funcs (gen_fn f))
+  (? (env "AK_TIME") (ep "codegen done" (clock)))
   (link)
+  (? (env "AK_TIME") (ep "linked" (clock)))
   (for [off lbl] G.dfix
     t=A.labels[lbl]
     (? t==nil (err (++ "undefined label " lbl)))
