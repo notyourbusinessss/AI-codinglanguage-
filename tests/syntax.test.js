@@ -1,6 +1,6 @@
 'use strict';
-const { parse } = require('../syntax.js');
-const { Sym } = require('../ast.js');
+const { parse } = require('../boot/syntax.js');
+const { Sym } = require('../boot/ast.js');
 const dump = x => x === null ? 'nil' : x === true ? 'true' : x === false ? 'false' : x instanceof Sym ? x.n : typeof x === 'string' ? JSON.stringify(x) : typeof x === 'bigint' ? x + 'n' : Array.isArray(x) ? '(' + x.map(dump).join(' ') + ')' : String(x);
 const P = s => parse(s, '<t>').map(dump).join(' ; ');
 const OK = [

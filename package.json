@@ -1,13 +1,14 @@
 {
   "name": "ak-lang",
-  "version": "0.4.0",
-  "description": "Ak: token-cheap, fast LLM-oriented language compiled to JS",
+  "version": "0.5.0",
+  "description": "Ak: a token-cheap language for LLMs. Self-hosted native compiler (x86-64 Linux, no libc), plus a JS target.",
   "bin": {
-    "ak": "ak.js"
+    "ak": "boot/ak.js"
   },
   "scripts": {
-    "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/spec.test.js && node tests/cli.test.js && node tests/parse_diff.js 800 && node tests/x86_diff.js 1 1500 && node tests/native_elf.test.js && node tests/examples.test.js && node tests/corpus.js && node tests/fuzz.js 3000 1",
-    "fuzz": "node tests/fuzz.js 20000 7 -v"
+    "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/spec.test.js && node tests/cli.test.js && node tests/parse_diff.js 800 && node tests/x86_diff.js 1 1500 && node tests/native_elf.test.js && node tests/examples.test.js && node tests/corpus.js && node tests/fuzz.js 3000 1 && node tests/selfhost.js && node tests/native_diff.js",
+    "fuzz": "node tests/fuzz.js 20000 7 -v",
+    "bootstrap": "node boot/ak.js src/main.ak build src/main.ak bin/ak"
   },
   "license": "MIT"
 }
