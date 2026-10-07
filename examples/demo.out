@@ -1,12 +1,12 @@
 fib 50 = 12586269025
 [4 16 36 64 100]
-:a 1
-:b 2
+a 1
+b 2
 9
 10
 caught: division by zero
-T
-:few
+true
+few
 9 ABC b.txt
-hello world _
+hello world nil
 done 0

@@ -1,0 +1,6 @@
+(= srv (http.createServer (\ (rq rs) (. rs :end (json {"path" (.@ rq :url) "n" 3})))))
+(. srv :listen 0)
+(aw (new Promise (\ (ok) (. srv :once "listening" ok))))
+(= body (unjson (aw (. (aw (fetch (++ "http://127.0.0.1:" (.@ (. srv :address) :port) "/hi"))) :text))))
+(p "server said" (@ body "path") (@ body "n"))
+(. srv :close)

@@ -2,5 +2,5 @@ server said /hi 3
 total 60
 from-subprocess
 ["bob@acme.com" "bob" "acme"]
-T 0
+true 0
 {"ok":true,"xs":[1,2,3]}

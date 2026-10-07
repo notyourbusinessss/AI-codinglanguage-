@@ -1,0 +1,8 @@
+(= pairs {")" "(" "]" "[" "}" "{"})
+(= (bal s)
+  (let (st [] ok T)
+    (for (c (split s ""))
+      (? (has "([{" c) (<< st c)
+         (has (keys pairs) c) (? (| (== (# st) 0) (!= (>> st) (@ pairs c))) (<- ok F))))
+    (& ok (== (# st) 0))))
+(for (s ["([]{})" "([)]" "((" "{[()]}()"]) (p (? (bal s) "yes" "no")))

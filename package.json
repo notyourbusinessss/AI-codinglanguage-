@@ -1,1 +1,2 @@
-{ "name": "ak-lang", "version": "0.2.0", "description": "Ak: fast LLM-oriented language compiled to JS", "bin": { "ak": "ak.js" }, "scripts": { "test": "node tests/test.js" }, "license": "MIT" }
+{ "name": "ak-lang", "version": "0.3.0", "description": "Ak: token-cheap, fast LLM-oriented language compiled to JS", "bin": { "ak": "ak.js" },
+  "scripts": { "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/examples.test.js && node tests/corpus.js" }, "license": "MIT" }

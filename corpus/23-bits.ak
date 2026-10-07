@@ -1,0 +1,12 @@
+(= (pop n) (let (c 0) (wh n>0 c+=n&1 n=n>>>1) c))
+(= (pow2 n) n>0&&0==(n&n-1))
+(= (gray n) n^n>>1)
+(p (pop 255) (pop 1023) (pop 0))
+(p (join (~ n=>(? (pow2 n) "y" "n") [1 2 3 64 100]) " "))
+(p (join (~ i=>(padl (gray i).toString(2) 3 "0") (.. 8)) " "))
+x=12
+y=25
+x=x^y
+y=y^x
+x=x^y
+(p x y)

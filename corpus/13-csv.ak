@@ -1,0 +1,3 @@
+g={}
+(for line (split (trim (inall)) "\n") (let (f (split line ",") d f[1]) g[d]=(+> g[d]??[] (num f[2]))))
+(for d (sort (keys g)) (p d (sum g[d]) (sum g[d])//#g[d]))
