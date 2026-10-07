@@ -14,7 +14,11 @@ T_STR=1 T_LIST=2 T_ARR=3 T_MAP=4 T_CLOSURE=5 T_BOX=6 T_SYM=7 T_BYTES=8
 HEAP_SIZE=17179869184
 G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
 
+TRACE_ADDR=268435480
+TRACE_BASE=268435488
 (= (a s) (asm s))
+(= (trace_push f) (a "mov rax, [268435480]") (af "mov rdx, %d" f.id) (a "mov [rax], rdx") (a "add rax, 8") (a "mov [268435480], rax"))
+(= (trace_pop) (a "mov rcx, [268435480]") (a "sub rcx, 8") (a "mov [268435480], rcx"))
 (= (af f ..xs) (asm (fmt f ..xs)))
 (= (nl) G.lbl+=1 (++ ".L" G.lbl))
 (= (untag r) (af "shl %s, 16" r) (af "shr %s, 16" r))
@@ -133,7 +137,7 @@ G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
   (? tail
      (: (for i n+1 (af "mov rax, [r15-%d]" 8*(n+1-i)) (af "mov [r14+%d], rax" 8*i))
         (af "lea r15, [r14+%d]" 8*(n+1))
-        (a "pop r14") (af "mov rcx, %d" n) (a "jmp .callclosure"))
+        (a "pop r14") (? G.trace (trace_pop)) (af "mov rcx, %d" n) (a "jmp .callclosure"))
      (: (af "mov rcx, %d" n) (a "call .callclosure"))))
 
 ; ---- closures
@@ -147,14 +151,17 @@ G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
 
 ; ---- exceptions: record on the machine stack = [r15, r14, handler, prev]; HEAD points at it
 (= (gen_try x) body=x[1] v=x[2] handler=x[3] lh=(nl) lend=(nl)
+  (? G.trace (: (a "mov rax, [268435480]") (a "push rax")))
   (a "mov rax, [268435456]") (a "push rax")
   (lea_l 0 lh) (a "push rax") (a "push r14") (a "push r15")
   (a "mov [268435456], rsp")
   (gen body)
   (a "add rsp, 24") (a "pop rcx") (a "mov [268435456], rcx")
+  (? G.trace (a "add rsp, 8"))
   (a (++ "jmp " lend))
   (label lh)
   (a "pop r15") (a "pop r14") (a "add rsp, 8") (a "pop rcx") (a "mov [268435456], rcx")
+  (? G.trace (: (a "pop rcx") (a "mov [268435480], rcx")))
   (af "mov [r14+%d], rax" 8*v.slot)
   (? (boxed v) (: (alloc_const 16) (mov_imm64 1 1 T_BOX) (a "mov [rax], rcx") (af "mov rcx, [r14+%d]" 8*v.slot) (a "mov [rax+8], rcx") (a "or rax, r10") (af "mov [r14+%d], rax" 8*v.slot)))
   (gen handler)
@@ -290,6 +297,9 @@ G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
                 (a "mov rdx, [rax+8]") (a "movq xmm0, rdx") (a "cvttsd2si rdx, xmm0")
                 (a "mov rsi, [rax+16]") (untag "rsi") (a "add rsi, 8") (a "mov rdi, r15") (a "mov rcx, rdx") (a "rep movsq")
                 (a "mov r15, rdi") (a "mov rcx, rdx") (a "call .callclosure"))
+    "$tracetop" (: (a "mov rax, [268435480]") (int2num "rax"))
+    "$tracebase" (: (a "mov rax, [268435488]") (int2num "rax"))
+    "$tracenames" (ptrconst 0 (strobj G.tracetab))
     "$void" (a "mov rax, r11")
     "$copy" (: (for e args (gen e) (push_rax))
                (popr "rcx") (num2int "rcx" "rcx") (popr "rdx") (num2int "rdx" "rdx") (popr "rsi") (untag "rsi") (popr "r8") (num2int "r8" "r8") (popr "rdi") (untag "rdi")
@@ -321,6 +331,7 @@ G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
   (? !f.rest (: (af "cmp rcx, %d" P) (a (++ "je " ok))))
   (af "mov rdx, %d" P) (a (? f.hasdef "lea rsi, [r11+3]" "mov rsi, r11")) (af "mov rdi, %d" (? f.rest 1 0)) (a "call .adjust")
   (label ok)
+  (? G.trace (trace_push f))
   nloc=f.nslots-1-P-(? f.rest 1 0)
   (for k nloc (af "mov [r15+%d], r11" 8*k))
   (? nloc>0 (af "add r15, %d" 8*nloc))
@@ -329,6 +340,7 @@ G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
        (? v.param (: (box_new_nil) (af "mov rcx, [r14+%d]" 8*v.slot) (a "mov [rax+8], rcx") (af "mov [r14+%d], rax" 8*v.slot))
           (! v.inited) (: (box_new_nil) (af "mov [r14+%d], rax" 8*v.slot)))))
   (gen f.body)
+  (? G.trace (trace_pop))
   (a "mov r15, r14") (a "pop r14") (a "ret"))
 
 ; ---- runtime stubs (assembly)
@@ -392,6 +404,7 @@ G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
   (label "_start")
   (a "mov [268435472], rsp")
   (mmap_to HEAP_SIZE "r13") (a "mov rcx, r13") (af "mov rdx, %d" HEAP_SIZE) (a "add rcx, rdx") (a "mov [268435464], rcx")
+  (? G.trace (: (mmap_to 1073741824 "rax") (a "mov [268435480], rax") (a "mov [268435488], rax")))
   (mmap_to 1073741824 "r15")
   (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx")
   (reload_consts)
@@ -403,6 +416,8 @@ G={:fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
 (= (patch32 arr pos v) (for i 4 arr[pos+i]=(v>>(8*i))&255))
 (= (gen_program main)
   (asm_reset)
+  G.trace=(!= (env "AK_TRACE") nil)
+  G.tracetab=(join (~ f=>(++ f.id " " f.name " " f.pos) L.funcs) "\n")
   G.data=[] (for i 64 (dbyte 0))
   (for i L.nglob (dword 0 0xFFF90000))
   (for f L.funcs (collect_inits f.body))

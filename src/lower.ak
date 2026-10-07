@@ -8,7 +8,7 @@
 L={:cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot"]
-INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply"]
+INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames"]
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (S n) (sym n))
 (= (issym x) (is "sym" x))
@@ -26,7 +26,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 
 ; ---- records
 (= (newfn name parent)
-  f={:id (newid) :name name :parent parent :nslots 1 :nparams 0 :rest false :hasdef false :free [] :freeidx {} :body nil :ismod false :root nil :ret nil :vars [] :static nil}
+  f={:id (newid) :name name :parent parent :nslots 1 :nparams 0 :rest false :hasdef false :free [] :freeidx {} :body nil :ismod false :root nil :ret nil :vars [] :static nil :pos (++ L.file ":" L.line)}
   (push L.funcs f) f)
 (= (newslot) s=L.cf.nslots L.cf.nslots=s+1 s)
 (= (mkvar name kind) {:id (newid) :name name :kind kind :fn L.cf :slot -1 :gid -1 :captured false :assigned false :param false :arity nil :isfn false :predecl false :set false})
@@ -37,7 +37,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (push_scope) L.cs={:vars {} :parent L.cs :fn L.cf})
 (= (pop_scope) L.cs=L.cs.parent)
 (= (lookup name) s=L.cs r=nil (wh (&& s r==nil) r=s.vars[name] s=s.parent) r)
-(= (lookup_local name) s=L.cs r=nil (wh (&& s r==nil s.fn.id==L.cf.id) r=s.vars[name] s=s.parent) r)
+(= (lookup_local name) s=L.cs r=nil (wh (&& s r==nil s.fn.id==L.cf.id (! s.isprel)) r=s.vars[name] s=s.parent) r)   ; the runtime scope is not local to user code: user globals shadow runtime names
 (= (lookup_outer name) s=L.cs (wh (&& s s.fn.id==L.cf.id) s=s.parent)
   r=nil (wh (&& s r==nil) r=s.vars[name] s=s.parent) r)
 ; a function-level variable (Python semantics): hoisted at the root of the current function; module level -> global
@@ -400,6 +400,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   (for [n v] L.prelude.vars v.pre=true)          ; operators inside the runtime itself are inlined too
   pre=(lowerseq prelude_forms false)
   L.file=file
+  L.prelude.isprel=true
   (push_scope) main.root=L.cs
   (predeclare (decls user_forms))
   user=(lowerseq user_forms false)

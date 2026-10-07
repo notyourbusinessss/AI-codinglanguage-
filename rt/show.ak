@@ -6,7 +6,7 @@
         (wh x>0 q=($ffloor ($fdiv x 10)) d=($fsub x ($fmul q 10)) i-=1 ($stb buf i 48+d) x=q)
         (? neg (: i-=1 ($stb buf i 45)))
         (strslice buf i 24))))
-(= (digits m)                  ; m: integral double < 1e17 -> decimal digit string
+(= (digits_unused m)                  ; m: integral double < 1e17 -> decimal digit string
   (? m<9007199254740992 (fmtint m)
      (: hi=($ffloor ($fdiv m 100000000)) lo=($fsub m ($fmul hi 100000000))
         (? lo<0 (: hi=($fsub hi 1) lo=($fadd lo 100000000)))
@@ -19,21 +19,6 @@ P10=nil
   (? e==0 m
      e>0 (: (wh e>22 m=($fmul m 1e22) e-=22) ($fmul m (pow10 e)))
      (: e=($fsub 0 e) (wh e>22 m=($fdiv m 1e22) e-=22) ($fdiv m (pow10 e)))))
-(= (shortest ax)               ; positive finite double -> [digit string, n] with ax = 0.DIGITS * 10^n
-  e10=0 t=ax
-  (wh t>=10 t=($fdiv t 10) e10+=1)
-  (wh t<1 t=($fmul t 10) e10-=1)
-  res=nil p=1
-  (wh (&& ($isnil res) p<=17)
-    m=($ffloor ($fadd (scale10 ax p-1-e10) 0.5))
-    (? m>=(pow10 (? p>22 22 p)) (: e10+=1 m=($ffloor ($fadd (scale10 ax p-1-e10) 0.5))))
-    (? (== (scale10 m e10-p+1) ax) res=(list m p))
-    (? (&& ($isnil res) p==17) res=(list m p))
-    p+=1)
-  ds=(digits res[0])
-  ; strip trailing zeros
-  k=#ds (wh (&& k>1 (== ($ldb ds k-1) 48)) k-=1)
-  (list (strslice ds 0 k) e10+1))
 (= (fmtflt x)
   neg=x<0 ax=(abs x) r=(shortest ax) ds=r[0] n=r[1] k=#ds
   s=(? (&& k<=n n<=21) (strcat2 ds (rpt "0" n-k))
@@ -98,19 +83,25 @@ P10=nil
         (wh (&& ok i<n) d=(digitval ($ldb s i)) (? d>=radix ok=false (: v=($fadd ($fmul v radix) d) i+=1)))
         (? ok v nil))))
 (= (parsedec s i n)
-  m=0 digits=0 frac=0
-  (wh (&& i<n (isdig ($ldb s i))) m=($fadd ($fmul m 10) (- ($ldb s i) 48)) i+=1 digits+=1)
-  (? (&& i<n (== ($ldb s i) 46))
-     (: i+=1 (wh (&& i<n (isdig ($ldb s i))) m=($fadd ($fmul m 10) (- ($ldb s i) 48)) i+=1 digits+=1 frac+=1)))
-  (? digits==0 nil
+  i0=i (wh (&& i<n (isdig ($ldb s i))) i+=1) i1=i j0=i j1=i
+  (? (&& i<n (== ($ldb s i) 46)) (: i+=1 j0=i (wh (&& i<n (isdig ($ldb s i))) i+=1) j1=i))
+  (? (== (+ (- i1 i0) (- j1 j0)) 0) nil
      (: ex=0 ok=true
         (? (&& i<n (|| (== ($ldb s i) 101) (== ($ldb s i) 69)))
            (: i+=1 eneg=false
               (? (&& i<n (|| (== ($ldb s i) 43) (== ($ldb s i) 45))) (: eneg=(== ($ldb s i) 45) i+=1))
-              ed=0 (wh (&& i<n (isdig ($ldb s i))) ex=($fadd ($fmul ex 10) (- ($ldb s i) 48)) i+=1 ed+=1)
+              ed=0 (wh (&& i<n (isdig ($ldb s i))) (? ex<100000000 ex=($fadd ($fmul ex 10) (- ($ldb s i) 48))) i+=1 ed+=1)
               (? ed==0 ok=false)
               (? eneg ex=($fsub 0 ex))))
-        (? (&& ok i==n) (scale10 m ex-frac) nil))))
+        (? (&& ok i==n)
+           (: dg=(strcat2 (strslice s i0 i1) (strslice s j0 j1)) e10=ex-(j1-j0) a=0
+              (wh (&& a<#dg (== ($ldb dg a) 48)) a+=1)
+              b=#dg (wh (&& b>a (== ($ldb dg b-1) 48)) b-=1)
+              (? a==b 0
+                 e10+#dg-b+(b-a)<-400 0
+                 e10+#dg-b+(b-a)>400 ($fdiv 1 0)
+                 (strtod (strslice dg a b) e10+(#dg-b))))
+           nil))))
 (= (num s)
   (? ($isnum s) s
      (! (isstr s)) nil
@@ -126,13 +117,6 @@ P10=nil
                     (? (&& (! ($isnil v)) neg) ($fsub 0 v) v))))))))
 
 ; ---- fmt: %[-][0][width][.prec](s|d|f|x|X|b|o|%)
-(= (tofixed x prec)
-  neg=x<0 ax=(abs x)
-  m=($ffloor ($fadd (scale10 ax prec) 0.5))
-  ds=(digits m)
-  (? (<= #ds prec) ds=(strcat2 (rpt "0" prec+1-#ds) ds))
-  s=(? prec==0 ds (strcat2 (strcat2 (strslice ds 0 #ds-prec) ".") (strslice ds #ds-prec #ds)))
-  (? (&& neg (> m 0)) (strcat2 "-" s) s))
 (= (toradix x radix)
   neg=x<0 x=(abs ($ftrunc x))
   (? x==0 "0"

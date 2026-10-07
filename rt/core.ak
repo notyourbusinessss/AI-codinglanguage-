@@ -30,7 +30,19 @@ OBN=0
 (= (eout s) (flush) (rawwrite 2 s ($hlen s)))
 (= (finish) (flush))
 (= (exit code) (flush) ($syscall 231 (? ($isnil code) 0 code)))
-(= (fatal msg) (flush) (eout "error: ") (eout (? (isstr msg) msg "runtime error")) (eout "\n") ($syscall 231 1))
+INFATAL=false
+(= (fatal msg) (? INFATAL ($syscall 231 1)) (<- INFATAL true) (flush) (eout "error: ") (eout (? (isstr msg) msg "runtime error")) (eout "\n") (tracedump) ($syscall 231 1))
+(= (tracedump)
+  base=($tracebase) top=($tracetop)
+  (? top>base
+     (: names=(split ($tracenames) "\n") tab=(map)
+        (for l names sp=(split l " ") (mapset tab (num sp[0]) l))
+        a=top-8
+        (wh (&& a>=base a>=top-8*40)
+          id=(+ ($peek a) (* 256 ($peek a+1)) (* 65536 ($peek a+2)))
+          (eout (strcat2 (strcat2 "  at " (or2 (mapget tab id) (fmtint id))) "\n"))
+          a-=8))))
+(= (or2 a b) (? ($isnil a) b a))
 (= (bad x) ($throw (strcat2 "expected number, got " (ty x))))
 
 ; ---- strict arithmetic slow paths (called by compiled code when an operand is not a double or the result leaves 2^53)
@@ -90,7 +102,7 @@ OBN=0
        (: n=(? ($ldw a 1)<($ldw b 1) ($ldw a 1) ($ldw b 1)) i=0 c=0
           (wh (&& (< i n) (== c 0)) c=(cmp2 (lget a i) (lget b i)) i+=1)
           (? (!= c 0) c (- ($ldw a 1) ($ldw b 1))))
-     ($throw (strcat2 (strcat2 (strcat2 "cannot compare " (ty a)) " and ") (ty b)))))
+     ($throw (strcat2 (strcat2 (strcat2 (strcat2 "cannot compare " (ty a)) " and ") (ty b)) (strcat2 (strcat2 " (" (show a)) (strcat2 " " (strcat2 (show b) ")")))))))
 ; total order used by sort: like cmp2 but never throws (falls back to comparing printed forms)
 (= (cmp a b)
   (? (&& ($isnum a) ($isnum b)) (? (< a b) -1 (> a b) 1 0)

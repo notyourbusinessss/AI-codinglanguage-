@@ -2,7 +2,7 @@
 (use "parse.ak")
 (use "lower.ak")
 (use "gen.ak")
-PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak"))
+PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/num.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak"))
 (= (compile_file infile outfile)
   pre=(parse PRELUDE "rt/core.ak")
   user=(~ y=>(expand y (dirname infile) {}) (parse (rd infile) infile))
