@@ -1,0 +1,12 @@
+port ok true
+request line GET /hi HTTP/1.0
+68 bytes
+{"path" "/hi" "method" "GET"}
+ready []
+ready true
+ping
+hi
+eof  1
+refused
+cannot resolve no.such.host.invalid
+nil nil [1 2 3 4]
