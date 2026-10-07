@@ -1,6 +1,6 @@
 ; Ak parser, written in Ak (port of syntax.js). AST: atoms are num/str/true/false/nil, symbols are `sym`s, forms are lists.
 ; Form positions live in POS (identity-keyed); symbols carry their own line/col.
-P={:s "" :i 0 :file "" :starts [] :idx false}
+P={:s "" :i 0 :file "" :starts [] :na {} :idx false}
 POS={}
 BIN=[[">>>" 13] ["**=" 1] ["//=" 1] ["||=" 1] ["??=" 1] ["=>" 2] ["==" 8] ["!=" 8] ["<=" 8] [">=" 8] ["&&" 4] ["||" 3] ["??" 3] ["**" 17] ["//" 15] ["<<" 13] [">>" 13] [".." 9] ["+=" 1] ["-=" 1] ["*=" 1] ["/=" 1] ["%=" 1] ["+" 14] ["-" 14] ["*" 15] ["/" 15] ["%" 15] ["<" 8] [">" 8] ["=" 1] ["&" 12] ["|" 10] ["^" 11]]
 PREC={}
@@ -14,7 +14,7 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
 (= (S n) (sym n))
 (= (lc p) st=P.starts lo=0 hi=#st-1
   (wh lo<hi m=(lo+hi+1)//2 (? st[m]<=p lo=m hi=m-1))
-  [lo+1 p-st[lo]+1])
+  [lo+1 (? P.na[lo] (+ 1 (# (bytes P.s[st[lo]..p]))) p-st[lo]+1)])      ; columns are UTF-8 byte offsets, on every target
 (= (pos p=nil) (lc (?? p P.i)))
 (= (perr msg at=nil) [l c]=(pos at) (err (++ P.file ":" l ":" c ": " msg)))
 (= (mk items p) POS[items]=p items)
@@ -175,8 +175,8 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
 (= (parse src file)
   src=(? (starts src "#!") (: j=(idx src "\n") (? j<0 "" src[j..])) src)
   P.s=src P.i=0 P.file=file P.idx=false
-  st=[0] (for i #src (? src[i]=="\n" (push st i+1)))
-  P.starts=st
+  st=[0] na={} (for i #src c=src[i] (? c=="\n" (push st i+1) (>= c "\u0080") na[#st-1]=true))
+  P.starts=st P.na=na
   (program))
 
 ; ---- debug dump (same format as tests/syntax.test.js)
