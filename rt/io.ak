@@ -1,0 +1,77 @@
+; Native runtime part 5: files, process, time. Linux x86-64 syscalls via $syscall.
+(= (cstr s) n=($hlen s) r=(strnew n+1) ($copy r 0 s 0 n) r)
+(= (cpeek addr) n=0 (wh (> ($peek addr+n) 0) n+=1)
+  r=(strnew n) (for i n ($stb r i ($peek addr+i))) r)
+(= (readfd fd)
+  cap=65536 buf=(strnew cap) len=0 done=false
+  (wh (! done)
+    (? len==cap (: nb=(strnew cap*2) ($copy nb 0 buf 0 len) buf=nb cap*=2))
+    r=($syscall 0 fd ($addr buf)+len cap-len)
+    (? r<=0 done=true len+=r))
+  (strslice buf 0 len))
+(= (rd f)
+  fd=($syscall 2 ($addr (cstr f)) 0 0)
+  (? fd<0 ($throw (strcat2 "cannot read " f)))
+  s=(readfd fd) ($syscall 3 fd) s)
+(= (wrfile f s flags mode)
+  fd=($syscall 2 ($addr (cstr f)) flags mode)
+  (? fd<0 ($throw (strcat2 "cannot write " f)))
+  d=(? (islist s) (frombytes s) (tostr s))
+  (rawwrite fd d ($hlen d)) ($syscall 3 fd) s)
+(= (wr f s) (wrfile f s 577 420))
+(= (app f s) (wrfile f s 1089 420))
+(= (wrx f s) (wrfile f s 577 493) ($syscall 90 ($addr (cstr f)) 493) s)
+(= (ex f) (== ($syscall 21 ($addr (cstr f)) 0) 0))
+(= (ls d)
+  d=(?? d ".") fd=($syscall 2 ($addr (cstr d)) 65536 0)
+  (? fd<0 ($throw (strcat2 "cannot list " d)))
+  buf=($newb 8 32768 32768) r=(mklist 16) done=false
+  (wh (! done)
+    n=($syscall 217 fd ($addr buf) 32768)
+    (? n<=0 done=true
+       (: o=0
+          (wh o<n
+            reclen=(($ldb buf o+16)+256*($ldb buf o+17)) e=o+19 m=0
+            (wh (> ($ldb buf e+m) 0) m+=1)
+            name=(strnew m) ($copy name 0 buf e m)
+            (? (&& (! (streq name ".")) (! (streq name ".."))) (lpush r name))
+            o+=reclen))))
+  ($syscall 3 fd) (sort r))
+(= (args) n=($argc) r=(mklist n) (for i 1..n (lpush r (cpeek ($argv i)))) r)
+(= (env k)
+  (? ($isnil k)
+     (: m=(map) i=(+ ($argc) 1) (wh (> ($argv i) 0) kv=(cpeek ($argv i)) j=(strfind kv "=" 0) (? j>0 (mapset m (strslice kv 0 j) (strslice kv j+1 #kv))) i+=1) m)
+     (: i=(+ ($argc) 1) pre=(strcat2 k "=") r=nil
+        (wh (&& ($isnil r) (> ($argv i) 0))
+          kv=(cpeek ($argv i)) (? (starts kv pre) r=(strslice kv #pre #kv)) i+=1)
+        r)))
+(= (ru64 buf w) (+ (* ($bitshi ($ldw buf w)) 4294967296) ($bitslo ($ldw buf w))))
+(= (now) buf=($newb 8 16 16) ($syscall 228 0 ($addr buf))
+  (+ (* (ru64 buf 1) 1000) ($ffloor ($fdiv (ru64 buf 2) 1000000))))
+(= (clock) buf=($newb 8 16 16) ($syscall 228 1 ($addr buf))
+  (+ (* (ru64 buf 1) 1000) ($fdiv (ru64 buf 2) 1000000)))
+(= (sleep ms) buf=($newb 8 16 16)
+  ($stw buf 1 ($frombits 0 ($ffloor ($fdiv ms 1000)))) ($stw buf 2 ($frombits 0 (* (% ms 1000) 1000000)))
+  ($syscall 35 ($addr buf) 0) nil)
+; stdin: buffered line reader
+IBUF=nil
+IPOS=0
+IEOF=false
+(= (infill) (flush)
+  b=($newb 1 65536 65536) r=($syscall 0 0 ($addr b) 65536)
+  (? r<=0 (<- IEOF true)
+     (: rest=(? ($isnil IBUF) "" (strslice IBUF IPOS #IBUF)) (<- IBUF (strcat2 rest (strslice b 0 r))) (<- IPOS 0))))
+(= (in) (flush)
+  (? ($isnil IBUF) (<- IBUF ""))
+  line=nil
+  (wh (&& ($isnil line))
+    j=(strfind IBUF "\n" IPOS)
+    (? j>=0 (: line=(strslice IBUF IPOS j) (<- IPOS j+1))
+       IEOF (: (? IPOS<#IBUF (: line=(strslice IBUF IPOS #IBUF) (<- IPOS #IBUF)) line=false))
+       (infill)))
+  (? (== line false) nil
+     (: n=#line (? (&& n>0 (== ($ldb line n-1) 13)) (strslice line 0 n-1) line))))
+(= (inall) (flush)
+  (? ($isnil IBUF) (<- IBUF ""))
+  (wh (! IEOF) (infill))
+  s=(strslice IBUF IPOS #IBUF) (<- IBUF "") (<- IPOS 0) s)
