@@ -1,0 +1,48 @@
+name: CI
+
+# Runs on every push and pull request. The native compiler emits x86-64 Linux executables,
+# so the tests need a Linux x86-64 runner (ubuntu-latest is one).
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: npm test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # syntax, round trips, language, spec, CLI, parser/assembler diffs, native ELF, corpus,
+      # JS-target fuzz, self-hosting fixpoint, native-vs-JS comparison, native fuzz (about a minute)
+      - run: npm test
+
+  seed:
+    name: bin/ak is up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # The committed seed compiler must be exactly what the sources produce (rebuilt from scratch
+      # with the JS bootstrap, then iterated to a fixpoint).
+      - run: ./build.sh --boot
+      - name: bin/ak must match the committed seed
+        run: |
+          if ! git diff --quiet -- bin/ak; then
+            echo "::error file=bin/ak::bin/ak is out of date with src/ and rt/. Run ./build.sh and commit bin/ak."
+            exit 1
+          fi

@@ -1,5 +1,7 @@
 # Ak
 
+[![CI](https://github.com/notyourbusinessss/ai-codinglanguage-/actions/workflows/ci.yml/badge.svg)](https://github.com/notyourbusinessss/ai-codinglanguage-/actions/workflows/ci.yml)
+
 A programming language designed for an LLM to write and read: **cheap in tokens, fast at runtime, able to do everything, and verified for correctness** — and now **self-hosted**: the compiler is written in Ak and emits native x86-64 Linux executables directly (own assembler, own ELF writer, own runtime and garbage collector; no libc, no linker, no C, no JavaScript at run time).
 
 ```
@@ -80,6 +82,8 @@ The fuzzer found real bugs I would not have written tests for: a spread operand 
 `src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `tools/` (token meter, v1→v2 migrator) · `build.sh`.
 
 ## Testing
+GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pull request, and checks that the committed `bin/ak` is exactly what `./build.sh --boot` produces from the sources (if you change `src/` or `rt/`, run `./build.sh` and commit the new `bin/ak`).
+
 `npm test` runs everything (JS-target suites, differential fuzzer, parser/assembler diffs, self-hosting fixpoint, native-vs-JS comparison, native fuzz). `node tests/selfhost.js`, `node tests/native_diff.js` and `node tests/fuzz_native.js COUNT SEED` are the native-specific ones.
 
 ## Known limits
