@@ -9,7 +9,7 @@
 HEAD_ADDR=0x10000000
 HLIM_ADDR=0x10000008
 ARGV_ADDR=0x10000010
-GBASE=0x10000080
+GBASE=0x30000000
 T_STR=1 T_LIST=2 T_ARR=3 T_MAP=4 T_CLOSURE=5 T_BOX=6 T_SYM=7 T_BYTES=8
 HEAP_SIZE=17179869184
 GC_FIRST=67108864
@@ -538,11 +538,11 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (label ".fs_fwd") (a "mov rax, [rdx+8]") (a "mov [rbp], rax")
   (label ".fs_ret") (a "ret")
   (label ".gccopy")                                     ; rdi = to-space base, rsi = value-stack top, rdx = number of globals -> rax = new free pointer (as number)
-  (a "mov [268435528], rsi") (a "lea rax, [rdx*8+268435584]") (a "mov [268435536], rax")
+  (a "mov [268435528], rsi") (af "lea rax, [rdx*8+%d]" GBASE) (a "mov [268435536], rax")
   (a "mov r8, [268435504]") (a "mov r9, r13") (a "mov rbx, rdi") (a "mov r12, rdi")
   (a "mov rbp, [268435512]")
   (label ".gc_r1") (a "cmp rbp, [268435528]") (a "jae .gc_r1d") (a "call .fwdslot") (a "add rbp, 8") (a "jmp .gc_r1")
-  (label ".gc_r1d") (a "mov rbp, 268435584")
+  (label ".gc_r1d") (af "mov rbp, %d" GBASE)
   (label ".gc_r2") (a "cmp rbp, [268435536]") (a "jae .gc_r2d") (a "call .fwdslot") (a "add rbp, 8") (a "jmp .gc_r2")
   (label ".gc_r2d")
   (label ".gc_scan") (a "cmp r12, rbx") (a "jae .gc_done")
@@ -622,6 +622,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (mmap_to 1073741824 "r15") (a "mov [268435512], r15")
   (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx") (a "mov [268435576], rsp")
   (reload_consts)
+  (af "mov rdi, %d" GBASE) (af "mov rcx, %d" L.nglob) (a "mov rax, r11") (a "rep stosq")
   (a "mov r14, r15")
   (a "mov [r15], r11") (a "add r15, 8") (a "mov rcx, 0") (a (++ "call .f" main.id))
   (af "mov rsi, [%d]" (gaddr (prelude_gid "finish"))) (a "mov [r15], rsi") (a "add r15, 8") (a "mov rcx, 0") (a "call .callclosure")
@@ -633,8 +634,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (asm_reset)
   G.trace=(!= (env "AK_TRACE") nil)
   G.tracetab=(join (~ f=>(++ f.id " " f.name " " f.pos) L.funcs) "\n")
-  G.data=[] (for i 128 (dbyte 0))
-  (for i L.nglob (dword 0 0xFFF90000))
+  G.data=[] (for i 256 (dbyte 0))
   (for f L.funcs (collect_inits f.body) (walk_ir f.body))
   (gen_start main)
   (gen_stubs)
@@ -649,4 +649,4 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
     t=A.labels[lbl]
     (? t==nil (err (++ "undefined label " lbl)))
     (patch32 G.data off CODE_BASE+t))
-  (elf_bytes A.code G.data 0 A.labels["_start"]))
+  (elf_bytes (u8 A.code) (u8 G.data) 8*L.nglob A.labels["_start"]))
