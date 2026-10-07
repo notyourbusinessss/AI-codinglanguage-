@@ -45,7 +45,7 @@ for (const op of ['addsd', 'subsd', 'mulsd', 'divsd', 'sqrtsd', 'minsd', 'maxsd'
 for (const op of ['xorpd', 'andpd', 'andnpd', 'orpd']) gens.push(() => `${op} ${xmm()}, ${xmm()}`, () => `${op} ${xmm()}, ${mem('xmmword')}`);
 gens.push(() => `movq ${xmm()}, ${reg()}`, () => `movq ${reg()}, ${xmm()}`, () => `movsd ${xmm()}, ${xmm()}`, () => `movsd ${xmm()}, ${mem()}`, () => `movsd ${mem()}, ${xmm()}`,
   () => `cvtsi2sd ${xmm()}, ${reg()}`, () => `cvttsd2si ${reg()}, ${xmm()}`, () => `roundsd ${xmm()}, ${xmm()}, ${pick([8, 9, 10, 11])}`);
-for (const i of ['ret', 'syscall', 'cqo', 'nop', 'int3', 'ud2', 'leave', 'cld', 'hlt', 'rep movsb', 'rep stosb', 'rep movsq', 'rep stosq']) gens.push(() => i);
+for (const i of ['ret', 'syscall', 'cqo', 'nop', 'int3', 'ud2', 'leave', 'cld', 'hlt', 'rep movsb', 'rep stosb', 'rep movsq', 'rep stosq', 'repe cmpsb']) gens.push(() => i);
 
 const N = +process.argv[3] || 3000;
 const lines = new Set(); let guard = 0;
