@@ -1,6 +1,6 @@
 'use strict';
 const cp = require('child_process'), fs = require('fs'), os = require('os'), path = require('path');
-const AK = path.join(__dirname, '..', 'ak.js');
+const AK = path.join(__dirname, '..', 'boot', 'ak.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'akcli-'));
 const w = (n, s) => { const f = path.join(tmp, n); fs.writeFileSync(f, s); return f; };
 const ak = (args, input) => cp.spawnSync('node', [AK, ...args], { encoding: 'utf8', input: input || '', timeout: 60000, maxBuffer: 1 << 28 });

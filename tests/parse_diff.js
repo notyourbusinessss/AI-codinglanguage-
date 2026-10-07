@@ -1,8 +1,8 @@
 'use strict';
 // Differential test: the parser written in Ak (src/parse.ak, run by the JS bootstrap compiler) vs syntax.js.
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
-const { parse } = require('../syntax.js'); const { Sym } = require('../ast.js');
-const F = require('./fuzz.js'); const { fmt } = require('../fmt.js');
+const { parse } = require('../boot/syntax.js'); const { Sym } = require('../boot/ast.js');
+const F = require('./fuzz.js'); const { fmt } = require('../boot/fmt.js');
 const root = path.join(__dirname, '..');
 const dump = x => x === null ? 'nil' : x === true ? 'true' : x === false ? 'false' : x instanceof Sym ? x.n : typeof x === 'string' ? JSON.stringify(x) : typeof x === 'bigint' ? x + 'n' : Array.isArray(x) ? '(' + x.map(dump).join(' ') + ')' : String(x);
 const jsDump = (file) => { try { return parse(fs.readFileSync(file, 'utf8'), file).map(dump).join('\n'); } catch (e) { return 'ERR ' + e.message; } };
@@ -22,7 +22,7 @@ const N = +process.argv[2] || 1500;
 for (let n = 0; n < N; n++) { F.setSeed(7000000 + n); const g = new F.Gen(); add(`fz${n}.ak`, fmt(g.program(F.ri(4, 14)), { layout: n % 2 ? 'lines' : 'flat' })); }
 
 fs.writeFileSync(path.join(tmp, 'list.txt'), files.join('\n'));
-const r = cp.spawnSync('node', [path.join(root, 'ak.js'), path.join(__dirname, 'parse_dump.ak')], { input: files.join('\n'), encoding: 'utf8', maxBuffer: 1 << 30 });
+const r = cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), path.join(__dirname, 'parse_dump.ak')], { input: files.join('\n'), encoding: 'utf8', maxBuffer: 1 << 30 });
 if (r.status !== 0) { console.log('driver failed', r.stderr.slice(0, 500)); process.exit(1); }
 const got = new Map(); let cur = null;
 for (const line of r.stdout.split('\n')) { if (line.startsWith('--- ')) { cur = line.slice(4); got.set(cur, []); } else if (cur !== null) got.get(cur).push(line); }

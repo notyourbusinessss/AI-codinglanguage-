@@ -1,6 +1,6 @@
 'use strict';
-const { compile } = require('../ak.js');
-const RT = require('../runtime.js');
+const { compile } = require('../boot/ak.js');
+const RT = require('../boot/runtime.js');
 const run = src => RT.show(RT.evalCode(compile(src, { file: '<t>', ret: true, dir: process.cwd() })));
 const CASES = [
   // --- arithmetic, precedence, literals

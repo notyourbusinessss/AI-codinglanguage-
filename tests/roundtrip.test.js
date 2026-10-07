@@ -1,7 +1,7 @@
 'use strict';
 // parse(fmt(ast)) must equal ast (after normalizing n-ary ops) — checked on every corpus program (via v1 parse + migrate).
-const { parse } = require('../syntax.js'); const { fmt } = require('../fmt.js');
-const { Sym } = require('../ast.js');
+const { parse } = require('../boot/syntax.js'); const { fmt } = require('../boot/fmt.js');
+const { Sym } = require('../boot/ast.js');
 const norm = x => !Array.isArray(x) ? x : (() => {
   const r = x.map(norm); const h = r[0];
   if (h instanceof Sym && ['+', '*', '&&', '||'].includes(h.n) && r.length > 3) { let acc = [h, r[1], r[2]]; for (let i = 3; i < r.length; i++) acc = [h, acc, r[i]]; return acc; }

@@ -2,7 +2,7 @@
 'use strict';
 // v1 -> v2 migration: parse with the legacy parser, rewrite the AST to v2 forms, print with fmt.js
 const fs = require('fs');
-const P1 = require('../v1/parse1.js'); const { S, Sym } = require('../ast.js'); const { fmt } = require('../fmt.js');
+const P1 = require('../v1/parse1.js'); const { S, Sym } = require('../boot/ast.js'); const { fmt } = require('../boot/fmt.js');
 
 const isS1 = (x, n) => x instanceof P1.Sym && (n === undefined || x.n === n);
 const HEAD = { '&': '&&', '|': '||', '<<': 'push', '>>': 'pop', band: '&', bor: '|', bxor: '^', shl: '<<', shr: '>>', ushr: '>>>' };

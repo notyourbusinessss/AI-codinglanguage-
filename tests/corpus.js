@@ -8,7 +8,7 @@ for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.' + ext)).sort()) {
   const b = f.slice(0, -ext.length - 1); n++;
   const inp = fs.existsSync(path.join(dir, b + '.in')) ? fs.readFileSync(path.join(dir, b + '.in')) : '';
   const t0 = Date.now();
-  const r = cp.spawnSync('node', [path.join(__dirname, '..', 'ak.js'), path.join(dir, f)], { input: inp, encoding: 'utf8', timeout: 60000 });
+  const r = cp.spawnSync('node', [path.join(__dirname, '..', 'boot', 'ak.js'), path.join(dir, f)], { input: inp, encoding: 'utf8', timeout: 60000 });
   const want = fs.readFileSync(path.join(dir, b + '.out'), 'utf8');
   if (r.stdout !== want || r.status !== 0) { bad++; console.log('FAIL', f, '\n--got--\n' + r.stdout + r.stderr + '--want--\n' + want); }
   else console.log('ok  ', f, (Date.now() - t0) + 'ms');

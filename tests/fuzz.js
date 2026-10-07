@@ -1,12 +1,12 @@
 'use strict';
 // Differential fuzzer: random typed programs; compiled (ak.js, via printed text) vs reference interpreter (interp.js).
 // Also checks parse(fmt(ast)) == ast. usage: node tests/fuzz.js [count=500] [seed=1] [-v]
-const { compile } = require('../ak.js');
-const RT = require('../runtime.js');
-const { parse } = require('../syntax.js');
-const { fmt } = require('../fmt.js');
-const interp = require('../interp.js');
-const { S, Sym } = require('../ast.js');
+const { compile } = require('../boot/ak.js');
+const RT = require('../boot/runtime.js');
+const { parse } = require('../boot/syntax.js');
+const { fmt } = require('../boot/fmt.js');
+const interp = require('../boot/interp.js');
+const { S, Sym } = require('../boot/ast.js');
 const { same } = require('./roundtrip.test.js');
 
 // ---------------------------------------------------------------- random

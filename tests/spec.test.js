@@ -1,7 +1,7 @@
 'use strict';
 // SPEC.md must document every builtin, and every name it lists as a builtin must exist.
 const fs = require('fs'), path = require('path');
-const { B } = require('../runtime.js');
+const { B } = require('../boot/runtime.js');
 const spec = fs.readFileSync(path.join(__dirname, '..', 'SPEC.md'), 'utf8');
 const builtinSection = spec.slice(spec.indexOf('## Builtins'), spec.indexOf('## CLI'));
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
