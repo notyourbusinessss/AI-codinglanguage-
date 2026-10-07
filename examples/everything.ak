@@ -1,0 +1,20 @@
+; HTTP server + client, files, subprocess, JSON, regex, JS classes: all from Ak.
+(= http (req "http"))
+(= srv (http.createServer
+  (\ (rq rs)
+    (. rs :end (json {:path (.@ rq :url) :n (+ 1 2)})))))
+(. srv :listen 0)
+(aw (new Promise (\ (ok) (. srv :once "listening" ok))))
+(= port (.@ (. srv :address) :port))
+(= res (aw (fetch (++ "http://127.0.0.1:" port "/hi"))))
+(= body (unjson (aw (. res :text))))
+(p "server said" (@ body "path") (@ body "n"))
+(. srv :close)
+
+(wr "/tmp/ak_demo.txt" "alpha 10\nbeta 20\ngamma 30\n")
+(= rows (~ (\ (l) (split l)) (split (trim (rd "/tmp/ak_demo.txt")) "\n")))
+(p "total" (sum (~ (\ (r) (num (@ r 1))) rows)))
+(p (trim (sh "echo from-subprocess")))
+(p (match (re "(\\w+)@(\\w+)\\.com") "mail bob@acme.com now"))
+(p (. (new Set [1 2 2 3]) :has 2) (.@ (new Map) :size))
+(p (json {:ok T :xs [1 2 3]} 0))
