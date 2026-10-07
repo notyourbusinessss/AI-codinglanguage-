@@ -397,8 +397,8 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   (push_scope) L.prelude=L.cs main.root=L.cs
   (for n INTRINSICS v=(mkvar n "intrinsic") v.intrinsic=true v.pre=true L.prelude.vars[n]=v)
   (predeclare (decls prelude_forms))
+  (for [n v] L.prelude.vars v.pre=true)          ; operators inside the runtime itself are inlined too
   pre=(lowerseq prelude_forms false)
-  (for [n v] L.prelude.vars v.pre=true)
   L.file=file
   (push_scope) main.root=L.cs
   (predeclare (decls user_forms))

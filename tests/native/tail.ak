@@ -1,0 +1,7 @@
+(= (count i acc) (? i==0 acc (count i-1 acc+i)))
+(p (count 1000000 0))
+(= (ev n) (? n==0 true (od n-1)))
+(= (od n) (? n==0 false (ev n-1)))
+(p (ev 1000000) (od 777777))
+(= (deep n) (? n==0 0 1+deep(n-1)))
+(p (deep 300000))
