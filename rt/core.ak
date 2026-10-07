@@ -132,7 +132,7 @@ INFATAL=false
        (: n=(? ($ldw a 1)<($ldw b 1) ($ldw a 1) ($ldw b 1)) i=0 c=0
           (wh (&& (< i n) (== c 0)) c=(cmp2 (lget a i) (lget b i)) i+=1)
           (? (!= c 0) c (- ($ldw a 1) ($ldw b 1))))
-     ($throw (strcat2 (strcat2 (strcat2 (strcat2 "cannot compare " (ty a)) " and ") (ty b)) (strcat2 (strcat2 " (" (show a)) (strcat2 " " (strcat2 (show b) ")")))))))
+     ($throw (strcat2 (strcat2 (strcat2 "cannot compare " (ty a)) " and ") (ty b)))))
 ; total order used by sort: like cmp2 but never throws (falls back to comparing printed forms)
 (= (cmp a b)
   (? (&& ($isnum a) ($isnum b)) (? (< a b) -1 (> a b) 1 0)

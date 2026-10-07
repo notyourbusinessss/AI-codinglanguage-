@@ -508,7 +508,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (a "mov rsi, rax") (untag "rsi") (a "cmp byte ptr [rsi], 1") (a "jne .seq_no")
   (a "mov rdi, rcx") (untag "rdi")
   (a "mov r8, [rsi]") (a "mov r9, [rdi]") (a "shr r8, 32") (a "shr r9, 32") (a "cmp r8, r9") (a "jne .seq_no")
-  (a "add rsi, 8") (a "add rdi, 8") (a "mov rcx, r8") (a "repe cmpsb") (a "jne .seq_no")
+  (a "add rsi, 8") (a "add rdi, 8") (a "mov rcx, r8") (a "cmp rcx, rcx") (a "repe cmpsb") (a "jne .seq_no")
   (label ".seq_yes") (a "mov rdx, 1") (a "ret")
   (label ".seq_no") (a "mov rdx, 0") (a "ret")
   (label ".strhash")                                    ; rax = string/symbol pointer -> rax = 23-bit content hash (cached in the header)
