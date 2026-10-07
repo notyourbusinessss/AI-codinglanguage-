@@ -5,7 +5,7 @@
 ;   ["if" c a b] ["seq" e..] ["and" a b] ["or" a b] ["nilor" a b] ["not" e] ["while" c body]
 ;   ["call" f args] ["tcall" f args] ["fn" F] ["prim" op args] ["try" body V handler] ["throw" e]
 ; Records are maps compared by :id only (never ==, which would recurse through the cycles).
-L={:files [] :cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
+L={:statics [] :files [] :cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot" "#"]
 INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$hslot" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32"]
@@ -106,6 +106,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "%spread" (lerr "..x spread is only allowed in call arguments and list literals" x)
     "%cmp" (lower (cmp_chain x) tail)
     "%bigint" (lower_rt "bigfrom" [x[1]])
+    "%static" ["static" x[1]]
     "%file" (: saved=L.file L.file=x[1] r=(lowerseq x[2..] tail) L.file=saved r)
     "?" (lower_if x[1..] tail)
     ":" (lowerseq x[1..] tail)
@@ -425,6 +426,19 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   user=(lowerseq user_forms false)
   main.body=["seq" pre user]
   main)
+
+; the program alone, against a prebuilt runtime image (see gen_image): the image's variables form the outer scope
+(= (lower_user img user_forms file)
+  L.files=[..img.files] L.uid=img.uid L.nglob=img.nglob L.file=file
+  main=(newfn "main" nil) main.ismod=true L.cf=main
+  (push_scope) L.prelude=L.cs L.prelude.vars=img.vars L.prelude.isprel=true
+  (push_scope) main.root=L.cs
+  (predeclare (decls user_forms))
+  user=(lowerseq user_forms false)
+  main.body=["seq" ["initcall" img.initid] user]
+  main)
+(= (reset_lower)
+  L.cf=nil L.cs=nil L.uid=0 L.file="<ak>" L.nglob=0 L.funcs=[] L.globals=[] L.line=1 L.col=1 L.prelude=nil L.mod=nil L.files=[] L.statics=[])
 
 ; ---- IR pretty printer (debugging)
 (= (irdump x)

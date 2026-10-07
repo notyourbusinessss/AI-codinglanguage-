@@ -7,14 +7,14 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p bin
 if [ "$1" = "--boot" ] || [ ! -x bin/ak ]; then
-  node boot/ak.js src/main.ak build src/main.ak bin/ak.next
+  node boot/ak.js src/main.ak build --image src/main.ak bin/ak.next
 else
-  bin/ak build src/main.ak bin/ak.next 2>/dev/null || {
+  bin/ak build --image src/main.ak bin/ak.next 2>/dev/null || {
     echo "the seed cannot build the current sources (they use a newer runtime); bootstrapping with Node" >&2
-    node boot/ak.js src/main.ak build src/main.ak bin/ak.next; }
+    node boot/ak.js src/main.ak build --image src/main.ak bin/ak.next; }
 fi
 for i in 1 2 3 4 5; do
-  bin/ak.next build src/main.ak bin/ak.new
+  bin/ak.next build --image src/main.ak bin/ak.new
   if cmp -s bin/ak.next bin/ak.new; then
     mv bin/ak.new bin/ak; rm -f bin/ak.next; bin/ak -e '(p "smoke test ok")' >/dev/null || { echo "error: the new compiler cannot compile programs (runtime error?)" >&2; exit 1; }; echo "bin/ak rebuilt (fixpoint after $i self-build(s))"; exit 0
   fi

@@ -8,7 +8,7 @@ const JS_ONLY = new Set(['17-http.ak', '22-async.ak']);          // use Node mod
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nd-'));
 const ak = process.env.AK_BIN || path.join(tmp, 'ak');
 if (!process.env.AK_BIN) {
-  const b = cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), path.join(root, 'src/main.ak'), 'build', path.join(root, 'src/main.ak'), ak], { encoding: 'utf8' });
+  const b = cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), path.join(root, 'src/main.ak'), 'build', '--image', path.join(root, 'src/main.ak'), ak], { encoding: 'utf8' });
   if (b.status !== 0) { console.log('FAIL: bootstrap build\n', b.stderr); process.exit(1); }
 }
 const progs = [];

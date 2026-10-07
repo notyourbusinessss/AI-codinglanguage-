@@ -13,7 +13,7 @@ GBASE=0x30000000
 T_STR=1 T_LIST=2 T_ARR=3 T_MAP=4 T_CLOSURE=5 T_BOX=6 T_SYM=7 T_BYTES=8
 HEAP_SIZE=17179869184
 GC_FIRST=67108864
-G={:postab [] :curpos nil :fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {}}
+G={:postab [] :curpos nil :fn nil :lbl 0 :data [] :dfix [] :strs {} :nglob 0 :stubs {} :dbase 0 :img nil}
 
 TRACE_ADDR=268435480
 TRACE_BASE=268435488
@@ -30,12 +30,13 @@ TRACE_BASE=268435488
 (= (boxed v) (&& v.kind=="local" v.captured v.set))
 
 ; ---- static data (strings, closures); addresses are absolute (non-PIE image)
-(= (dpos) #G.data)
+(= (dpos) G.dbase+#G.data)
 (= (dbyte b) (push G.data b&255))
-(= (dalign) (wh #G.data%8!=0 (dbyte 0)))
+(= (dalign) (wh (dpos)%8!=0 (dbyte 0)))
 (= (dword lo hi) (for i 4 (dbyte lo>>(8*i))) (for i 4 (dbyte hi>>(8*i))))
 (= (strobj s)
   (? G.strs[s]!=nil G.strs[s]
+     (&& G.img G.img.strs[s]!=nil) G.img.strs[s]
      (: (dalign) addr=0x10000000+(dpos) bs=(bytes s)
         (dword T_STR #bs) (for b bs (dbyte b)) (dbyte 0) (dalign)
         G.strs[s]=addr addr)))
@@ -90,6 +91,8 @@ TRACE_BASE=268435488
   "tcall" (: old=G.curpos G.curpos=x[3] (gen_call x true) G.curpos=old)
   "fn" (gen_closure x[1])
   "prim" (: old=G.curpos G.curpos=x[3] (gen_prim x[1] x[2]) G.curpos=old)
+  "static" (af "mov rax, [%d]" 268435600+8*x[1])
+  "initcall" (: (a "mov [r15], r11") (a "add r15, 8") (a "mov rcx, 0") (a (++ "call .f" x[1])))
   "try" (gen_try x)
   (err (++ "internal: unknown IR node " x[0]))))
 
@@ -159,7 +162,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
 (= (walk_ir x)
   (? (&& (is "list" x) #x>0)
      (? (is "str" x[0])
-        (: (? (&& (|| x[0]=="set" x[0]=="init") (is "map" x[1]) x[1].kind=="global")
+        (: (? (&& (|| x[0]=="set" x[0]=="init") (is "map" x[1]) x[1].kind=="global" (! (&& G.img x[1].pre)))
               (: v=x[1] v.nsets=(+ (?? v.nsets 0) 1) (? (&& x[0]=="set" (is "list" x[2]) x[2][0]=="fn") v.defn=x[2][1])))
            (for y x[1..] (walk_ir y)))
         (for y x (walk_ir y)))))
@@ -545,6 +548,11 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (label ".gc_r1d") (af "mov rbp, %d" GBASE)
   (label ".gc_r2") (a "cmp rbp, [268435536]") (a "jae .gc_r2d") (a "call .fwdslot") (a "add rbp, 8") (a "jmp .gc_r2")
   (label ".gc_r2d")
+  (a "mov rax, [268435584]") (a "mov [268435616], rax")
+  (label ".gc_i1") (a "mov rdx, [268435616]") (a "cmp rdx, [268435592]") (a "jae .gc_i1d")
+  (a "mov rax, [rdx]") (a "call .objinfo") (a "mov rdx, [268435616]") (a "lea rbp, [rdx+8]") (a "add rdx, rdi") (a "mov [268435616], rdx")
+  (label ".gc_i2") (a "test rcx, rcx") (a "jz .gc_i1") (a "push rcx") (a "call .fwdslot") (a "pop rcx") (a "add rbp, 8") (a "sub rcx, 1") (a "jmp .gc_i2")
+  (label ".gc_i1d")
   (label ".gc_scan") (a "cmp r12, rbx") (a "jae .gc_done")
   (a "mov rax, [r12]") (a "call .objinfo") (a "push rdi") (a "lea rbp, [r12+8]")
   (label ".gc_sw") (a "test rcx, rcx") (a "jz .gc_swd") (a "push rcx") (a "call .fwdslot") (a "pop rcx") (a "add rbp, 8") (a "sub rcx, 1") (a "jmp .gc_sw")
@@ -630,23 +638,105 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
 
 (= (patch64 arr pos v) (for i 8 arr[pos+i]=v%256 v=v//256))
 (= (patch32 arr pos v) (for i 4 arr[pos+i]=(v>>(8*i))&255))
-(= (gen_program main)
+; ---- compile-time values embedded as ordinary heap-layout objects in the data segment (used to bake a prebuilt runtime image into the compiler)
+STATIC_PTR=4294574080
+STATIC_NIL=4294508544
+G.simg={}
+(= (sv_u8 a) n=#a (dalign) addr=0x10000000+(dpos) (dword 9 n) (for b a (dbyte b)) (dbyte 0) (dalign) addr)
+(= (sv_arr vals n)                   ; ARR of n words (at least one slot is always allocated)
+  (dalign) addr=0x10000000+(dpos) (dword 3 n)
+  (for p vals (dword p[0] p[1]))
+  (? n==0 (dword 0 STATIC_NIL))
+  addr)
+(= (dbl_bits x) [hi lo]=(f64bits x) [lo hi])
+(= (vbits v)
+  (? (== v nil) [0 STATIC_NIL] (== v false) [1 STATIC_NIL] (== v true) [2 STATIC_NIL]
+     (is "num" v) (dbl_bits v)
+     (is "str" v) [(strobj v) STATIC_PTR]
+     [(static_ptr v) STATIC_PTR]))
+(= (static_ptr v)
+  a=G.simg[v]
+  (? a a
+     (: a=(sw (ty v) "list" (sv_list v) "map" (sv_map v) "arr" (sv_u8 v) (err (++ "cannot embed a " (ty v) " in a program image")))
+        G.simg[v]=a a)))
+(= (sv_list l)
+  n=#l vals=(~ vbits l) arr=(sv_arr vals n)
+  (dalign) addr=0x10000000+(dpos)
+  (dword 2 3) (dword ..(dbl_bits n)) (dword arr STATIC_PTR) (dword 0 STATIC_NIL)
+  addr)
+(= (hslot_ak h size) x=h*0.6180339887498949 (flr (* (- x (flr x)) size)))
+(= (key_hash k) (? (is "str" k) (hash23 k) (is "num" k) k (err "image map keys must be strings or numbers")))
+(= (sv_map m)
+  ents=(prs m) n=#ents cap=4
+  (wh cap<=n cap*=2)
+  size=2*cap vals=[] idx=(~ _=>nil (0..size))
+  (for i n [k v]=ents[i]
+    kb=(vbits k) vb=(vbits v)
+    (push vals kb) (push vals vb)
+    s=(hslot_ak (key_hash k) size)
+    (wh idx[s]!=nil s=(s+1)%size)
+    idx[s]=i)
+  (wh #vals<size (push vals [0 STATIC_NIL]))
+  entaddr=(sv_arr vals size)
+  idxaddr=(sv_arr (~ i=>(? i==nil [0 STATIC_NIL] (dbl_bits i)) idx) size)
+  (dalign) addr=0x10000000+(dpos)
+  (dword 4 5) (dword ..(dbl_bits n)) (dword entaddr STATIC_PTR) (dword idxaddr STATIC_PTR) (dword ..(dbl_bits n)) (dword 0 STATIC_NIL)
+  addr)
+
+; ---- whole-program drivers.  full: runtime + program in one go.  image: just the runtime (stubs, library, init code).
+; user: only the program, linked after a prebuilt image (its code/data come first; labels, strings and variables are looked up in it).
+(= (gen_begin img)
   (asm_reset)
-  G.trace=(!= (env "AK_TRACE") nil)
-  G.tracetab=(join (~ f=>(++ f.id " " f.name " " f.pos) L.funcs) "\n")
-  G.data=[] (for i 256 (dbyte 0))
+  G.trace=(&& (!= (env "AK_TRACE") nil) (! img)) G.postab=[] G.curpos=nil G.dfix=[] G.strs={} G.lbl=0 G.fn=nil G.img=img
+  G.data=[] G.dbase=0
+  (? img (: A.base=#img.code A.ext=img.labels G.dbase=#img.data G.lbl=img.lbl)
+     (for i 256 (dbyte 0)))
+  G.tracetab=(? G.trace (join (~ f=>(++ f.id " " f.name " " f.pos) L.funcs) "\n") ""))
+(= (gen_finish)
+  (link)
+  (dalign) simg0=0x10000000+(dpos)
+  sptrs=(~ v=>(static_ptr v) L.statics)
+  (dalign) simg1=0x10000000+(dpos)
+  (dalign) postab=0x10000000+(dpos)
+  entries=(? G.img [..G.img.postab ..G.postab] G.postab)
+  (for [off pos] entries (dword off (pos//1048576)%1048576) (dword pos%1048576 pos//1099511627776))
+  files=(strobj (join L.files "\n"))
+  (for [off lbl] G.dfix
+    t=(?? A.labels[lbl] A.ext[lbl])
+    (? t==nil (err (++ "undefined label " lbl)))
+    (patch32 G.data off-G.dbase CODE_BASE+t))
+  data=(? G.img (bcat G.img.data (u8 G.data)) (u8 G.data))
+  code=(? G.img (bcat G.img.code (u8 A.code)) (u8 A.code))
+  (patch64 data 88 postab) (patch64 data 96 #entries) (patch64 data 104 files) (patch64 data 112 CODE_BASE+(here))
+  (patch64 data 128 simg0) (patch64 data 136 simg1)
+  (for [i a] (enum sptrs) (patch32 data 144+8*i a) (patch32 data 148+8*i STATIC_PTR))
+  [code data])
+(= (gen_program main)
+  (gen_begin nil)
   (for f L.funcs (collect_inits f.body) (walk_ir f.body))
   (gen_start main)
   (gen_stubs)
   (for f L.funcs (gen_fn f))
   (? (env "AK_TIME") (ep "codegen done" (clock)))
-  (link)
-  (dalign) postab=0x10000000+(dpos)
-  (for [off pos] G.postab (dword off (pos//1048576)%1048576) (dword pos%1048576 pos//1099511627776))
-  (patch64 G.data 88 postab) (patch64 G.data 96 #G.postab) (patch64 G.data 104 (strobj (join L.files "\n"))) (patch64 G.data 112 CODE_BASE+(here))
-  (? (env "AK_TIME") (ep "linked" (clock)))
-  (for [off lbl] G.dfix
-    t=A.labels[lbl]
-    (? t==nil (err (++ "undefined label " lbl)))
-    (patch32 G.data off CODE_BASE+t))
-  (elf_bytes (u8 A.code) (u8 G.data) 8*L.nglob A.labels["_start"]))
+  [code data]=(gen_finish)
+  (elf_bytes code data 8*L.nglob A.labels["_start"]))
+(= (export_vars)
+  out={}
+  (for [name v] L.prelude.vars
+    out[name]={:name name :kind v.kind :id v.id :gid v.gid :pre true :intrinsic v.intrinsic :isfn v.isfn :arity v.arity :nsets v.nsets
+               :defn (? v.defn {:id v.defn.id :free [] :static v.defn.static})})
+  out)
+(= (gen_image main)
+  (gen_begin nil)
+  (for f L.funcs (collect_inits f.body) (walk_ir f.body))
+  (gen_stubs)
+  (for f L.funcs (gen_fn f))
+  [code data]=(gen_finish)
+  {:code code :data data :labels A.labels :strs G.strs :postab G.postab :files L.files :vars (export_vars) :uid L.uid :nglob L.nglob :lbl G.lbl :initid main.id})
+(= (gen_user main img)
+  (gen_begin img)
+  (for f L.funcs (collect_inits f.body) (walk_ir f.body))
+  (gen_start main)
+  (for f L.funcs (gen_fn f))
+  [code data]=(gen_finish)
+  (elf_bytes code data 8*L.nglob A.labels["_start"]))

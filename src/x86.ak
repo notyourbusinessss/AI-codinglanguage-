@@ -1,11 +1,11 @@
 ; x86-64 assembler + ELF writer, in Ak. API: (R n) (X n) (I v) (M base disp) (MX base idx scale disp) (MA addr) operands,
 ; (ins "mnemonic" a b c), labels/fixups, and a text front end (asm "mov rax, [rbx+rcx*8+16]") used by the tests.
-A={:code [] :labels {} :fix []}
+A={:code [] :labels {} :fix [] :base 0 :ext {}}
 CODE_BASE=0x401000
 DATA_BASE=0x10000000
 GLOB_BASE=0x30000000
-(= (asm_reset) A.code=[] A.labels={} A.fix=[])
-(= (here) #A.code)
+(= (asm_reset) A.code=[] A.labels={} A.fix=[] A.base=0 A.ext={})
+(= (here) A.base+#A.code)         ; absolute offset: the code of a prebuilt image (A.base bytes) comes first
 (= (emit b) (push A.code b&255))
 (= (emit32 v) (for i 4 (emit v>>(8*i))))
 (= (emit64 lo hi) (emit32 lo) (emit32 hi))
@@ -127,10 +127,10 @@ NOARG={"ret" [0xC3] "syscall" [0x0F 0x05] "cqo" [0x48 0x99] "nop" [0x90] "int3" 
 (= (call_l name) (emit 0xE8) (fixup "rel32" name))
 (= (jcc_l cc name) (emit 0x0F) (emit 0x80+cc) (fixup "rel32" name))
 (= (lea_l r name) (enc 0 true [0xC7] 0 (R r)) (fixup "abs32" name))      ; mov r64, <address of code label>
-(= (patch pos v) (for i 4 A.code[pos+i]=(v>>(8*i))&255))
+(= (patch pos v) (for i 4 A.code[pos-A.base+i]=(v>>(8*i))&255))
 (= (link)
   (for [pos kind name] A.fix
-    t=A.labels[name]
+    t=(?? A.labels[name] A.ext[name])
     (? t==nil (err "undefined label" name))
     (? kind=="rel32" (patch pos t-(pos+4)) (patch pos CODE_BASE+t))))
 
@@ -195,6 +195,6 @@ ASMP={}
   (? b (emit_all b)
      (: p=ASMP[line]
         (? p==nil (: p=(asm_parse line) ASMP[line]=p))
-        n0=(here) f0=#A.fix
+        n0=#A.code f0=#A.fix
         (asm_exec p)
         (? (== #A.fix f0) ASMC[line]=A.code[n0..]))))
