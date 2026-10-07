@@ -1,5 +1,4 @@
 ; Native runtime: arbitrary-precision integers (BigInt, literals like 10n). Object: type 10 = [hdr][sign (0/1)][limbs, base 2^24, little endian]
-(= (isbig x) (&& ($isptr x) (== ($type x) 10)))
 (= (bigwrap sign limbs)
   n=#limbs o=($new 10 n+1 n+1) ($stw o 1 (? (&& sign n>0) 1 0)) (for i n ($stw o i+2 (lget limbs i))) o)
 (= (bigunwrap x) n=($hlen x)-1 r=(mklist n) (for i n (lpush r ($ldw x i+2))) r)
