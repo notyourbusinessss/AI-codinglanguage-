@@ -99,7 +99,7 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
 
 (= (unary) c=(peek) c2=(peek 1)
   (? (&& c=="." c2=="." (: nxt=P.s[P.i+2] (&& nxt!=nil !(isws nxt) !(closer nxt))))
-       (: p=(pos) P.i+=2 operand=(bin 17) (? P.idx (mk [(S "..") nil operand] p) (mk [(S "%spread") operand] p)))
+       (: p=(pos) P.i+=2 operand=(bin (? P.idx 10 17)) (? P.idx (mk [(S "..") nil operand] p) (mk [(S "%spread") operand] p)))
      (&& c (has "-!#~" c) c2!=nil !(isws c2) !(closer c2) c2!=";" !(&& (isopch c2) (symrun)))
        (: p=(pos) P.i+=1 arg=(bin 17)
           (? (&& c=="-" (is "num" arg)) -arg

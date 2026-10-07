@@ -413,6 +413,7 @@ const B = {
   p: (...a) => { out(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
   pr: (...a) => { out(a.map(tostr).join(' ')); return a.length ? a[a.length - 1] : null; },
   ep: (...a) => { eout(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
+  f64bits: x => { const b = Buffer.alloc(8); b.writeDoubleBE(x); return [b.readUInt32BE(0), b.readUInt32BE(4)]; },   // [hi, lo] 32-bit halves of the IEEE-754 bits
   sym,
   mksym: (n, l, c) => { const s = new Sym(String(n)); s.line = l; s.col = c; return s; },   // fresh (non-interned) symbol that remembers its source position
   symline: s => s.line ?? 0, symcol: s => s.col ?? 0,
@@ -472,8 +473,8 @@ function locate(e, body, file) {
     }
     if (!src) return '';
     for (let i = Math.min(genLine, src.length) - 1; i >= 0; i--) {
-      const m = /^\/\/@(\d+):(\d+)$/.exec(src[i]);
-      if (m) return ' (' + (file || '') + ':' + m[1] + ':' + m[2] + ')';
+      const m = /^\/\/@(?:(.*)\|)?(\d+):(\d+)$/.exec(src[i]);
+      if (m) return ' (' + (m[1] || file || '') + ':' + m[2] + ':' + m[3] + ')';
     }
   } catch (_) { /* best effort */ }
   return '';
