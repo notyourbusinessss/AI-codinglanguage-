@@ -27,6 +27,7 @@ boot/ (JS) ──compiles──▶ src/main.ak ──▶ ak1 ──compiles─�
 - `src/` — the compiler, written in Ak: `parse.ak` (parser) → `lower.ak` (names, scopes, closures, tail calls → core IR) → `gen.ak` (x86-64 code generation) → `x86.ak` (assembler + ELF writer) · `fmt.ak` (formatter) · `main.ak` (CLI, tree shaking).
 - `rt/` — the runtime, also Ak, compiled into every program: arithmetic with overflow checks, strings, lists, hash maps, `show`, exact float printing/parsing (bignum), regex, BigInt, typed arrays, JSON, math (fdlibm ports), file/process I/O, and the copying garbage collector (the copy loop is a hand-written assembly stub).
 - `boot/` — the stage-0 bootstrap and the JS target (`ak.js`, `runtime.js`, `syntax.js`, …). It is only needed to build the very first compiler, and as an alternative backend with Node interop (`fs`, `fetch`, `async`).
+- The runtime is compiled once into a **prebuilt image** (code + data + labels) baked into `bin/ak`; user programs are lowered and assembled against it, which is why compile+run of a small program takes ~17 ms. `ak build --image` produces such a compiler; `AK_NOIMAGE=1` forces the slow full path.
 - Values are NaN-boxed doubles; Ak values live on a separate value stack (precise GC roots); closures are converted and boxed; general tail calls; exceptions are a handler chain. Programs report uncaught errors as `error: msg (file:line:col)`.
 
 `tests/selfhost.js` checks the fixpoint (JS-built ak1 == native-built ak2 == ak3, also under GC stress, and seed→b2 == ak2).
@@ -48,8 +49,8 @@ My first version was actually *more* expensive than Python (the cryptic `~?` and
 |---|---|---|---|
 | naive `fib(38)` | 0.60 s | 0.77 s | 5.0 s |
 | sieve of 20M (`u8` array) | 0.71 s | 0.88 s | — |
-| compile the compiler (5.5k lines of Ak) | 0.75 s | — | — |
-| compile + run hello world | 0.45 s | 0.07 s | — |
+| compile the compiler (5.5k lines of Ak) | 0.6–0.75 s | — | — |
+| compile + run hello world | 0.017 s | 0.07 s | — |
 
 Integer-overflow checking (see below) is on in both; the JS target has `--fast` to skip it.
 
@@ -60,6 +61,7 @@ Integer-overflow checking (see below) is on in both; the JS target has `--fast` 
 | 22 of them + 18 more native test programs: native executable vs JS backend, normal and under GC stress (collect every 64 KB, heap verifier on) | 40/40 identical |
 | Self-hosting fixpoint (JS-built = native-built = rebuilt, plain and GC-stress) | ✔ |
 | Differential fuzzing (JS target): random programs vs a separate reference interpreter | 20,000 on the final build, 0 mismatches |
+| Differential fuzzing (native executable vs the same reference interpreter, with a test-case shrinker) | 14,000+ programs, 0 mismatches (found: empty-string compare, list-put padding) |
 | Parser written in Ak vs the JS parser | 492 files identical · assembler vs GNU `as`: 2,000+ encodings identical |
 | Float formatting/parsing vs V8: 20,000 random doubles round-trip | 0 mismatches · `exp log sin cos tan atan asin acos sinh cosh tanh cbrt log2 log10`: 0 mismatches / 3,700 random inputs |
 
@@ -78,7 +80,7 @@ The fuzzer found real bugs I would not have written tests for: a spread operand 
 `src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `tools/` (token meter, v1→v2 migrator) · `build.sh`.
 
 ## Testing
-`npm test` runs everything (JS-target suites, differential fuzzer, parser/assembler diffs, self-hosting fixpoint, native-vs-JS comparison). `node tests/selfhost.js` and `node tests/native_diff.js` are the native-specific ones.
+`npm test` runs everything (JS-target suites, differential fuzzer, parser/assembler diffs, self-hosting fixpoint, native-vs-JS comparison, native fuzz). `node tests/selfhost.js`, `node tests/native_diff.js` and `node tests/fuzz_native.js COUNT SEED` are the native-specific ones.
 
 ## Known limits
 - Native target only runs on x86-64 Linux; strings are UTF-8 bytes (`#"é"` is 2; the JS target counts UTF-16 units).

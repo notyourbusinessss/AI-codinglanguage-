@@ -98,6 +98,7 @@ function put(c, k, v) {
   if (c instanceof Map) c.set(k, v);
   else {
     if (typeof k === 'number' && k < 0) k += c.length;
+    if (Array.isArray(c) && typeof k === 'number' && k > c.length) { if (k > 134217728) throw new AkError('index out of range'); for (let i = c.length; i < k; i++) c[i] = null; }   // no holes: padding is nil
     c[k] = v;
   }
   return v;

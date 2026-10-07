@@ -233,7 +233,7 @@ SYMTAB=nil
      (list x)))
 (= (iter x) (? ($isnum x) nil (toarr x)))
 (= (put x i v)
-  (? (islist x) (: n=($ldw x 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lset x i v) i==n (lpush x v) ($throw "index out of range")) v)
+  (? (islist x) (: n=($ldw x 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lset x i v) (&& i>=0 i<134217728) (: (wh (< ($ldw x 1) i) (lpush x nil)) (lpush x v)) ($throw "index out of range")) v)
      (ismap x) (mapset x i v)
      (istyped x) (: n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tput x i v)) v)
      ($throw (strcat2 "cannot assign into " (ty x)))))
