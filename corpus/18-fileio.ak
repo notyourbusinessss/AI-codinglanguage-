@@ -3,4 +3,4 @@ f="/tmp/corpus_18.txt"
 lines=(split (trim (rd f)) "\n")
 (for [i l] (enum lines) (p i+1 #(split l) (up l)))
 (p (sum (~ l=>#(split l) lines)))
-fs.unlinkSync(f)
+(rm f)

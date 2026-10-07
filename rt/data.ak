@@ -47,7 +47,8 @@ CHARS=nil
   (for i n b=($ldb s i) ($stb r i (? (&& b>=65 b<=90) b+32 b))) r)
 (= (split s d=nil)
   (needstr s) r=(mklist 8) n=($hlen s)
-  (? ($isnil d)
+  (? (isre d) (rxsplit s d)
+     ($isnil d)
      (: i=0
         (wh i<n
           (wh (&& (< i n) (isspace ($ldb s i))) i+=1)
@@ -74,10 +75,10 @@ CHARS=nil
      (: r=(mklist 8) l=(toarr x) (for i k (for y l (lpush r y))) r)))
 (= (rep s a b)
   (needstr s)
-  (? (! (isstr a)) ($throw "regex replace is not supported by the native target"))
-  b=(tostr b)
-  (? ($hlen a)==0 s
-     (: parts=(split s a) (join parts b))))
+  (? (isre a) (rxreplace s a b)
+     (: (needstr a) b=(tostr b)
+        (? ($hlen a)==0 s
+           (: parts=(split s a) (join parts b))))))
 (= (padl s n c=nil) s=(tostr s) c=(?? c " ") m=n-($hlen s)
   (? m<=0 s (strcat2 (rpt c m) s)))
 (= (padr s n c=nil) s=(tostr s) c=(?? c " ") m=n-($hlen s)
