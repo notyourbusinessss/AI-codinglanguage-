@@ -1,0 +1,66 @@
+; Native runtime part 6: TCP sockets (IPv4) and descriptor I/O via Linux syscalls. Native target only.
+(= (sockaddr ip port)                    ; struct sockaddr_in: family (LE) port (BE) addr(4) zero(8)
+  s=($newb 1 16 16) ($stb s 0 2) ($stb s 2 (// port 256)) ($stb s 3 (% port 256))
+  (for i 4 ($stb s 4+i ip[i])) s)
+(= (dotted h)                           ; "a.b.c.d" -> [a b c d], or nil
+  p=(split h ".") ok=(== #p 4) r=[]
+  (for x p
+    n=#x
+    (? (|| n<1 n>3) ok=false (for i n c=($ldb x i) (? (|| c<48 c>57) ok=false)))
+    v=(num x)
+    (? (&& ok ($isnum v) v<=255) (push r v) ok=false))
+  (? ok r nil))
+(= (hostip h)                           ; literal IPv4, localhost, or a name from /etc/hosts
+  (? (== h "localhost") [127 0 0 1]
+     (: r=(dotted h)
+        (? (&& ($isnil r) (ex "/etc/hosts"))
+           (for l (split (rd "/etc/hosts") "\n")
+             f=(split (trim l))
+             (? (&& ($isnil r) #f>1 (! (starts (trim l) "#"))) (for i 1..#f (? (&& ($isnil r) (== f[i] h)) r=(dotted f[0]))))))
+        r)))
+(= (netfail what) ($throw what))
+(= (tcpl port host="0.0.0.0")           ; listening socket fd (port 0 picks a free one; see tcpp)
+  ip=(hostip host)
+  (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
+  fd=($syscall 41 2 1 0)
+  (? fd<0 (netfail "socket failed"))
+  one=($newb 1 4 4) ($stb one 0 1) ($syscall 54 fd 1 2 ($addr one) 4)
+  sa=(sockaddr ip (?? port 0))
+  (? (|| (< ($syscall 49 fd ($addr sa) 16) 0) (< ($syscall 50 fd 128) 0))
+     (: ($syscall 3 fd) (netfail (strcat2 "cannot listen on port " (tostr port)))))
+  fd)
+(= (tcpp fd)                            ; local port of a socket
+  sa=($newb 1 16 16) ln=($newb 1 4 4) ($stb ln 0 16)
+  (? (< ($syscall 51 fd ($addr sa) ($addr ln)) 0) (netfail "getsockname failed"))
+  (+ (* 256 ($ldb sa 2)) ($ldb sa 3)))
+(= (tcpa fd)                            ; accept one connection (blocks)
+  r=-4 (wh r==-4 r=($syscall 43 fd 0 0))
+  (? r<0 (netfail "accept failed")) r)
+(= (tcpc host port)                     ; connect to host:port
+  ip=(hostip host)
+  (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
+  fd=($syscall 41 2 1 0)
+  (? fd<0 (netfail "socket failed"))
+  sa=(sockaddr ip port)
+  (? (< ($syscall 42 fd ($addr sa) 16) 0)
+     (: ($syscall 3 fd) (netfail (strcat2 (strcat2 (strcat2 "cannot connect to " host) ":") (tostr port)))))
+  fd)
+(= (fdr fd n=nil)                           ; read up to n (default 65536) bytes; "" at end of stream
+  n=(?? n 65536) b=(strnew n) r=-4
+  (wh r==-4 r=($syscall 0 fd ($addr b) n))
+  (? r<0 (netfail "read failed") r==n b (strslice b 0 r)))
+(= (fdw fd s)                           ; write everything (string, byte list or u8 array)
+  d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) n=($hlen d) off=0
+  (flush)
+  (wh off<n
+    r=($syscall 44 fd ($addr d)+off n-off 16384 0 0)
+    (? r==-88 r=($syscall 1 fd ($addr d)+off n-off))
+    (? r==-4 nil r<0 (netfail "write failed") off+=r))
+  nil)
+(= (fdc fd) ($syscall 3 fd) nil)
+(= (fdwait fds ms=nil)                      ; the fds that are readable (or hung up) within ms milliseconds (ms<0: wait forever)
+  n=#fds b=($newb 1 8*n 8*n)
+  (for i n (for k 4 ($stb b 8*i+k (% (// fds[i] (** 256 k)) 256))) ($stb b 8*i+4 1))
+  r=($syscall 7 ($addr b) n (?? ms -1))
+  (? r<0 (? r==-4 [] (netfail "poll failed"))
+     (: out=[] (for i n (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out fds[i]))) out)))

@@ -14,11 +14,13 @@ if (!process.env.AK_BIN) {
 const progs = [];
 for (const f of fs.readdirSync(path.join(root, 'tests/native')).sort()) if (f.endsWith('.ak')) progs.push({ name: f, file: path.join(root, 'tests/native', f) });
 for (const f of fs.readdirSync(path.join(root, 'corpus')).sort()) if (f.endsWith('.ak') && !JS_ONLY.has(f)) progs.push({ name: f, file: path.join(root, 'corpus', f), input: fs.existsSync(path.join(root, 'corpus', f.replace(/\.ak$/, '.in'))) ? fs.readFileSync(path.join(root, 'corpus', f.replace(/\.ak$/, '.in'))) : '' });
+// native-only programs (sockets, ...): expected output in a .out file next to the source
+for (const f of fs.readdirSync(path.join(root, 'tests/native_only')).sort()) if (f.endsWith('.ak')) progs.push({ name: f, file: path.join(root, 'tests/native_only', f), expect: fs.readFileSync(path.join(root, 'tests/native_only', f.replace(/\.ak$/, '.out')), 'utf8') });
 let bad = 0;
 const only = process.argv[2];
 for (const p of progs) {
   if (only && !p.name.includes(only)) continue;
-  const want = cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), p.file], { encoding: 'utf8', input: p.input || '', timeout: 60000 });
+  const want = p.expect !== undefined ? { stdout: p.expect, status: 0, stderr: '' } : cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), p.file], { encoding: 'utf8', input: p.input || '', timeout: 60000 });
   const exe = path.join(tmp, p.name.replace(/\.ak$/, ''));
   const c = cp.spawnSync(ak, ['build', p.file, exe], { encoding: 'utf8', timeout: 120000 });
   if (c.status !== 0) { bad++; console.log('FAIL compile', p.name, '\n  ', (c.stderr || c.stdout).split('\n').slice(0, 3).join('\n   ')); continue; }
