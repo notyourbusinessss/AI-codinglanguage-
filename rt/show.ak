@@ -1,11 +1,12 @@
 ; Native runtime part 4: printing, number formatting/parsing, fmt, json, IO.
-(= (fmtint x)                  ; |x| < 2^53, integral
-  neg=x<0 x=(abs x)
-  (? x==0 "0"
-     (: buf=(strnew 24) i=24
-        (wh x>0 q=($ffloor ($fdiv x 10)) d=($fsub x ($fmul q 10)) i-=1 ($stb buf i 48+d) x=q)
-        (? neg (: i-=1 ($stb buf i 45)))
-        (strslice buf i 24))))
+(= (fmtint x)                  ; integral x; any magnitude (see the last branch)
+  neg=x<0 x=(? neg ($fsub 0 x) x)
+  (? x<10 (? neg (strcat2 "-" (lget CHARS 48+x)) (lget CHARS 48+x))        ; one digit: the shared 1-char strings
+     x<9007199254740992 (: n=($ndig x) len=(? neg n+1 n) s=(strnew len)
+                           ($utoa s len x)
+                           (? neg ($stb s 0 45))
+                           s)
+     (fmtnum (? neg ($fsub 0 x) x))))                                       ; beyond 2^53 (or inf/nan): shortest digits like show and the JS target
 (= (digits_unused m)                  ; m: integral double < 1e17 -> decimal digit string
   (? m<9007199254740992 (fmtint m)
      (: hi=($ffloor ($fdiv m 100000000)) lo=($fsub m ($fmul hi 100000000))
@@ -29,7 +30,8 @@ P10=nil
              (strcat2 (strcat2 (strcat2 (strslice ds 0 1) ".") (strslice ds 1 k)) (strcat2 "e" es)))))
   (? neg (strcat2 "-" s) s))
 (= (fmtnum x)
-  (? (!= x x) "NaN"
+  (? (&& (== x ($ffloor x)) (< x 9007199254740992) (> x -9007199254740992)) (fmtint x)       ; integers first: by far the most common
+     (!= x x) "NaN"
      (== x 0) "0"
      (> x 1.7976931348623157e308) "Infinity"
      (< x -1.7976931348623157e308) "-Infinity"
@@ -73,8 +75,8 @@ P10=nil
            "<obj>"))))
 
 ; ---- printing
-(= (p ..a) (out (join a " ")) (out "\n") (? #a (lget a #a-1) nil))
-(= (pr ..a) (out (join a " ")) (? #a (lget a #a-1) nil))
+(= (p ..a) n=#a (for i n (? i>0 (out " ")) (out (tostr (lget a i)))) (out "\n") (? n (lget a n-1) nil))
+(= (pr ..a) n=#a (for i n (? i>0 (out " ")) (out (tostr (lget a i)))) (? n (lget a n-1) nil))
 (= (ep ..a) (eout (strcat2 (join a " ") "\n")) (? #a (lget a #a-1) nil))
 
 ; ---- number parsing
@@ -155,21 +157,43 @@ P10=nil
                             (strcat2 (rpt " " pad) s))))))))
   (join r ""))
 
-; ---- json
-(= (jstr x ind lvl)
-  (? ($isnil x) "null"
-     ($isnum x) (? (|| (!= x x) (> (abs x) 1.7976931348623157e308)) "null" (fmtnum x))
-     (isbool x) (show x)
-     (isstr x) (jquote x)
-     (issym x) (jquote (symstr x))
-     (istyped x) (jstr (typed_list x) ind lvl)
-     (islist x) (? #x==0 "[]"
-                   (jwrap "[" "]" (~ y=>(jstr y ind lvl+1) x) ind lvl))
-     (ismap x) (? #x==0 "{}"
-                  (jwrap "{" "}" (~ kv=>(strcat2 (strcat2 (jquote (tostr kv[0])) (? ind ": " ":")) (jstr kv[1] ind lvl+1)) (mapentries x)) ind lvl))
-     "null"))
-(= (jwrap open close parts ind lvl)
-  (? ind (: pad=(strcat2 "\n" (rpt " " ind*(lvl+1))) end=(strcat2 "\n" (rpt " " ind*lvl))
-            (strcat2 (strcat2 (strcat2 open pad) (join parts (strcat2 "," pad))) (strcat2 end close)))
-     (strcat2 (strcat2 open (join parts ",")) close)))
-(= (json x ind=nil) (jstr x ind 0))
+; ---- json (encoder appends into one growing buffer)
+JB=""
+JN=0
+(= (jroom k)
+  (? JN+k>($hlen JB) (: m=($hlen JB)*2 nb=(strnew (? m>JN+k m JN+k+64)) ($copy nb 0 JB 0 JN) (<- JB nb))))
+(= (jcat s) n=($hlen s) (jroom n) ($copy JB JN s 0 n) (<- JN JN+n) nil)
+(= (jbyte c) (jroom 1) ($stb JB JN c) (<- JN JN+1) nil)
+(= (jqput s)
+  n=($hlen s) i=0
+  (wh (&& i<n (>= ($ldb s i) 32) (!= ($ldb s i) 34) (!= ($ldb s i) 92)) i+=1)
+  (? i==n (: (jroom n+2) ($stb JB JN 34) ($copy JB JN+1 s 0 n) ($stb JB JN+n+1 34) (<- JN JN+n+2))
+     (jcat (jquote s)))
+  nil)
+(= (jnl ind lvl)
+  (? ind (: k=ind*lvl (jroom k+1) ($stb JB JN 10) (<- JN JN+1)
+            (for i k ($stb JB JN+i 32)) (<- JN JN+k))))
+(= (jenc x ind lvl)
+  (? ($isnil x) (jcat "null")
+     ($isnum x) (jcat (? (|| (!= x x) (> (abs x) 1.7976931348623157e308)) "null" (fmtnum x)))
+     (isbool x) (jcat (? x "true" "false"))
+     (isstr x) (jqput x)
+     (issym x) (jqput (symstr x))
+     (istyped x) (jenc (typed_list x) ind lvl)
+     (islist x) (? ($ldw x 1)==0 (jcat "[]")
+                   (: (jbyte 91) n=($ldw x 1)
+                      (for i n (? i>0 (jbyte 44)) (jnl ind lvl+1) (jenc (lget x i) ind lvl+1))
+                      (jnl ind lvl) (jbyte 93)))
+     (ismap x) (? ($ldw x 1)==0 (jcat "{}")
+                  (: (jbyte 123) first=true ent=($ldw x 2) used=($ldw x 4)
+                     (for e used k=($ldw ent 2*e+1)
+                       (? (! ($eqp k UNDEF))
+                          (: (? first first=false (jbyte 44)) (jnl ind lvl+1)
+                             (jqput (tostr k)) (jbyte 58) (? ind (jbyte 32))
+                             (jenc ($ldw ent 2*e+2) ind lvl+1))))
+                     (jnl ind lvl) (jbyte 125)))
+     (jcat "null")))
+(= (json x ind=nil)
+  (<- JB (strnew 256)) (<- JN 0)
+  (jenc x ind 0)
+  r=(strslice JB 0 JN) (<- JB "") r)

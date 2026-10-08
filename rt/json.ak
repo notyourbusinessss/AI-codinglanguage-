@@ -5,7 +5,12 @@ JI=0
 (= (jws) (wh (&& JI<($hlen JS) (isspace ($ldb JS JI))) (<- JI JI+1)))
 (= (jhex4) v=0 (for k 4 c=(? JI+k<($hlen JS) (digitval ($ldb JS JI+k)) 99) (? c>=16 (jerr "bad \\u escape")) v=v*16+c) (<- JI JI+4) v)
 (= (jstring)                      ; at the opening quote
-  (<- JI JI+1) parts=(mklist 4) start=JI done=false
+  (<- JI JI+1) start=JI n=($hlen JS)
+  (wh (&& JI<n (!= ($ldb JS JI) 34) (!= ($ldb JS JI) 92) (>= ($ldb JS JI) 32)) (<- JI JI+1))     ; fast path: no escapes
+  (? (&& JI<n (== ($ldb JS JI) 34)) (: s=(strslice JS start JI) (<- JI JI+1) s)
+     (jstring_slow start)))
+(= (jstring_slow start)
+  (<- JI start) parts=(mklist 4) done=false
   (wh (! done)
     (? JI>=($hlen JS) (jerr "unterminated string"))
     c=($ldb JS JI)
@@ -45,13 +50,31 @@ JI=0
                       (? d==44 nil d==93 more=false (jerr "expected , or ]")))))
               l)
      c==34 (jstring)
-     (: j=JI (wh (&& j<($hlen JS) (|| (isdig ($ldb JS j)) (has "+-.eE" (chr1 ($ldb JS j))))) j+=1)
-        word=(? j>JI (strslice JS JI j) (strslice JS JI (? JI+5<=($hlen JS) JI+5 ($hlen JS))))
-        (? j>JI (: v=(num word) (? ($isnil v) (jerr "bad number")) (<- JI j) v)
-           (starts (strslice JS JI ($hlen JS)) "true") (: (<- JI JI+4) true)
-           (starts (strslice JS JI ($hlen JS)) "false") (: (<- JI JI+5) false)
-           (starts (strslice JS JI ($hlen JS)) "null") (: (<- JI JI+4) nil)
-           (jerr "unexpected character")))))
+     (jscalar)))
+(= (jlit w)                       ; does the literal w start at JI?
+  n=($hlen w) ok=(<= (+ JI n) ($hlen JS)) i=0
+  (wh (&& ok i<n) (? (!= ($ldb JS JI+i) ($ldb w i)) ok=false) i+=1)
+  ok)
+(= (jnumchar c) (|| (&& c>=48 c<=57) c==43 c==45 c==46 c==101 c==69))
+(= (jscalar)                      ; number / true / false / null at JI
+  n=($hlen JS) j=JI
+  (wh (&& j<n (jnumchar ($ldb JS j))) j+=1)
+  (? j>JI
+     (: v=(jfastnum JI j)
+        (? ($isnil v) (: v=(num (strslice JS JI j)) (? ($isnil v) (jerr "bad number"))))
+        (<- JI j) v)
+     (jlit "true") (: (<- JI JI+4) true)
+     (jlit "false") (: (<- JI JI+5) false)
+     (jlit "null") (: (<- JI JI+4) nil)
+     (jerr "unexpected character")))
+(= (jfastnum a b)                 ; -?digits[.digits] with at most 15 digits: exact without allocating; nil = use the general parser
+  i=a neg=false
+  (? (&& i<b (== ($ldb JS i) 45)) (: neg=true i+=1))
+  m=0 nd=0 fd=0 ok=(< i b)
+  (wh (&& ok i<b (isdig ($ldb JS i))) m=($fadd ($fmul m 10) (- ($ldb JS i) 48)) nd+=1 i+=1)
+  (? (&& ok i<b (== ($ldb JS i) 46))
+     (: i+=1 (wh (&& i<b (isdig ($ldb JS i))) m=($fadd ($fmul m 10) (- ($ldb JS i) 48)) nd+=1 fd+=1 i+=1) (? fd==0 ok=false)))
+  (? (&& ok i==b nd>0 nd<=15) (: v=(scale10 m (- fd)) (? neg ($fsub 0 v) v)) nil))
 (= (unjson s)
   (<- JS (tostr s)) (<- JI 0)
   v=(jvalue) (jws)

@@ -86,7 +86,7 @@ RXNAMES=nil
      (: (<- RXP (tostr p)) (<- RXI 0) (<- RXN 0) (<- RXNAMES {})
         prog=(rxalt)
         (? (< RXI ($hlen RXP)) (rxerr "Unmatched ')'"))
-        {"%re" true "src" RXP "flags" (?? f "") "prog" prog "ngroups" RXN "names" RXNAMES})))
+        {"%re" true "src" RXP "flags" (?? f "") "prog" prog "ngroups" RXN "names" RXNAMES "first" (rxfilter prog (?? f ""))})))
 (= (isre x) (&& (ismap x) (mapget x "%re")))
 
 ; ---- matcher
@@ -157,15 +157,38 @@ RXLEN=1
           (|| (&& count>=mn (k i)) (rxtry_more n i count k))))
 (= (rxtry_more n i count k)
   (? count<n[3] (rxm n[1] i (j=>(? (&& (== j i) count>=n[2]) false (rxrep n j count+1 k)))) false))
+; first-byte filter: the set of bytes a match can start with (a u8 table), or false when a match may be empty / start anywhere.
+(= (rxmarkcp fs c)
+  ($stb fs (? c<128 c c<2048 192+(c>>6) c<65536 224+(c>>12) 240+(c>>18)) 1)
+  (? (&& RXCI c<128) (: lc=(rxlow c) ($stb fs lc 1) (? (&& lc>=97 lc<=122) ($stb fs lc-32 1)))))
+(= (rxmarkall fs) (for b 256 ($stb fs b 1)))
+(= (rxfirst n fs)               ; marks the possible first bytes of node n in fs; true when n can match the empty string
+  (sw n[0]
+    "char" (: (rxmarkcp fs n[1]) false)
+    "set" (: (for b 128 (? (rxsetmatch n b) ($stb fs b 1))) (for b 128..256 ($stb fs b 1)) false)
+    "seq" (: nl=true (for it n[1] (? nl nl=(rxfirst it fs))) nl)
+    "alt" (: nl=false (for a n[1] (? (rxfirst a fs) nl=true)) nl)
+    "ncgroup" (rxfirst n[1] fs)
+    "group" (rxfirst n[2] fs)
+    "rep" (: inner=(rxfirst n[1] fs) (|| inner (== n[2] 0)))
+    ["bol" "eol" "wordb" "look"] true
+    (: (rxmarkall fs) true)))
+(= (rxfilter prog flags)        ; computed once when the regex is built (stored under "first")
+  (<- RXCI (has flags "i"))
+  fs=(u8 256) nl=(rxfirst prog fs) all=true (for b 256 (? (== ($ldb fs b) 0) all=false))
+  (? (|| nl all) false fs))
 (= (rxexec r s start)              ; first match at or after start -> capture list [s0 e0 s1 e1 ...] or nil
   (<- RXS s) (<- RXCI (has r.flags "i")) (<- RXML (has r.flags "m")) (<- RXDOT (has r.flags "s"))
-  ng=r.ngroups i=start res=nil
-  (wh (&& ($isnil res) i<=($hlen s))
-    (<- RXC (mklist 2*(ng+1))) (for q 2*(ng+1) (lpush RXC -1))
-    endpos=-1
-    (? (rxm r.prog i (j=>(: (<- endpos j) true)))
-       (: (lset RXC 0 i) (lset RXC 1 endpos) res=RXC))
-    i+=1)
+  ng=r.ngroups i=start res=nil n=($hlen s) fs=r.first nc=2*(ng+1)
+  (<- RXC (mklist nc)) (for q nc (lpush RXC -1))
+  endpos=-1 k0=(j=>(: (<- endpos j) true))
+  (wh (&& ($isnil res) i<=n)
+    (? fs (wh (&& i<n (== ($ldb fs ($ldb s i)) 0)) i=($fadd i 1)))
+    (? (&& fs i>=n) i=n+1
+       (: (? (rxm r.prog i k0)
+             (: (lset RXC 0 i) (lset RXC 1 endpos) res=RXC)
+             (for q nc (lset RXC q -1)))
+          i+=1)))
   res)
 (= (rxgroups s caps)               ; capture list -> [full g1 g2 ..] with nil for unset groups
   r=(mklist 4) (for g (// #caps 2) a=(lget caps 2*g) b=(lget caps 2*g+1) (lpush r (? (|| (< a 0) (< b 0)) nil (strslice s a b)))) r)

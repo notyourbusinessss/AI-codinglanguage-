@@ -8,7 +8,8 @@
 L={:statics [] :files [] :cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot" "#"]
-INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$hslot" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32"]
+INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$hslot" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32" "$ndig" "$utoa"]
+ISPRIM={"list" "$islist" "str" "$isstr" "map" "$ismap" "sym" "$issym" "fn" "$isfn" "nil" "$isnil"}
 PREDS={"islist" ["$islist" 1] "isstr" ["$isstr" 1] "ismap" ["$ismap" 1] "issym" ["$issym" 1] "isfn" ["$isfn" 1] "isnum" ["$isnum" 1] "lget" ["$lget" 2] "lset" ["$lset" 3]}
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (S n) (sym n))
@@ -125,8 +126,8 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "q" (lower_quote x[1])
     "@" (lower_at x tail)
     "<@" (lower_put x[1..])
-    ".@" (? (is "str" x[2]) (lower_rt "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
-    ".=" (? (is "str" x[2]) (lower_rt "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
+    ".@" (? (is "str" x[2]) (lower_prim "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
+    ".=" (? (is "str" x[2]) (lower_prim "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
     "." (lower_method x tail)
     ["aw" "req" "js" "new"] (lerr (++ "(" n " ..) needs the JS target; the native target has no JS interop") x)
     (lower_call x tail)))
@@ -135,6 +136,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   (? (|| #x<3 (! (is "str" x[2]))) (lerr "(. obj \"method\" args..) needs a literal method name on the native target" x))
   (finish_call (lower [(S ".@") x[1] x[2]] false) x[3..] (any isspread x[3..]) tail))
 (= (lower_rt name args) ["call" (rtref name) (~ a=>(lower a false) args)])
+(= (lower_prim name args) ["prim" name (~ a=>(lower a false) args)])         ; field access with a literal key: inline-cached by the code generator
 (= (rtref name) v=L.prelude.vars[name] (? v==nil (err (++ "runtime function missing: " name))) ["ref" v])
 
 (= (lower_quote x)
@@ -145,7 +147,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (hash23 s) h=0 (for c (bytes s) h=(h*31+c)&8388607) h)
 (= (lower_put args) ["prim" "<@" (~ a=>(lower a false) args)])
 (= (lower_at x tail)
-  (? (&& #x==3 (is "str" x[2])) (lower_rt "dotc" [x[1] x[2] (hash23 x[2])])
+  (? (&& #x==3 (is "str" x[2])) (lower_prim "dotc" [x[1] x[2] (hash23 x[2])])
      #x==3 ["prim" "@" (~ a=>(lower a false) x[1..])] #x==4 (lower_rt "slice" x[1..]) (lerr "(@ obj index) or (@ obj lo hi)" x)))
 
 ; ---- list / map literals (spread -> concatenation of pieces)
@@ -248,8 +250,8 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   (for [k it] (enum items)
     (? (isspread it) (: (? (|| k!=#items-1 !(issym it[1])) (lerr "rest pattern ..x must be last" pat))
                         (? ($ it[1])!="_" (push steps (leaf ($ it[1]) ["call" (rtref "slice") [["ref" t] ["num" k] ["nil"]]]))))
-       (issym it) (? ($ it)!="_" (push steps (leaf ($ it) ["call" (rtref "at") [["ref" t] ["num" k]]])))
-       (ispat it) (push steps (destructure it ["call" (rtref "at") [["ref" t] ["num" k]]] leaf))
+       (issym it) (? ($ it)!="_" (push steps (leaf ($ it) ["prim" "@" [["ref" t] ["num" k]]])))
+       (ispat it) (push steps (destructure it ["prim" "@" [["ref" t] ["num" k]]] leaf))
        (lerr "bad destructuring pattern (use names, _, nested [..], ..rest)" pat)))
   ["seq" ..steps ["ref" t]])
 
@@ -344,18 +346,21 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
           bind=(bindvar v ["ref" tk])
           bodyir=(lowerseq body false)
           (pop_scope)
+          tk.isnum=true tn.isnum=true                                          ; counter and bound are always doubles (initialised through `num`, stepped by +1)
+          (? (&& (== bind[0] "init") (! bind[1].set)) bind[1].isnum=true)      ; so is the loop variable unless the body assigns it
           ["seq" ["init" tn ["prim" "num" [hi]]] ["init" tk ["prim" "num" [lo]]]
                  ["while" ["prim" "<" [["ref" tk] ["ref" tn]]] ["seq" bind bodyir step]]])
-       (: tc=(newtemp (++ "%c" (newid))) tx=(newtemp (++ "%x" (newid))) tb=(newtemp (++ "%b" (newid)))
+       (: tc=(newtemp (++ "%c" (newid))) tx=(newtemp (++ "%x" (newid)))
           coll=(lower c false)
           (push_scope)
-          el=["if" ["ref" tb] ["ref" tk] ["call" (rtref "at") [["ref" tx] ["ref" tk]]]]
+          ; iter returns nil for a number (loop over 0..n-1), else a list: element k is an inline checked index (no runtime call per element)
+          el=["if" ["prim" "$isnil" [["ref" tx]]] ["ref" tk] ["prim" "@" [["ref" tx] ["ref" tk]]]]
           bind=(bindvar v el)
           bodyir=(lowerseq body false)
           (pop_scope)
-          ["seq" ["init" tc coll] ["init" tb ["call" (rtref "isnum") [["ref" tc]]]]
+          ["seq" ["init" tc coll]
                  ["init" tx ["call" (rtref "iter") [["ref" tc]]]]
-                 ["init" tn ["if" ["ref" tb] ["ref" tc] ["call" (rtref "len") [["ref" tx]]]]]
+                 ["init" tn ["if" ["prim" "$isnil" [["ref" tx]]] ["ref" tc] ["prim" "#" [["ref" tx]]]]]
                  ["init" tk ["num" 0]]
                  ["while" ["prim" "<" [["ref" tk] ["ref" tn]]] ["seq" bind bodyir step]]]))
   (pop_scope)
@@ -382,6 +387,12 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
           (? v==nil (lerr (++ "undefined: " name) h))
           (? (&& v.kind=="local" v.fn.id!=L.cf.id) (capture L.cf v))
           (? (&& v.pre (has INLINE name) !hasspread) ["prim" name (~ a=>(lower a false) args)]
+             (&& v.pre (== name "push") #args==2 !hasspread) ["prim" "push1" (~ a=>(lower a false) args)]
+             (&& v.pre (== name "is") #args==2 !hasspread (is "str" args[0]) ISPRIM[args[0]]) ["prim" ISPRIM[args[0]] [(lower args[1] false)]]       ; (is "list" x) etc. with a literal type name: inline type test
+             (&& v.pre (== name "lpush") #args==2 !hasspread) ["prim" "lpush" (~ a=>(lower a false) args)]
+             (&& v.pre (== name "++") #args==2 !hasspread) (finish_call (rtref "cat2") args false tail)
+             (&& v.pre (== name "@!") #args==2 !hasspread) ["prim" "@" (~ a=>(lower a false) args)]       ; "unchecked" access = the inline checked fast path (the runtime function is ~10x slower)
+             (&& v.pre (== name "<@!") #args==3 !hasspread) ["prim" "<@" (~ a=>(lower a false) args)]
              (&& v.pre PREDS[name] #args==PREDS[name][1] !hasspread) ["prim" PREDS[name][0] (~ a=>(lower a false) args)]
              (&& v.intrinsic) ["prim" name (~ a=>(lower a false) args)]
              (: (? (&& v.arity !hasspread (: [mn mx]=v.arity (|| #args<mn #args>mx)))
