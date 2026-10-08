@@ -10,9 +10,10 @@ on:
 permissions:
   contents: read
 
+# Only superseded pull-request runs are cancelled; every pushed commit gets its own verdict.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
