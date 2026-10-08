@@ -35,3 +35,14 @@ q={}
 (for rnd 5 (for n 300 (<@ q (* n (+ rnd 1)) rnd)) (for n 300 (? n%4==0 q=(del q (* n (+ rnd 1))))))
 (p #q (sum (vals q)))
 (p (try (<@ 5 "a" 1) e=>"err1") (try (@ nil "a") e=>"err2") (try (@ 5 "a") e=>"err3"))
+; map literals of every size share their array, so the table that grows out of them need not be a power of two
+(for n 9
+  lit=(? n==0 {} n==1 {:a 1} n==2 {:a 1 :b 2} n==3 {:a 1 :b 2 :c 3} n==4 {:a 1 :b 2 :c 3 :d 4} n==5 {:a 1 :b 2 :c 3 :d 4 :e 5}
+         n==6 {:a 1 :b 2 :c 3 :d 4 :e 5 :f 6} n==7 {:a 1 :b 2 :c 3 :d 4 :e 5 :f 6 :g 7} {:a 1 :b 2 :c 3 :d 4 :e 5 :f 6 :g 7 :h 8})
+  (for k 25 (<@ lit (++ "x" k) k+100) (? k%6==0 lit.dot=k))
+  ok=0
+  (for k 25 (? lit[(++ "x" k)]==k+100 ok+=1))
+  (p "literal of" n "keys, grown to" #lit ": found" ok "of 25, dot" lit.dot (? (> n 0) lit.a nil)))
+w={:fd 3 :rbuf "" :seq 0 :queue [] :keys nil}
+w.base=1 w.mask=2 w.mincode=8 w.maxcode=255 w.root=5 w.white=6 w.black=7 w.sw=1024 w.sh=768 w.visual=9 w.depth=24
+(p w.base w.mask w.mincode w.maxcode w.root w.white w.black w.sw w.sh w.visual w.depth w.keys #w)
