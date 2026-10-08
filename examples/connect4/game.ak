@@ -39,14 +39,18 @@ B=nil LEVEL=5 LAST=-1 HL=[] OVER=false MSG="" STATS=""
   w=(won B i p)
   (? w (: (<- HL w) (<- OVER true) (<- MSG (? p==1 "You win!" "The computer wins.")))
      !(has B 0) (: (<- OVER true) (<- MSG "A draw."))))
-(= (play c)                                              ; you drop a disc in column c, the computer answers
+(= (human c)                                             ; you drop a disc in column c: the cell used, or nil when the move is not allowed
   (? (&& !OVER c!=nil c==(int c) 0<=c<W B[c]==0)
-     (: i=(drop B c 1) (<- LAST i) (settle i 1)
-        (? !OVER
-           (: t=(clock) col=(think B 2 LEVEL) j=(drop B col 2) (<- LAST j)
-              (<- STATS (fmt "computer: column %d, %d positions in %d ms (looking %d moves ahead)" col+1 NODES (flr (- (clock) t)) LEVEL))
-              (settle j 2)
-              (? !OVER (<- MSG "Your move.")))))))
+     (: i=(drop B c 1) (<- LAST i) (settle i 1) i)))
+AI=[0 0 0]                                               ; the computer's last move: [column, positions searched, milliseconds]
+(= (computer)                                            ; the computer answers: the cell used
+  t=(clock) col=(think B 2 LEVEL) j=(drop B col 2) (<- LAST j)
+  (<- AI [col+1 NODES (flr (- (clock) t))])
+  (<- STATS (fmt "computer: column %d, %d positions in %d ms (looking %d moves ahead)" AI[0] AI[1] AI[2] LEVEL))
+  (settle j 2) j)
+(= (play c)                                              ; you move, then the computer answers
+  (? (!= (human c) nil)
+     (? !OVER (: (computer) (? !OVER (<- MSG "Your move."))))))
 
 CSS=(embed "style.css")
 (= (cell i) (++ "<i class='" (sw B[i] 1 "r" 2 "y" "e") (? (has HL i) " w" "") (? i==LAST " l" "") "'></i>"))

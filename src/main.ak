@@ -5,7 +5,7 @@
 (use "lower.ak")
 (use "gen.ak")
 (use "fmt.ak")
-PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/num.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak") "\n" (embed "../rt/net.ak") "\n" (embed "../rt/math.ak") "\n" (embed "../rt/regex.ak") "\n" (embed "../rt/big.ak") "\n" (embed "../rt/json.ak") "\n" (embed "../rt/typed.ak") "\n" (embed "../rt/gc.ak") "\n" (embed "../rt/prof.ak"))
+PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/num.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak") "\n" (embed "../rt/net.ak") "\n" (embed "../rt/term.ak") "\n" (embed "../rt/math.ak") "\n" (embed "../rt/regex.ak") "\n" (embed "../rt/big.ak") "\n" (embed "../rt/json.ak") "\n" (embed "../rt/typed.ak") "\n" (embed "../rt/gc.ak") "\n" (embed "../rt/prof.ak"))
 VERSION="0.5.0"
 
 ; ---- tree shaking: keep only the runtime functions the program can reach (by name)
