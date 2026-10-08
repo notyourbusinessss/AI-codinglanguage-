@@ -2,7 +2,7 @@
 ; Roots: the value stack below the collector's own frame and the global table. All heap objects have >= 16 bytes:
 ;   STR/BYTES: 8 + ((len+8)&-8)    SYM: 32 + ((len+7)&-8)    ARR: 8 + 8*max(len,1)    LIST: 32    MAP: 48    CLOSURE: 16+8*k    BOX: 16
 ; A forwarded object has type byte 255 and the new pointer in word 1.
-GCMIN=67108864
+GCMIN=8388608
 GCSTRESS=false
 GCSPACE=17179869184
 GCFREE=0
@@ -30,6 +30,7 @@ GCADDR=0
   fb=($heapbase) fe=($hptr)
   tb=(? GCOTHER GCOTHER ($syscall 9 0 GCSPACE 3 16418 -1 0))
   (? tb<0 ($syscall 231 137))
+  (? (&& (== GCCOUNT 0) (! GCSTRESS)) (gchuge fb fe tb))
   (? GCVERIFY (gcwalk fb fe))
   vt=($vtop)
   free=($gccopy tb vt ($nglob))
@@ -37,9 +38,15 @@ GCADDR=0
   (<- GCFREE free) (<- GCTB tb) (<- GCFB fb)
   (gcverify tb fb fe vt)
   (<- GCOTHER fb)
+  (? (> (- fe fb) 134217728) ($syscall 28 fb (* (cel (/ (- fe fb) 4096)) 4096) 4))      ; a big dead from-space: give its pages back (MADV_DONTNEED); it is rewritten before it is read again
   (<- GCCOUNT GCCOUNT+1)
-  ($gcset free tb tb+GCSPACE-1048576 free+(? GCSTRESS GCMIN live*2>GCMIN live*2 GCMIN))
+  budget=(? live*2>GCMIN live*2 GCMIN) roots=(vt-($vbase))*2       ; a deep value stack is rescanned by every collection: collect less often then
+  ($gcset free tb tb+GCSPACE-1048576 free+(? GCSTRESS GCMIN roots>budget roots budget))
   nil)
+(= (gchuge fb fe tb)          ; the program allocates a lot: ask for transparent huge pages for the untouched rest of both semispaces (far fewer page faults)
+  a=(* (cel (/ fe 4096)) 4096)
+  ($syscall 28 a fb+GCSPACE-a 14)
+  ($syscall 28 tb GCSPACE 14))
 (= (gcbad p w fb fe)
   (? ($isptr w) (: a=($ptraddr w) (? (&& a>=fb a<fe) (: (eout (strcat2 (strcat2 "gc verify: dangling pointer at " (fmtint p-GCTB)) (strcat2 " -> " (fmtint a-fb)))) ($syscall 231 97))))))
 (= (gcverify tb fb fe vt)
@@ -52,6 +59,7 @@ GCADDR=0
           sp+=(gcsize h t)))))
 GCVERIFY=false
 (? (env "AK_GCVERIFY") (<- GCVERIFY true))
+(? (env "AK_GCBASE") (: (<- GCMIN (num (env "AK_GCBASE"))) ($gclim GCMIN)))
 (? (env "AK_GCMIN") (: (<- GCMIN (num (env "AK_GCMIN"))) (<- GCSTRESS true) ($gclim GCMIN)))     ; stress knob: collect after every GCMIN bytes of allocation
 
 (= (gcwalk fb fe)

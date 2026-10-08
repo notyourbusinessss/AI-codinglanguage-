@@ -1,0 +1,28 @@
+; Tic-tac-toe against an unbeatable computer. You are X and move first: type a free cell number (1-9).
+; Run: ak examples/tictactoe.ak      or build a standalone game: ak build examples/tictactoe.ak ttt && ./ttt
+L=[[0 1 2] [3 4 5] [6 7 8] [0 3 6] [1 4 7] [2 5 8] [0 4 8] [2 4 6]]
+(= (win b) w=(~? l=>(&& b[l[0]]!=" " b[l[0]]==b[l[1]] b[l[1]]==b[l[2]]) L) (? w b[w[0][0]] nil))
+(= (over b) (|| (win b) !(has b " ")))
+(= (best b me)                         ; minimax: [score move] from O's point of view (+1 O wins, -1 X wins)
+  w=(win b)
+  (? w=="O" [1 nil] w=="X" [-1 nil] !(has b " ") [0 nil]
+     (: r=nil
+        (for i 9 (? b[i]==" "
+          (: b[i]=me s=(best b (? me=="O" "X" "O"))[0] b[i]=" "
+             (? (|| r==nil (&& me=="O" s>r[0]) (&& me=="X" s<r[0])) r=[s i]))))
+        r)))
+(= (cell b i) (? b[i]==" " ($ i+1) b[i]))
+(= (draw b) (for r 3 (p (++ " " (cell b 3*r) " | " (cell b 3*r+1) " | " (cell b 3*r+2))) (? r<2 (p "---+---+---"))))
+(= (human b)
+  (pr "your move (1-9): ") s=(in)
+  (? s==nil (: (p "bye") (exit 0))
+     (: m=(num (trim s))
+        (? (&& m 1<=m<=9 m==(int m) b[m-1]==" ") m-1 (: (p "pick a free cell from 1 to 9") (human b))))))
+b=(rpt [" "] 9)
+(wh !(over b)
+  (draw b)
+  b[(human b)]="X"
+  (? !(over b) (: mv=(best b "O") b[mv[1]]="O" (p "computer plays" mv[1]+1))))
+(draw b)
+w=(win b)
+(p (? w=="X" "you win!" w=="O" "the computer wins" "a draw"))

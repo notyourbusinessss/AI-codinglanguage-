@@ -8,9 +8,10 @@
 L={:statics [] :files [] :cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot" "#"]
-INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$hslot" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32" "$ndig" "$utoa"]
+INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$hslot" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32" "$ndig" "$utoa" "$find" "$mapfind_s" "$mapfind_n"]
 ISPRIM={"list" "$islist" "str" "$isstr" "map" "$ismap" "sym" "$issym" "fn" "$isfn" "nil" "$isnil"}
 PREDS={"islist" ["$islist" 1] "isstr" ["$isstr" 1] "ismap" ["$ismap" 1] "issym" ["$issym" 1] "isfn" ["$isfn" 1] "isnum" ["$isnum" 1] "lget" ["$lget" 2] "lset" ["$lset" 3]}
+FAST={"max" [2 "max2"] "min" [2 "min2"] "+>" [2 "append1"] "~" [2 "map1"] "p" [1 "p1"]}      ; library functions with a rest parameter: fixed-arity twins for the common call shape (no rest list allocated)
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (S n) (sym n))
 (= (issym x) (is "sym" x))
@@ -161,7 +162,11 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
         (? cur (push parts ["call" (rtref "list") (~ a=>(lower a false) cur)]))
         ["call" (rtref "concat") parts])
      ["call" (rtref "list") (~ a=>(lower a false) items)]))
-(= (lower_map x) (? #x%2==0 (lerr "map literal needs key/value pairs" x)) ["call" (rtref "map") (~ a=>(lower a false) x[1..])])
+(= (lower_map x)
+  (? #x%2==0 (lerr "map literal needs key/value pairs" x))
+  ks=(~ i=>x[1+2*i] 0..(#x-1)//2)
+  lit=(&& 0<#ks<=8 (all k=>(is "str" k) ks) #(uniq ks)==#ks)          ; a record: <= 8 distinct string keys -> no duplicate checks, the argument array becomes the entry array
+  ["call" (rtref (? lit "maplit" "map")) (~ a=>(lower a false) x[1..])])
 
 ; ---- conditionals and short circuit
 (= (lower_if args tail)
@@ -394,6 +399,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
              (&& v.pre (== name "@!") #args==2 !hasspread) ["prim" "@" (~ a=>(lower a false) args)]       ; "unchecked" access = the inline checked fast path (the runtime function is ~10x slower)
              (&& v.pre (== name "<@!") #args==3 !hasspread) ["prim" "<@" (~ a=>(lower a false) args)]
              (&& v.pre PREDS[name] #args==PREDS[name][1] !hasspread) ["prim" PREDS[name][0] (~ a=>(lower a false) args)]
+             (&& v.pre FAST[name] #args==FAST[name][0] !hasspread) (finish_call (rtref FAST[name][1]) args false tail)
              (&& v.intrinsic) ["prim" name (~ a=>(lower a false) args)]
              (: (? (&& v.arity !hasspread (: [mn mx]=v.arity (|| #args<mn #args>mx)))
                    (lerr (++ name " takes " (arity_text v.arity) " argument" (? v.arity[1]==1 "" "s") ", got " #args) x))

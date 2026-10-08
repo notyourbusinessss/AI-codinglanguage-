@@ -17,14 +17,9 @@ CHARS=nil
   (wh (&& (< i m) (== ($ldb a i) ($ldb b i))) i+=1)
   (? i<m (? (< ($ldb a i) ($ldb b i)) -1 1) (? na<nb -1 na>nb 1 0)))
 (= (needstr s) (? (! (isstr s)) ($throw (strcat2 "expected string, got " (ty s)))) s)
-(= (strfind s p from)             ; index of p in s at or after from, or -1
-  n=($hlen s) m=($hlen p) i=from r=-1
-  (? m==0 (? from<=n from -1)
-     m==1 (: c=($ldb p 0) (wh (&& r<0 i<n) (? (== ($ldb s i) c) r=i i+=1)) r)
-     (: (wh (&& r<0 i+m<=n)
-          (: j=0 (wh (&& (< j m) (== ($ldb s i+j) ($ldb p j))) j+=1)
-             (? j==m r=i i+=1)))
-        r)))
+(= (strfind s p from)             ; index of p in s at or after from, or -1 (the search itself is the assembly stub .strfind)
+  n=($hlen s) m=($hlen p)
+  (? m==0 (? from<=n from -1) ($find s p (? from<0 0 from))))
 (= (idx c x)
   (? (isstr c) (strfind c (needstr x) 0)
      (: l=(toarr c) r=-1 i=0 n=#l
@@ -133,11 +128,14 @@ SYMTAB=nil
 (= (needlist l) (? (! (islist l)) ($throw (strcat2 "expected list, got " (ty l)))) l)
 (= (push l ..xs) (needlist l) (for x xs (lpush l x)) l)
 (= (push1 l x) (? (! (islist l)) (needlist l)) (lpush l x) l)         ; (push l x) with exactly one value: called directly, no rest list
+(= (max2 a b) a=(tonum a) b=(tonum b) (? b>a b a))
+(= (min2 a b) a=(tonum a) b=(tonum b) (? b<a b a))
+(= (append1 l x) (needlist l) n=($ldw l 1) r=(mklist n+1) arr=($ldw r 2) ($copy arr 0 ($ldw l 2) 0 n*8) ($stw arr n+1 x) ($stw r 1 n+1) r)
 (= (pop l) (needlist l) n=($ldw l 1)
   (? n==0 nil (: arr=($ldw l 2) x=($ldw arr n) ($stw arr n nil) ($stw l 1 n-1) x)))
 (= (list ..a) a)
 (= (copylist l) n=($ldw l 1) r=(mklist n) ($copy ($ldw r 2) 0 ($ldw l 2) 0 n*8) ($stw r 1 n) r)
-(= (+> l ..x) (concat l x))
+(= (+> l ..x) (needlist l) (concat l x))
 (= (concat ..ls) total=0 (for l ls total+=($ldw l 1))
   r=(mklist total) arr=($ldw r 2) off=0
   (for l ls n=($ldw l 1) ($copy arr off*8 ($ldw l 2) 0 n*8) off+=n)
@@ -174,6 +172,8 @@ SYMTAB=nil
      (: ls=(~ toarr more) m=n (for x ls (? #x<m m=#x))
         r=(mklist m)
         (for i m (lpush r (apply f (concat [(lget l i)] (~ x=>(lget x i) ls))))) r)))
+(= (map1 f l)
+  f=(fnv f) l=(toarr l) n=#l r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 (f (lget l i)))) ($stw r 1 n) r)
 (= (~? f l) f=(fnv f) l=(toarr l) r=(mklist 8) (for x l (? (f x) (lpush r x))) r)
 (= (~~ f l) f=(fnv f) l=(toarr l) r=(mklist 8)
   (for x l y=(f x) (? (islist y) (for z y (lpush r z)) (lpush r y))) r)
@@ -274,7 +274,8 @@ SYMTAB=nil
      ($throw (strcat2 "len of " (ty x)))))
 (= (# x) (len x))
 (= (at x i j=nil)
-  (? (islist x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i))) (lat x i))
+  (? (ismap x) (mapget x i)
+     (islist x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i))) (lat x i))
      (isstr x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i)))
                     (: n=($hlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (chr1 ($ldb x i)) nil)))
      (ismap x) (mapget x i)
@@ -351,7 +352,7 @@ RNGI=nil
           (for l a m=(len l) ($copy arr off*8 ($ldw l 2) 0 m*8) off+=m) ($stw r 1 total) r)
      (: total=0 (for i n s=(tostr (lget a i)) (lset a i s) total+=($hlen s))
         r=(strnew total) off=0 (for i n s=(lget a i) ($copy r off s 0 ($hlen s)) off+=($hlen s)) r)))
-(= (cat2 a b) (? (&& (isstr a) (isstr b)) (strcat2 a b) (++ ..(list a b))))       ; (++ a b): two strings are joined without building the rest list
+(= (cat2 a b) (? (isstr a) (strcat2 a (tostr b)) (islist a) (concat a b) (strcat2 (tostr a) (tostr b))))       ; (++ a b) without building the rest list
 (= ($ x) (tostr x))
 (= (err ..a) ($throw (join a " ")))
 (= (f64bits x) (list ($bitshi x) ($bitslo x)))

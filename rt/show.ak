@@ -76,6 +76,7 @@ P10=nil
 
 ; ---- printing
 (= (p ..a) n=#a (for i n (? i>0 (out " ")) (out (tostr (lget a i)))) (out "\n") (? n (lget a n-1) nil))
+(= (p1 x) (out (tostr x)) (out "\n") x)
 (= (pr ..a) n=#a (for i n (? i>0 (out " ")) (out (tostr (lget a i)))) (? n (lget a n-1) nil))
 (= (ep ..a) (eout (strcat2 (join a " ") "\n")) (? #a (lget a #a-1) nil))
 
