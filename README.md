@@ -22,6 +22,7 @@ Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-
 ./bin/ak examples/tictactoe.ak   a small game: tic-tac-toe against an unbeatable computer (build it into its own executable with `ak build`)
 ./bin/ak examples/connect4.ak    Connect Four in your terminal (arrow keys, colour, animation): uses the native terminal library, no libraries
 ./bin/ak examples/connect4web.ak Connect Four with a graphical UI in your browser (http://localhost:8080), served by the program itself: native sockets, no JavaScript
+./bin/ak examples/connect4gui.ak  Connect Four in its own native window: Ak speaks the X11 protocol itself (lib/x11.ak) and draws with its own canvas (lib/canvas.ak): no browser, no GUI library
 ```
 `bin/ak` is the committed seed. Without it (or to re-derive everything from scratch) Node can bootstrap it once: `./build.sh --boot`.
 

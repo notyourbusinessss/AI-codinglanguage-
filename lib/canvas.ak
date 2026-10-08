@@ -1,0 +1,101 @@
+; Software canvas: BGRA pixels in a u8 array, anti-aliased shapes and text, no libraries. Native target. (x11.ak shows a canvas in a window.)
+;   cv=(canvas 640 480)             (fill cv c)  (rect cv x y w h c a=255)  (rrect cv x y w h r c)  (circle cv cx cy r c a=255)
+;   (ring cv cx cy r thick c)       (vgrad cv x y w h c1 c2)  (text cv x y "str" size c a=255) -> width   (text_w "str" size)   (px cv x y)
+;   (blit dst dx dy src sx sy w h mask)   copy a region of one canvas onto another; mask = a canvas whose blue channel is each pixel's opacity (or nil)
+;   (copy_canvas dst src)  (save_ppm cv "file.ppm")  (rgb r g b)     colours are 0xRRGGBB numbers; text sizes: 15, 22 (regular) and 34 (bold), ASCII
+FONT15=(embed "font15.bin")
+FONT22=(embed "font22.bin")
+FONT34=(embed "font34.bin")
+(= (rgb r g b) (+ (* (& (int r) 255) 65536) (* (& (int g) 255) 256) (& (int b) 255)))
+(= (canvas w h) {:w w :h h :px (u8 w*h*4)})
+(= (px cv x y) i=(y*cv.w+x)*4 (rgb cv.px[i+2] cv.px[i+1] cv.px[i]))
+(= (fillpx p off n b g r)                                ; n pixels from byte offset off set to one opaque colour: the first one, then doubling copies
+  (<@ p off b) (<@ p off+1 g) (<@ p off+2 r) (<@ p off+3 255)
+  k=1
+  (wh k<n m=(min k n-k) ($copy p off+4*k p off 4*m) k+=m)
+  nil)
+(= (blend p i r g b a)                                   ; source-over onto an opaque pixel, a = coverage 0..255
+  (? a>=255 (: (<@ p i b) (<@ p i+1 g) (<@ p i+2 r))
+     a>0 (: ia=255-a
+            (<@ p i (// (+ (* p[i] ia) (* b a) 127) 255))
+            (<@ p i+1 (// (+ (* p[i+1] ia) (* g a) 127) 255))
+            (<@ p i+2 (// (+ (* p[i+2] ia) (* r a) 127) 255))))
+  nil)
+(= (fill cv c) (fillpx cv.px 0 cv.w*cv.h c&255 c>>8&255 c>>16&255))
+(= (rect cv x y w h c a=255)
+  x0=(max 0 x) y0=(max 0 y) x1=(min cv.w x+w) y1=(min cv.h y+h)
+  (? (&& x0<x1 y0<y1)
+     (: p=cv.px r=c>>16&255 g=c>>8&255 b=c&255
+        (? a>=255 (for yy y0..y1 (fillpx p (yy*cv.w+x0)*4 x1-x0 b g r))
+           (for yy y0..y1 (for xx x0..x1 (blend p (yy*cv.w+xx)*4 r g b a))))))
+  nil)
+(= (vgrad cv x y w h c1 c2)
+  r1=c1>>16&255 g1=c1>>8&255 b1=c1&255 r2=c2>>16&255 g2=c2>>8&255 b2=c2&255
+  (for k h t=k/(max 1 h-1) (rect cv x y+k w 1 (rgb r1+(r2-r1)*t g1+(g2-g1)*t b1+(b2-b1)*t)))
+  nil)
+(= (circle cv cx cy r c a=255)                           ; anti-aliased disc; the interior of each row is filled in one go
+  p=cv.px cr=c>>16&255 cg=c>>8&255 cb=c&255
+  y0=(max 0 (flr cy-r-1)) y1=(min cv.h-1 (cel cy+r+1))
+  inner=(max 0 r-1) in2=inner*inner
+  (for yy y0..y1+1
+    dy=yy+0.5-cy dy2=dy*dy
+    xa=cv.w xb=-1
+    (? dy2<=in2 (: hw=(sqrt in2-dy2) xa=(max 0 (cel cx-hw-0.5)) xb=(min cv.w-1 (flr cx+hw-0.5))))
+    (? xa<=xb (? a>=255 (fillpx p (yy*cv.w+xa)*4 xb-xa+1 cb cg cr) (for xx xa..xb+1 (blend p (yy*cv.w+xx)*4 cr cg cb a))))
+    (for side [0 1]
+      lo=(? side==0 (max 0 (flr cx-r-1)) (? xa<=xb xb+1 (max 0 (flr cx-r-1))))
+      hi=(? side==0 (? xa<=xb xa-1 (min cv.w-1 (cel cx+r+1))) (min cv.w-1 (cel cx+r+1)))
+      (? (&& side==1 xa>xb) (: lo=cv.w hi=-1))                   ; no interior: the first pass covered the whole row
+      (for xx lo..hi+1
+        dx=xx+0.5-cx d2=dx*dx+dy2
+        cov=(? d2>=(r+1)*(r+1) 0 (r-(sqrt d2)+0.5))
+        (? cov>0 (blend p (yy*cv.w+xx)*4 cr cg cb (int (* (min cov 1) a)))))))
+  nil)
+(= (ring cv cx cy r t c)                                 ; anti-aliased ring (outer radius r, thickness t)
+  p=cv.px cr=c>>16&255 cg=c>>8&255 cb=c&255
+  (for yy (max 0 (flr cy-r-1))..(min cv.h-1 (cel cy+r+1))+1
+    (for xx (max 0 (flr cx-r-1))..(min cv.w-1 (cel cx+r+1))+1
+      dx=xx+0.5-cx dy=yy+0.5-cy d=(sqrt dx*dx+dy*dy)
+      co=(min 1 (max 0 r-d+0.5)) ci=(min 1 (max 0 d-(r-t)+0.5))
+      (? (&& co>0 ci>0) (blend p (yy*cv.w+xx)*4 cr cg cb (int (* co ci 255))))))
+  nil)
+(= (rrect cv x y w h r c)                                ; rounded rectangle (opaque)
+  (rect cv x+r y w-2*r h c) (rect cv x y+r r h-2*r c) (rect cv x+w-r y+r r h-2*r c)
+  (for [cx cy] [[x+r y+r] [x+w-r y+r] [x+r y+h-r] [x+w-r y+h-r]] (circle cv cx cy r c))
+  nil)
+(= (copy_canvas dst src) ($copy dst.px 0 src.px 0 src.w*src.h*4) nil)
+(= (blit dst dx dy src sx sy w h mask)
+  (for yy h
+    ty=dy+yy
+    (? (&& ty>=0 ty<dst.h)
+       (for xx w
+         tx=dx+xx
+         (? (&& tx>=0 tx<dst.w)
+            (: si=((sy+yy)*src.w+sx+xx)*4 a=(? mask mask.px[((sy+yy)*mask.w+sx+xx)*4] 255)
+               (? a>0 (blend dst.px (ty*dst.w+tx)*4 src.px[si+2] src.px[si+1] src.px[si] a)))))))
+  nil)
+(= (cv_u32 s i) ($ldb s i)+256*($ldb s i+1)+65536*($ldb s i+2)+16777216*($ldb s i+3))
+(= (cv_font size) (? size<=15 FONT15 size<=22 FONT22 FONT34))
+(= (cv_glyph ch) (? (&& ch>=32 ch<=126) ch-32 31))
+(= (text_w s size)
+  f=(cv_font size) w=0
+  (for i #s w+=($ldb f (cv_u32 f 4+4*(cv_glyph ($ldb s i)))))
+  w)
+(= (text cv x y s size c a=255)                          ; (x, y) = top-left corner of the line; returns the width drawn
+  f=(cv_font size) asc=($ldb f 1) p=cv.px cr=c>>16&255 cg=c>>8&255 cb=c&255 pen=x
+  (for i #s
+    o=(cv_u32 f 4+4*(cv_glyph ($ldb s i)))
+    lft=($ldb f o+1) top=($ldb f o+2) gw=($ldb f o+3) gh=($ldb f o+4)
+    lft=(? lft>127 lft-256 lft) top=(? top>127 top-256 top)
+    (for gy gh
+      py=y+asc-top+gy
+      (? (&& py>=0 py<cv.h)
+         (for gx gw
+           cov=($ldb f o+5+gy*gw+gx) qx=pen+lft+gx
+           (? (&& cov>0 qx>=0 qx<cv.w) (blend p (py*cv.w+qx)*4 cr cg cb (? a>=255 cov (// (* cov a) 255)))))))
+    pen+=($ldb f o))
+  pen-x)
+(= (save_ppm cv path)
+  n=cv.w*cv.h d=(u8 n*3) q=cv.px
+  (for i n (<@ d 3*i q[4*i+2]) (<@ d 3*i+1 q[4*i+1]) (<@ d 3*i+2 q[4*i]))
+  (wr path (bcat (bytes (++ "P6\n" cv.w " " cv.h "\n255\n")) d)))

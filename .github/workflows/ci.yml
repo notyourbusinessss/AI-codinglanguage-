@@ -25,6 +25,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      # a virtual X server and a synthetic keyboard/mouse for the GUI tests (they are skipped when these are missing)
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb xdotool xauth x11-utils
       # syntax, round trips, language, spec, CLI, parser/assembler diffs, native ELF, corpus,
       # JS-target fuzz, self-hosting fixpoint, native-vs-JS comparison, native fuzz (about a minute)
       - run: npm test

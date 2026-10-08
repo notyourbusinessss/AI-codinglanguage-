@@ -49,14 +49,24 @@
   n=(?? n 65536) b=(strnew n) r=-4
   (wh r==-4 r=($syscall 0 fd ($addr b) n))
   (? r<0 (netfail "read failed") r==n b (strslice b 0 r)))
-(= (fdw fd s)                           ; write everything (string, byte list or u8 array)
-  d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) n=($hlen d) off=0
+(= (fdwn fd s off n)                    ; write n bytes of s (string, byte list or typed array) starting at byte offset off
+  d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) k=0
   (flush)
-  (wh off<n
-    r=($syscall 44 fd ($addr d)+off n-off 16384 0 0)
-    (? r==-88 r=($syscall 1 fd ($addr d)+off n-off))
-    (? r==-4 nil r<0 (netfail "write failed") off+=r))
+  (wh k<n
+    r=($syscall 44 fd ($addr d)+off+k n-k 16384 0 0)
+    (? r==-88 r=($syscall 1 fd ($addr d)+off+k n-k))
+    (? r==-4 nil r<0 (netfail "write failed") k+=r))
   nil)
+(= (fdw fd s)                           ; write everything (string, byte list or u8 array)
+  d=(? (islist s) (frombytes s) (istyped s) s (tostr s))
+  (fdwn fd d 0 ($hlen d)))
+(= (unixc path)                         ; connect to a Unix-domain socket (a file path): the fd
+  fd=($syscall 41 1 1 0)
+  (? fd<0 (netfail "socket failed"))
+  sa=($newb 1 110 110) ($stb sa 0 1)
+  (for i #path ($stb sa 2+i ($ldb path i)))
+  (? (< ($syscall 42 fd ($addr sa) 3+#path) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot connect to " path))))
+  fd)
 (= (fdc fd) ($syscall 3 fd) nil)
 (= (fdwait fds ms=nil)                      ; the fds that are readable (or hung up) within ms milliseconds (ms<0: wait forever)
   n=#fds b=($newb 1 8*n 8*n)
