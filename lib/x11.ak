@@ -1,0 +1,172 @@
+; Ak's own window system client: the X11 protocol spoken directly over a socket (no libraries). Native target, Linux (X11 or XWayland).
+;   (use "x11.ak")
+;   w=(gui_open "title" 640 480)        open a fixed-size window (uses $DISPLAY and ~/.Xauthority)
+;   (gui_present w canvas)              show a canvas (see canvas.ak); the window repaints itself when it is uncovered
+;   ev=(gui_event w 16)                 next event, or nil after 16 ms: {:type "key" :key "left" :down true :shift false :ctrl false}
+;                                       {:type "mouse" :button "left" :down true :x 10 :y 20} {:type "motion" :x :y} {:type "wheel" :dy 1 :x :y} {:type "close"}
+;   (gui_snapshot w)                    a canvas holding what the window really shows (GetImage)
+;   (gui_close w)
+; Keys are named "left" "right" "up" "down" "enter" "esc" "tab" "backspace" "delete" "home" "end" "shift" "ctrl" "alt", or the typed character.
+(use "canvas.ak")
+
+(= (le16 v) [(v&255) (v>>8&255)])
+(= (le32 v) [(v&255) (v>>8&255) (v>>16&255) (v>>24&255)])
+(= (pad4 n) (& (+ n 3) -4))
+(= (r16 s i) ($ldb s i)+256*($ldb s i+1))
+(= (r32 s i) ($ldb s i)+256*($ldb s i+1)+65536*($ldb s i+2)+16777216*($ldb s i+3))
+(= (s16 s i) v=(r16 s i) (? v>=32768 v-65536 v))
+(= (padded bytes) (++ bytes (rpt "\0" (- (pad4 #bytes) #bytes))))
+
+(= (x_fail msg) (err (++ "x11: " msg)))
+
+; ---- authorization: the MIT-MAGIC-COOKIE-1 entry for this display from $XAUTHORITY or ~/.Xauthority
+(= (be16 s i) 256*($ldb s i)+($ldb s i+1))
+(= (x_auth disp)
+  f=(?? (env "XAUTHORITY") (? (env "HOME") (++ (env "HOME") "/.Xauthority") nil))
+  host=(trim (? (ex "/etc/hostname") (rd "/etc/hostname") ""))
+  r=nil
+  (? (&& f (ex f))
+     (: s=(rd f) i=0 n=#s
+        (wh (&& i+2<n)
+          fam=(be16 s i) i+=2
+          l=(be16 s i) addr=(strslice s i+2 i+2+l) i+=2+l
+          l=(be16 s i) num=(strslice s i+2 i+2+l) i+=2+l
+          l=(be16 s i) name=(strslice s i+2 i+2+l) i+=2+l
+          l=(be16 s i) data=(strslice s i+2 i+2+l) i+=2+l
+          (? (&& (|| num==(++ "" disp) num=="") (|| fam==256 fam==65535) (|| addr==host fam==65535 r==nil)) r=[name data]))))
+  r)
+
+; ---- connection
+(= (x_read w n)                          ; exactly n bytes from the server
+  (wh (< #w.rbuf n)
+    d=(fdr w.fd 65536)
+    (? d=="" (x_fail "the X server closed the connection"))
+    w.rbuf=(++ w.rbuf d))
+  r=(strslice w.rbuf 0 n) w.rbuf=(strslice w.rbuf n #w.rbuf) r)
+(= (x_req w bytes)                       ; send one request (a byte list) and count it
+  (fdw w.fd bytes) w.seq=(& (+ w.seq 1) 65535) nil)
+(= (x_connect disp)
+  d=(?? (env "DISPLAY") "")
+  (? (== d "") (x_fail "no display: $DISPLAY is not set (an X server or XWayland is needed)"))
+  [hostpart rest]=(split d ":")
+  dn=(num (fst (split rest ".")))
+  fd=(? (|| (== hostpart "") (== hostpart "unix")) (unixc (++ "/tmp/.X11-unix/X" dn)) (tcpc hostpart 6000+dn))
+  auth=(x_auth dn)
+  nm=(? auth auth[0] "") dt=(? auth auth[1] "")
+  (fdw fd [108 0 ..(le16 11) ..(le16 0) ..(le16 #nm) ..(le16 #dt) 0 0 ..(bytes (padded nm)) ..(bytes (padded dt))])
+  w={:fd fd :rbuf "" :seq 0 :queue [] :keys nil}
+  h=(x_read w 8)
+  st=($ldb h 0) extra=(r16 h 6)*4
+  body=(x_read w extra)
+  (? st!=1 (x_fail (++ "the server refused the connection" (? st==0 (++ ": " (strslice body 0 ($ldb h 1))) " (authorization needed: set $XAUTHORITY?)"))))
+  w.base=(r32 body 4) w.mask=(r32 body 8)
+  vlen=(r16 body 16) nfmt=($ldb body 21) w.mincode=($ldb body 26) w.maxcode=($ldb body 27)
+  (? ($ldb body 22)!=0 (x_fail "big-endian X servers are not supported"))
+  off=32+(pad4 vlen)
+  w.bpp=nil
+  (for k nfmt (? ($ldb body off+8*k)==24 w.bpp=($ldb body off+8*k+1)))
+  off+=8*nfmt
+  w.root=(r32 body off) w.white=(r32 body off+8) w.black=(r32 body off+12) w.sw=(r16 body off+20) w.sh=(r16 body off+22)
+  w.visual=(r32 body off+32) w.depth=($ldb body off+38)
+  (? (|| w.depth!=24 w.bpp!=32) (x_fail (++ "unsupported screen: depth " w.depth ", bits per pixel for depth 24: " w.bpp)))
+  w.nextid=0 w.lowbit=(& w.mask (- w.mask))
+  w)
+(= (x_id w) w.nextid+=1 (| w.base (* w.nextid w.lowbit)))
+(= (x_atom w name)                       ; InternAtom
+  (x_req w [16 0 ..(le16 2+(// (pad4 #name) 4)) ..(le16 #name) 0 0 ..(bytes (padded name))])
+  r=(x_reply w)
+  (r32 r 8))
+(= (x_reply w)                           ; the next reply (events and errors that arrive first are queued / reported)
+  r=nil
+  (wh (== r nil)
+    h=(x_read w 32) c=($ldb h 0)
+    (? c==1 (: extra=(r32 h 4)*4 r=(++ h (x_read w extra)))
+       c==0 (ep (++ "x11 error " ($ldb h 1) " (request " ($ldb h 10) ", resource " (r32 h 4) ")"))
+       (x_event w h)))
+  r)
+
+; ---- events
+(= (keyname sym)
+  (? (&& sym>=32 sym<=126) (chr sym)
+     (&& sym>=160 sym<=255) (chr sym)
+     sym>=16777216 (chr sym-16777216)
+     (sw sym 65293 "enter" 65421 "enter" 65307 "esc" 65288 "backspace" 65289 "tab" 65535 "delete" 65360 "home" 65367 "end"
+             65361 "left" 65362 "up" 65363 "right" 65364 "down" 65365 "pgup" 65366 "pgdn"
+             65505 "shift" 65506 "shift" 65507 "ctrl" 65508 "ctrl" 65513 "alt" 65514 "alt" "other")))
+(= (x_keys w)                            ; GetKeyboardMapping, once
+  (? w.keys==nil
+     (: n=w.maxcode-w.mincode+1
+        (x_req w [101 0 ..(le16 2) w.mincode n 0 0])
+        r=(x_reply w) kpc=($ldb r 1)
+        w.kpc=kpc w.keys=(~ i=>(r32 r 32+4*i) 0..n*kpc))))
+(= (x_event w h)                         ; decode one 32-byte event into the queue
+  c=(& ($ldb h 0) 127) d=($ldb h 1)
+  st=(r16 h 28) x=(s16 h 24) y=(s16 h 26)
+  (sw c
+    [2 3] (: (x_keys w) col=(? (&& (& st 1) w.kpc>1) 1 0) sym=(w.keys[(d-w.mincode)*w.kpc+col])
+             (? (== sym 0) sym=(w.keys[(d-w.mincode)*w.kpc]))
+             (push w.queue {:type "key" :key (keyname sym) :down c==2 :shift (!= (& st 1) 0) :ctrl (!= (& st 4) 0)}))
+    4 (? (|| d==4 d==5) (push w.queue {:type "wheel" :dy (? d==4 -1 1) :x x :y y})
+         (push w.queue {:type "mouse" :button (sw d 1 "left" 2 "middle" 3 "right" "other") :down true :x x :y y}))
+    5 (? (< d 4) (push w.queue {:type "mouse" :button (sw d 1 "left" 2 "middle" 3 "right" "other") :down false :x x :y y}))
+    6 (: q=w.queue (? (&& #q>0 q[#q-1].type=="motion") (pop q)) (push q {:type "motion" :x x :y y}))
+    12 (? (== (r16 h 28) 0) w.dirty=true)
+    33 (? (== (r32 h 12) w.delatom) (push w.queue {:type "close"}))
+    nil))
+
+(= (x_pump w)                            ; read what the server has sent and turn it into events
+  (? (< #w.rbuf 32) (: d=(fdr w.fd 65536) (? d=="" (x_fail "the X server closed the connection")) w.rbuf=(++ w.rbuf d)))
+  (wh (>= #w.rbuf 32)
+    h=(strslice w.rbuf 0 32) w.rbuf=(strslice w.rbuf 32 #w.rbuf)
+    (? ($ldb h 0)==0 (ep (++ "x11 error " ($ldb h 1) " (request " ($ldb h 10) ")")) (x_event w h)))
+  nil)
+(= (gui_event w ms=nil)                  ; next event, or nil when ms milliseconds pass without one (no ms: wait)
+  t0=(clock) r=nil done=false
+  (wh !done
+    (? #w.queue>0 (: r=w.queue[0] w.queue=w.queue[1..] done=true)
+       (: (? (&& w.dirty w.last) (: w.dirty=false (gui_present w w.last)))
+          left=(? ms==nil -1 (max 0 (- (+ t0 ms) (clock))))
+          (? (|| (>= #w.rbuf 32) (> #(fdwait [w.fd] left) 0)) (x_pump w) done=true))))
+  r)
+
+; ---- windows
+(= (gui_open title width height)
+  w=(x_connect nil)
+  w.w=width w.h=height w.last=nil w.dirty=false
+  (x_keys w)                                                          ; before any event can arrive: x_keys waits for a reply and events must not nest inside that wait
+  wid=(x_id w) gc=(x_id w)
+  w.id=wid w.gc=gc
+  ; CreateWindow: depth 24, black background, events: key press/release, button press/release, pointer motion, exposure
+  mask=2+2048
+  evm=1+2+4+8+64+32768
+  (x_req w [1 24 ..(le16 8+2) ..(le32 wid) ..(le32 w.root) ..(le16 (// (- w.sw width) 2)) ..(le16 (// (- w.sh height) 2)) ..(le16 width) ..(le16 height) ..(le16 0) ..(le16 1) ..(le32 w.visual) ..(le32 mask) ..(le32 w.black) ..(le32 evm)])
+  (x_req w [55 0 ..(le16 4) ..(le32 gc) ..(le32 wid) ..(le32 0)])
+  (gui_title w title)
+  ; fixed size (WM_NORMAL_HINTS: PMinSize | PMaxSize)
+  hints=[..(le32 48) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 width) ..(le32 height) ..(le32 width) ..(le32 height) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0)]
+  (x_req w [18 0 ..(le16 6+18) ..(le32 wid) ..(le32 40) ..(le32 41) 32 0 0 0 ..(le32 18) ..hints])
+  ; WM_PROTOCOLS = [WM_DELETE_WINDOW]: the close button arrives as an event instead of killing the connection
+  prot=(x_atom w "WM_PROTOCOLS") w.delatom=(x_atom w "WM_DELETE_WINDOW")
+  (x_req w [18 0 ..(le16 6+1) ..(le32 wid) ..(le32 prot) ..(le32 4) 32 0 0 0 ..(le32 1) ..(le32 w.delatom)])
+  (x_req w [8 0 ..(le16 2) ..(le32 wid)])                              ; MapWindow
+  w)
+(= (gui_title w title)
+  (x_req w [18 0 ..(le16 6+(// (pad4 #title) 4)) ..(le32 w.id) ..(le32 39) ..(le32 31) 8 0 0 0 ..(le32 #title) ..(bytes (padded title))])
+  nu=(x_atom w "_NET_WM_NAME") u8=(x_atom w "UTF8_STRING")
+  (x_req w [18 0 ..(le16 6+(// (pad4 #title) 4)) ..(le32 w.id) ..(le32 nu) ..(le32 u8) 8 0 0 0 ..(le32 #title) ..(bytes (padded title))]))
+(= (gui_present w cv)                    ; PutImage in strips that fit the maximum request size
+  w.last=cv
+  rowb=cv.w*4 rows=(max 1 (// 262000 rowb)) y=0
+  (wh y<cv.h
+    n=(min rows cv.h-y)
+    (x_req w [72 2 ..(le16 6+(// (* n rowb) 4)) ..(le32 w.id) ..(le32 w.gc) ..(le16 cv.w) ..(le16 n) ..(le16 0) ..(le16 y) 0 24 0 0])
+    (fdwn w.fd cv.px y*rowb n*rowb)
+    y+=n)
+  nil)
+(= (gui_snapshot w)                      ; what the window really shows, as a canvas
+  (x_req w [73 2 ..(le16 5) ..(le32 w.id) ..(le16 0) ..(le16 0) ..(le16 w.w) ..(le16 w.h) ..(le32 4294967295)])
+  r=(x_reply w)
+  cv=(canvas w.w w.h)
+  ($copy cv.px 0 r 32 w.w*w.h*4)
+  cv)
+(= (gui_close w) (x_req w [4 0 ..(le16 2) ..(le32 w.id)]) ($syscall 3 w.fd) nil)

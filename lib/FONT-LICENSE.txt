@@ -1,0 +1,3 @@
+lib/font*.bin are anti-aliased glyph bitmaps rasterised from DejaVu Sans and DejaVu Sans Bold (tools/mkfont.py).
+DejaVu fonts are derived from Bitstream Vera and are free to use, copy and redistribute; see https://dejavu-fonts.github.io/License.html
+Copyright (c) 2003 Bitstream, Inc.  Copyright (c) 2006 Tavmjong Bah (DejaVu changes are in the public domain).

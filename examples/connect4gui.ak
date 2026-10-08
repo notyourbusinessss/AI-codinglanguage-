@@ -1,0 +1,128 @@
+; Connect Four in its own window: Ak's X11 client (lib/x11.ak) and software canvas (lib/canvas.ak), no libraries, no browser.
+;   ak examples/connect4gui.ak        click a column or use left/right + enter; n: new game, l: level, q: quit      (needs an X11 display or XWayland)
+(use "../lib/x11.ak")
+(use "connect4/game.ak")
+WW=600 WH=730 CELL=72 BX=36 BY=170 BWD=528 BHT=456       ; window, cell size, board face rectangle
+(= (cx c) BX+12+CELL*c+CELL//2)
+(= (cy r) BY+12+CELL*r+CELL//2)
+RED=(rgb 239 68 68) YEL=(rgb 251 191 36) HOLE=(rgb 6 10 22) FACE=(rgb 29 78 216) WHITE=(rgb 255 255 255) MUTED=(rgb 148 163 184) INK=(rgb 226 232 240)
+
+; ---- the static scene: background, board face with transparent holes (face + mask), and the board as it looks when empty
+(= (make_face)
+  fc=(canvas BWD BHT) mc=(canvas BWD BHT)
+  (fill fc FACE) (fill mc (rgb 0 0 0))
+  (rrect fc 0 0 BWD BHT 22 FACE)
+  (rrect fc 3 3 BWD-6 BHT-6 20 (rgb 37 99 235))
+  (rrect fc 6 9 BWD-12 BHT-15 18 FACE)
+  (rrect mc 0 0 BWD BHT 22 (rgb 255 255 255))
+  (for r H (for c W (circle mc CELL*c+12+CELL//2 CELL*r+12+CELL//2 31 (rgb 0 0 0))
+                    (ring fc CELL*c+12+CELL//2 CELL*r+12+CELL//2 33 3 (rgb 24 60 170))))
+  [fc mc])
+(= (make_base fc mc)
+  b=(canvas WW WH)
+  (vgrad b 0 0 WW WH (rgb 30 41 59) (rgb 11 18 32))
+  (rrect b BX-4 BY-2 BWD+8 BHT+10 26 (rgb 4 8 20))
+  (rrect b BX BY BWD BHT 22 HOLE)
+  (blit b BX BY fc 0 0 BWD BHT mc)
+  b)
+
+; ---- state
+GAME={:phase "idle" :cur 3 :anim nil :t 0 :flash 0 :score [0 0 0] :hover -1 :btn -1}
+(= (lvlname) (sw LEVEL 2 "easy" 5 "medium" "hard"))
+(= (shade c f) (rgb (* (c>>16&255) f) (* (c>>8&255) f) (* (c&255) f)))
+(= (piece cv x y r col)
+  (circle cv x y r (shade col 0.78))
+  (circle cv x y r-3 col)
+  (circle cv x-r*0.28 y-r*0.30 r*0.42 WHITE 70)
+  nil)
+(= (centered cv y s size col)
+  (text cv (// (- WW (text_w s size)) 2) y s size col)
+  nil)
+(= (buttons) [["New game" 36 110] ["easy" 262 80] ["medium" 352 100] ["hard" 462 80]])
+(= (draw cv base fc mc)
+  (copy_canvas cv base)
+  anim=GAME.anim
+  (for r H (for c W
+    i=r*W+c
+    (? (&& B[i]!=0 !(&& anim i==anim.cell)) (piece cv (cx c) (cy r) 30 (? B[i]==1 RED YEL)))))
+  (? anim (: t=(/ (- (clock) anim.t0) 1000) y=(min anim.y1 (+ anim.y0 (* 0.5 4800 t t)))
+             c=anim.cell%W
+             (piece cv (cx c) y 30 (? anim.who==1 RED YEL))
+             (blit cv BX+CELL*c+12 BY fc CELL*c+12 0 CELL BHT mc)))
+  (? (&& OVER (== (% (// GAME.flash 300) 2) 0)) (for i HL (ring cv (cx i%W) (cy i//W) 36 5 WHITE)))
+  (? (&& (== GAME.phase "idle") !OVER GAME.cur>=0) (piece cv (cx GAME.cur) 124 30 RED))
+  (centered cv 16 "Connect Four" 34 WHITE)
+  (centered cv 62 (sw GAME.phase "thinking" "Thinking..." "over" (++ MSG "   (n: new game)") "Your move: click a column") 22 (? OVER (? MSG=="You win!" (rgb 74 222 128) (rgb 248 113 113)) INK))
+  sc=GAME.score
+  (centered cv 640 (fmt "you %d    computer %d    draws %d" sc[0] sc[1] sc[2]) 15 MUTED)
+  (for [k [label x w]] (enum (buttons))
+    on=(? k>=1 (== (lvlname) label) false) hov=(== GAME.btn k)
+    (rrect cv x 668 w 38 10 (? on (rgb 37 99 235) hov (rgb 51 65 85) (rgb 30 41 59)))
+    (text cv x+(// (- w (text_w label 15)) 2) 678 label 15 (? on WHITE INK)))
+  nil)
+
+; ---- game flow
+(= (set_phase p) (<- GAME (set GAME "phase" p)) nil)
+(= (start_anim i who)
+  y1=(cy i//W)
+  (<- GAME (set (set GAME "anim" {:cell i :who who :t0 (clock) :y0 124 :y1 y1}) "phase" (? who==1 "dropping" "cdropping")))
+  nil)
+(= (animating) (? GAME.anim (: t=(/ (- (clock) GAME.anim.t0) 1000) y=(+ GAME.anim.y0 (* 0.5 4800 t t)) y<GAME.anim.y1) false))
+(= (new_game lvl) (reset lvl) (<- GAME (set (set (set GAME "phase" "idle") "anim" nil) "flash" 0)) nil)
+(= (finish)
+  sc=GAME.score
+  (? MSG=="You win!" sc[0]+=1 MSG=="A draw." sc[2]+=1 sc[1]+=1)
+  (<- GAME (set (set (set GAME "phase" "over") "flash" 0) "t" (clock)))
+  nil)
+(= (drop_col c)                                          ; you choose column c
+  (? (&& (== GAME.phase "idle") !OVER)
+     (: i=(human c) (? i!=nil (start_anim i 1))))
+  nil)
+(= (step)                                                ; advance the game's own clock: animations and the computer's turn
+  ph=GAME.phase
+  (? (&& (== ph "dropping") !(animating))
+       (: (<- GAME (set GAME "anim" nil)) (? OVER (finish) (: (<- GAME (set (set GAME "phase" "thinking") "t" (clock))))))
+     (&& (== ph "thinking") (> (- (clock) GAME.t) 350))
+       (: j=(computer) (start_anim j 2))
+     (&& (== ph "cdropping") !(animating))
+       (: (<- GAME (set GAME "anim" nil)) (? OVER (finish) (set_phase "idle"))))
+  (? (== GAME.phase "over") (<- GAME (set GAME "flash" (- (clock) GAME.t))))
+  nil)
+(= (hit_col x y) (? (&& x>=BX+12 x<BX+12+CELL*W y>=100 y<BY+BHT) (// (- x BX 12) CELL) -1))
+(= (hit_btn x y) r=-1 (for [k [label bx bw]] (enum (buttons)) (? (&& x>=bx x<bx+bw y>=668 y<706) r=k)) r)
+(= (button k)
+  (sw k 0 (new_game LEVEL) 1 (new_game 2) 2 (new_game 5) 3 (new_game 7))
+  nil)
+(= (handle ev)                                           ; returns false when the game should end
+  t=ev.type
+  (? t=="close" false
+     t=="motion" (: c=(hit_col ev.x ev.y) (? c>=0 (<- GAME (set GAME "cur" c))) (<- GAME (set GAME "btn" (hit_btn ev.x ev.y))) true)
+     (&& t=="mouse" ev.down ev.button=="left")
+       (: b=(hit_btn ev.x ev.y) c=(hit_col ev.x ev.y) (? b>=0 (button b) c>=0 (: (<- GAME (set GAME "cur" c)) (drop_col c))) true)
+     (&& t=="key" ev.down)
+       (: k=ev.key
+          (? (has ["q" "esc"] k) false
+             (: (? k=="n" (new_game LEVEL) k=="l" (new_game (? LEVEL==2 5 LEVEL==5 7 2))
+                   k=="left" (<- GAME (set GAME "cur" (max 0 GAME.cur-1))) k=="right" (<- GAME (set GAME "cur" (min 6 GAME.cur+1)))
+                   (has ["1" "2" "3" "4" "5" "6" "7"] k) (<- GAME (set GAME "cur" (num k)-1))
+                   (has ["enter" "down" " "] k) (drop_col GAME.cur))
+                true)))
+     true))
+(= (main)
+  [fc mc]=(make_face)
+  base=(make_base fc mc)
+  cv=(canvas WW WH)
+  win=(gui_open "Connect Four" WW WH)
+  (new_game 5)
+  (draw cv base fc mc) (gui_present win cv)                  ; the first frame, before any event arrives
+  run=true dirty=false
+  (wh run
+    ph=GAME.phase
+    ev=(gui_event win (? (|| GAME.anim (== ph "thinking")) 16 (== ph "over") 120 nil))       ; idle: sleep until something happens
+    (wh (&& run ev) run=(handle ev) dirty=true ev=(? run (gui_event win 0) nil))
+    (step)
+    (? (|| dirty GAME.anim (== GAME.phase "thinking") (== GAME.phase "over"))
+       (: (draw cv base fc mc) (gui_present win cv) dirty=false)))
+  (gui_close win)
+  nil)
+(main)
