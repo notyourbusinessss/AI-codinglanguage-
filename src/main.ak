@@ -10,7 +10,7 @@ VERSION="0.5.0"
 
 ; ---- tree shaking: keep only the runtime functions the program can reach (by name)
 ROOTS=["at" "dot" "put" "setdot" "dotc" "setdotc" "slice" "apply" "concat" "isnum" "iter" "push1" "lpush" "cat2" "len" "list" "map" "sym" "toarr" "fatal" "finish" "gc" "chars_init" "bigfrom"
-       "add2" "sub2" "mul2" "div2" "lt2" "gt2" "le2" "ge2" "eq2" "ne2" "mod2" "fdiv2" "pow2" "band2" "bor2" "bxor2" "shl2" "shr2" "ushr2" "neg1" "bnot1"]
+       "add2" "sub2" "mul2" "div2" "lt2" "gt2" "le2" "ge2" "eq2" "ne2" "mod2" "fdiv2" "pow2" "band2" "bor2" "bxor2" "shl2" "shr2" "ushr2" "neg1" "bnot1" "max2" "min2" "append1" "map1" "p1" "maplit"]
 (= (collect x out) (? (is "sym" x) out[($ x)]=true (is "list" x) (for y x (collect y out))))
 (= (fdef x)
   (? (&& (is "list" x) #x>=3 (is "sym" x[0]) (== ($ x[0]) "=") (is "list" x[1]) #x[1]>0 (is "sym" x[1][0]) (! (starts ($ x[1][0]) "%")))

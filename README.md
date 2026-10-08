@@ -19,6 +19,7 @@ Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-
 ./bin/ak -e '(p 1+2)'            run a snippet
 ./bin/ak check prog.ak           parse + resolve only      ./bin/ak fmt prog.ak    canonical source
 ./build.sh                       rebuild bin/ak from src/ with itself (iterates to a fixpoint)
+./bin/ak examples/tictactoe.ak   a small game: tic-tac-toe against an unbeatable computer (build it into its own executable with `ak build`)
 ```
 `bin/ak` is the committed seed. Without it (or to re-derive everything from scratch) Node can bootstrap it once: `./build.sh --boot`.
 
@@ -51,6 +52,7 @@ My first version was actually *more* expensive than Python (the cryptic `~?` and
 |---|---|---|---|
 | naive `fib(38)` | 0.41 s | 0.77 s | 5.0 s |
 | sieve of 20M (`u8` array) | 0.37 s | 0.88 s | — |
+| 500k string-key map inserts + lookups | 0.35 s | 0.62 s | — |
 | compile the compiler (5.5k lines of Ak) | 0.30 s | — | — |
 | compile + run hello world | 0.007 s | 0.07 s | — |
 
