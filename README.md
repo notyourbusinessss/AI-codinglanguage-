@@ -10,7 +10,7 @@ A programming language designed for an LLM to write and read: **cheap in tokens,
 (for [w n] (sort kv=>[-kv[1] kv[0]] c) (p w n))
 ```
 
-Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,700 tokens). Source files use the extension `.ak`.
+Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,900 tokens). Source files use the extension `.ak`.
 
 ## Quick start
 ```
