@@ -60,10 +60,10 @@ Integer-overflow checking (see below) is on in both; the JS target has `--fast` 
 | check | |
 |---|---|
 | 24 corpus programs vs **independent Python reference outputs** (JS target) | 24/24 |
-| 22 of them + 18 more native test programs: native executable vs JS backend, normal and under GC stress (collect every 64 KB, heap verifier on) | 40/40 identical |
+| 22 of them + 22 more native test programs (incl. a GC torture test): native executable vs JS backend, normal and under GC stress (a collection after every 1 KB allocated, heap verifier on; ~40,000 collections per run) | 44/44 identical |
 | Self-hosting fixpoint (JS-built = native-built = rebuilt, plain and GC-stress) | ✔ |
 | Differential fuzzing (JS target): random programs vs a separate reference interpreter | 20,000 on the final build, 0 mismatches |
-| Differential fuzzing (native executable vs the same reference interpreter, with a test-case shrinker) | 14,000+ programs, 0 mismatches (found: empty-string compare, list-put padding) |
+| Differential fuzzing (native executable vs the same reference interpreter, with a test-case shrinker; every program also run under GC stress) | 14,000+ programs, 0 mismatches (found: empty-string compare, list-put padding) |
 | Parser written in Ak vs the JS parser | 492 files identical · assembler vs GNU `as`: 2,000+ encodings identical |
 | Float formatting/parsing vs V8: 20,000 random doubles round-trip | 0 mismatches · `exp log sin cos tan atan asin acos sinh cosh tanh cbrt log2 log10`: 0 mismatches / 3,700 random inputs |
 

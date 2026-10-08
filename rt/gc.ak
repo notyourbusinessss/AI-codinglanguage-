@@ -3,6 +3,7 @@
 ;   STR/BYTES: 8 + ((len+8)&-8)    SYM: 32 + ((len+7)&-8)    ARR: 8 + 8*max(len,1)    LIST: 32    MAP: 48    CLOSURE: 16+8*k    BOX: 16
 ; A forwarded object has type byte 255 and the new pointer in word 1.
 GCMIN=67108864
+GCSTRESS=false
 GCSPACE=17179869184
 GCFREE=0
 GCCOUNT=0
@@ -37,7 +38,7 @@ GCADDR=0
   (gcverify tb fb fe vt)
   (<- GCOTHER fb)
   (<- GCCOUNT GCCOUNT+1)
-  ($gcset free tb tb+GCSPACE-1048576 free+(? live*2>GCMIN live*2 GCMIN))
+  ($gcset free tb tb+GCSPACE-1048576 free+(? GCSTRESS GCMIN live*2>GCMIN live*2 GCMIN))
   nil)
 (= (gcbad p w fb fe)
   (? ($isptr w) (: a=($ptraddr w) (? (&& a>=fb a<fe) (: (eout (strcat2 (strcat2 "gc verify: dangling pointer at " (fmtint p-GCTB)) (strcat2 " -> " (fmtint a-fb)))) ($syscall 231 97))))))
@@ -51,6 +52,7 @@ GCADDR=0
           sp+=(gcsize h t)))))
 GCVERIFY=false
 (? (env "AK_GCVERIFY") (<- GCVERIFY true))
+(? (env "AK_GCMIN") (: (<- GCMIN (num (env "AK_GCMIN"))) (<- GCSTRESS true) ($gclim GCMIN)))     ; stress knob: collect after every GCMIN bytes of allocation
 
 (= (gcwalk fb fe)
   sp=fb pt=0 ps=0

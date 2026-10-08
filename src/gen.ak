@@ -443,7 +443,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
     "$vbase" (: (a "mov rax, [268435512]") (int2num "rax"))
     "$hptr" (: (a "mov rax, r13") (int2num "rax"))
     "$heapbase" (: (a "mov rax, [268435504]") (int2num "rax"))
-    "$nglob" (numconst 0 L.nglob)
+    "$nglob" (: (a "mov rax, [268435624]") (int2num "rax"))
     "$gcset" (: (for e args (gen e) (push_rax))
                 (popr "rcx") (num2int "rcx" "rcx") (popr "rdx") (num2int "rdx" "rdx") (popr "rsi") (num2int "rsi" "rsi") (popr "r13") (num2int "r13" "r13")
                 (a "mov [268435464], rdx") (a "mov [268435504], rsi") (a "mov [268435496], rcx") (a "mov rax, r11"))
@@ -630,6 +630,7 @@ PREDPRIMS=["$islist" "$isstr" "$ismap" "$issym" "$isfn" "$isnum" "$isnil" "$ispt
   (mmap_to 1073741824 "r15") (a "mov [268435512], r15")
   (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx") (a "mov [268435576], rsp")
   (reload_consts)
+  (af "mov rax, %d" L.nglob) (a "mov [268435624], rax")      ; the program's global count, read by the collector ($nglob): the runtime image is compiled before the program's globals exist
   (af "mov rdi, %d" GBASE) (af "mov rcx, %d" L.nglob) (a "mov rax, r11") (a "rep stosq")
   (a "mov r14, r15")
   (a "mov [r15], r11") (a "add r15, 8") (a "mov rcx, 0") (a (++ "call .f" main.id))
