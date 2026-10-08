@@ -40,8 +40,9 @@ IMAGE=nil                       ; a prebuilt runtime image (see gen_image), bake
   (reset_lower)
   main=(lower_program (parse PRELUDE "rt/core.ak") [] "rt/core.ak")
   (gen_image main))
-(= (get_image)
-  (? (|| (!= IMAGE nil) (env "AK_NOIMAGE")) IMAGE
+(= (get_image)               ; AK_NOIMAGE=1 forces the slow path (runtime lowered together with the program)
+  (? (env "AK_NOIMAGE") nil
+     (!= IMAGE nil) IMAGE
      (env "AK_IMGTEST") (: (<- IMAGE (build_image)) IMAGE)))
 (= (bake forms img)           ; `IMAGE=...` at top level of the program becomes the baked image
   (~ f=>(? (&& (is "list" f) #f==3 (is "sym" f[0]) (== ($ f[0]) "=") (is "sym" f[1]) (== ($ f[1]) "IMAGE")) [f[0] f[1] [(S "%static") 0]] f) forms))

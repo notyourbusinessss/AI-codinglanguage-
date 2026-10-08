@@ -1,6 +1,6 @@
 'use strict';
 // Differential fuzzer for the native target: random programs run by the reference interpreter (interp.js) and by the native compiler
-// (bin/ak, or $AK_BIN). usage: node tests/fuzz_native.js [count=300] [seed=1] [-v]
+// (bin/ak, or $AK_BIN); every program is also run under GC stress and must behave identically. usage: node tests/fuzz_native.js [count=300] [seed=1] [-v]
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
 const F = require('./fuzz.js');
 const { fmt } = require('../boot/fmt.js');
@@ -21,21 +21,28 @@ function runInterp(ast) {
   }
 }
 let n = 0;
-function runNative(ast) {
-  const forms = ast.slice(); const last = forms.pop();
-  forms.push([S('p'), [S('show'), last]]);
-  const file = path.join(tmp, 'f' + (n++) + '.ak');
-  fs.writeFileSync(file, fmt(forms, { layout: 'lines' }));
-  const r = cp.spawnSync(ak, [file], { encoding: 'utf8', timeout: 8000 });
+function norm(r) {
   if (r.error || r.signal) return 'TIMEOUT';
   if (r.status === 0) return 'OK ' + r.stdout.replace(/\n$/, '');
   const m = /^error: ([\s\S]*?) \(([^()]*:\d+:\d+)\)\s*$/.exec(r.stderr);
   if (m) return 'ERR ' + m[1];
   return /^error: .*:\d+:\d+: /.test(r.stderr) ? 'INVALID' : 'CRASH ' + r.stderr.slice(0, 200);
 }
+// stress: build an executable and run it with a collection after every 256 bytes of allocation and the heap verifier on
+function runNative(ast, stress) {
+  const forms = ast.slice(); const last = forms.pop();
+  forms.push([S('p'), [S('show'), last]]);
+  const file = path.join(tmp, 'f' + (n++) + '.ak');
+  fs.writeFileSync(file, fmt(forms, { layout: 'lines' }));
+  if (!stress) return norm(cp.spawnSync(ak, [file], { encoding: 'utf8', timeout: 8000 }));
+  const exe = file + '.exe';
+  const c = cp.spawnSync(ak, ['build', file, exe], { encoding: 'utf8', timeout: 8000 });
+  if (c.status !== 0) return norm(c);
+  return norm(cp.spawnSync(exe, [], { encoding: 'utf8', timeout: 20000, env: { ...process.env, AK_GCMIN: '256', AK_GCVERIFY: '1' } }));
+}
 const count = +process.argv.slice(2).filter(a => !a.startsWith('-'))[0] || 300;
 const seed0 = +process.argv.slice(2).filter(a => !a.startsWith('-'))[1] || 1;
-let fails = 0, msgdiff = 0, skipped = 0;
+let fails = 0, msgdiff = 0, skipped = 0, stressFails = 0;
 function bad(ast) {
   const a = runInterp(ast); if (a === 'SKIP' || a.startsWith('JSERR')) return null;
   const b = runNative(ast); if (b === 'TIMEOUT' || a === b || (a.startsWith('ERR') && b.startsWith('ERR'))) return null;
@@ -62,6 +69,10 @@ for (let i = 0; i < count; i++) {
   const a = runInterp(ast); if (a === 'SKIP' || a.startsWith('JSERR')) { skipped++; continue; }
   const b = runNative(ast);
   if (b === 'TIMEOUT') { skipped++; continue; }
+  if (!b.startsWith('INVALID')) {
+    const c = runNative(ast, true);
+    if (c !== 'TIMEOUT' && c !== b) { stressFails++; fails++; console.log(`\n=== GC-STRESS FAIL seed=${seed}\n  normal: ${b.slice(0, 300)}\n  stress: ${c.slice(0, 300)}\n${fmt(ast, { layout: 'lines' })}`); if (fails >= 3) break; continue; }
+  }
   if (a === b) continue;
   if (a.startsWith('ERR') && b.startsWith('ERR')) { msgdiff++; if (process.argv.includes('-v')) console.log(`msg differs (seed ${seed}):\n  interp: ${a}\n  native: ${b}`); continue; }
   fails++;
@@ -69,5 +80,5 @@ for (let i = 0; i < count; i++) {
   console.log(`\n=== FAIL seed=${seed}\n  interp: ${r.a.slice(0, 300)}\n  native: ${r.b.slice(0, 300)}\n${fmt(small, { layout: 'lines' })}`);
   if (fails >= 3) break;
 }
-console.log(`fuzz_native: ${count} programs, ${fails} failures (${msgdiff} error-message differences, ${skipped} skipped)`);
+console.log(`fuzz_native: ${count} programs, ${fails} failures (${msgdiff} error-message differences, ${skipped} skipped; each also run under GC stress, ${stressFails} stress failures)`);
 fs.rmSync(tmp, { recursive: true, force: true }); process.exit(fails ? 1 : 0);
