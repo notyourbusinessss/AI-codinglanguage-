@@ -1,0 +1,33 @@
+; Connect Four in your browser, served by this program itself (native sockets: no libraries, no JavaScript).
+;   ak examples/connect4web.ak [port]     then open http://localhost:8080        (ak examples/connect4web.ak selftest: no server)
+(use "connect4/game.ak")
+(= (reply c status head body)
+  (fdw c (++ "HTTP/1.1 " status "\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " #body "\r\n" head "\r\n" body)))
+(= (handle c rq)
+  target=(?? (split (split rq "\r\n")[0] " ")[1] "/")
+  [path q]=(split target "?")
+  arg=(? q (num q[2..]) nil)
+  (sw path
+    "/" (reply c "200 OK" "" (page))
+    "/move" (: (play arg) (reply c "303 See Other" "Location: /\r\n" ""))
+    "/new" (: (reset (? (has [2 5 7] arg) arg 5)) (reply c "303 See Other" "Location: /\r\n" ""))
+    (reply c "404 Not Found" "" "not found")))
+(= (serve port)
+  l=(tcpl port) bufs={}
+  (fdw 1 (++ "Connect Four: open http://localhost:" (tcpp l) "  (Ctrl-C to stop)\n"))
+  (wh true
+    (for f (fdwait [l ..(~ num (keys bufs))] -1)
+      (? f==l (<@ bufs (tostr (tcpa l)) "")
+         (: d=(fdr f) k=(tostr f)
+            (? d=="" (: (fdc f) bufs=(del bufs k))
+               (: bufs[k]=(++ bufs[k] d)
+                  (? (has bufs[k] "\r\n\r\n") (: (handle f bufs[k]) (fdc f) bufs=(del bufs k))))))))))
+(= (selftest)                                            ; computer (depth 5) against computer (depth 3), then show the board
+  (reset 5)
+  who=1
+  (wh !OVER
+    col=(think B who (? who==1 5 3)) i=(drop B col who) (settle i who) who=3-who)
+  (for r H (p (join (~ c=>(sw B[r*W+c] 1 "X" 2 "O" ".") 0..W) " ")))
+  (p MSG))
+(reset 5)
+(? (fst (args))=="selftest" (selftest) (serve (num (?? (fst (args)) 8080))))
