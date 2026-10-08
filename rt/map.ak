@@ -68,13 +68,13 @@ HID=0
 (= (maprehash m)                  ; compact (drop tombstones), grow when at least half the entries are live, and build the index once the map is no longer small
   live=($ldw m 1) oldent=($ldw m 2) used=($ldw m 4) oldcap=($hlen oldent)/2
   cap=(? live*2>=oldcap oldcap*2 oldcap)
-  ent=($new 3 cap*2 cap*2) idx=(? cap>8 ($new 3 cap*2 cap*2) nil) mask=cap*2-1 j=0
+  ent=($new 3 cap*2 cap*2) idx=(? cap>8 ($new 3 cap*2 cap*2) nil) size=cap*2 j=0       ; the size need not be a power of two (map literals share their rest list's array)
   (for e used
     k=($ldw oldent ($fadd ($fadd e e) 1))
     (? (! ($eqp k UNDEF))
        (: ($stw ent ($fadd ($fadd j j) 1) k) ($stw ent ($fadd ($fadd j j) 2) ($ldw oldent ($fadd ($fadd e e) 2)))
-          (? idx (: i=($hslot (? ($isstr k) ($strhash k) (hashof k)) mask+1)
-                    (wh (! ($isnil ($ldw idx i+1))) i=($band i+1 mask))
+          (? idx (: i=($hslot (? ($isstr k) ($strhash k) (hashof k)) size)
+                    (wh (! ($isnil ($ldw idx i+1))) i=(? i+1>=size 0 i+1))
                     ($stw idx i+1 j)))
           j=($fadd j 1))))
   ($stw m 2 ent) ($stw m 3 idx) ($stw m 4 j) m)
@@ -87,8 +87,8 @@ HID=0
         idx=($ldw m 3)
         (? (! ($isnil idx))
            (: (? ($isnil slot)
-                 (: mask=($hlen idx)-1 i=($hslot (? ($isstr k) ($strhash k) (hashof k)) mask+1)
-                    (wh (! ($isnil ($ldw idx i+1))) i=($band i+1 mask))
+                 (: size=($hlen idx) i=($hslot (? ($isstr k) ($strhash k) (hashof k)) size)
+                    (wh (! ($isnil ($ldw idx i+1))) i=(? i+1>=size 0 i+1))
                     slot=i+1))
               ($stw idx slot used)))
         ($stw m 4 used+1) ($stw m 1 ($ldw m 1)+1) v)))
