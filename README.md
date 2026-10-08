@@ -10,7 +10,9 @@ A programming language designed for an LLM to write and read: **cheap in tokens,
 (for [w n] (sort kv=>[-kv[1] kv[0]] c) (p w n))
 ```
 
-Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,900 tokens). Source files use the extension `.ak`.
+It also draws its own windows: a pure-Ak **X11 client** (`lib/x11.ak`) and a software **canvas** with anti-aliased shapes and real fonts (`lib/canvas.ak`) — no GUI library, no browser (see [Connect Four in its own window](#programs-written-in-ak)).
+
+Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,870 tokens). Source files use the extension `.ak`.
 
 ## Quick start
 ```
@@ -22,9 +24,25 @@ Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-
 ./bin/ak examples/tictactoe.ak   a small game: tic-tac-toe against an unbeatable computer (build it into its own executable with `ak build`)
 ./bin/ak examples/connect4.ak    Connect Four in your terminal (arrow keys, colour, animation): uses the native terminal library, no libraries
 ./bin/ak examples/connect4web.ak Connect Four with a graphical UI in your browser (http://localhost:8080), served by the program itself: native sockets, no JavaScript
-./bin/ak examples/connect4gui.ak  Connect Four in its own native window: Ak speaks the X11 protocol itself (lib/x11.ak) and draws with its own canvas (lib/canvas.ak): no browser, no GUI library
+./bin/ak examples/connect4gui.ak Connect Four in its own native window: Ak speaks the X11 protocol itself (lib/x11.ak) and draws with its own canvas (lib/canvas.ak): no browser, no GUI library
 ```
 `bin/ak` is the committed seed. Without it (or to re-derive everything from scratch) Node can bootstrap it once: `./build.sh --boot`.
+
+## Programs written in Ak
+Everything below is plain Ak, compiled by the native compiler, with no library underneath (`examples/`, `lib/`):
+
+| program | what it shows |
+|---|---|
+| `tictactoe.ak` | a complete game against an unbeatable computer (minimax) in ~40 lines |
+| `connect4.ak` | Connect Four in the terminal: raw mode, key decoding (arrows, Esc, UTF-8), ANSI colour, braille-dot discs, animation (`rt/term.ak`) |
+| `connect4web.ak` | the same game with a browser UI, served by the program itself (poll-multiplexed HTTP server on native sockets) |
+| `connect4gui.ak` | the same game in **its own window**: mouse and keyboard, falling-disc animation, level buttons, flashing win line; idle CPU is 0 |
+
+The shared game logic (rules, alpha-beta computer player at three depths) is `examples/connect4/game.ak`; the three front ends only draw and read input.
+
+![Connect Four in an Ak window](docs/connect4gui-start.png) ![the computer wins: the four flash](docs/connect4gui-win.png)
+
+How the window works: `lib/x11.ak` speaks the X11 core protocol itself over the display's Unix socket (authorization cookie from `~/.Xauthority`, window, events, `PutImage`/`GetImage`; ~170 lines) and `lib/canvas.ak` is a software renderer (BGRA canvas, anti-aliased discs/rings/rounded rectangles, alpha blending, masked blits, DejaVu text at 15/22/34 px; ~100 lines). API: [`SPEC-extra.md`](SPEC-extra.md) ("Windows and graphics").
 
 ## How self-hosting works
 ```
@@ -44,8 +62,10 @@ boot/ (JS) ──compiles──▶ src/main.ak ──▶ ak1 ──compiles─�
 | | Anthropic tokenizer | GPT o200k |
 |---|---|---|
 | Python | 3078 (100%) | 2948 (100%) |
-| **Ak** | **2570 (83.5%)** | **2430 (82.4%)** |
+| **Ak** | **2567 (83.4%)** | **2429 (82.4%)** |
 | Ak v1 (my first design) | 3257 (106%) | 3354 (114%) |
+
+The language reference ([`SPEC.md`](SPEC.md)) is 1,871 tokens. Real Ak code that was not tuned for tokens (the compiler, runtime, GUI library and games: 57 files, `src/ rt/ lib/ examples/ tests/native/`) is about 150,000 tokens. Re-measure with `node tools/measure.js py ak` (needs the tokenizer packages, see `tools/tok.js`).
 
 My first version was actually *more* expensive than Python (the cryptic `~?` and `<@` heads cost more tokens than the words they replaced). The v2 design came from measuring: single-character heads fuse with the paren into one token while words and 2-char operators cost two; tight infix saves parens; compound assignment (`x+=1`: 3 tokens vs 7), multi-index (`t[i j]`), destructuring, truthiness (`(wh q ..)` vs `(wh (> (# q) 0) ..)`) and `fmt` removed most of the rest. See `tools/tok.js`, `tools/measure.js`.
 *Caveat: counts use the `@anthropic-ai/tokenizer` package (a legacy Claude tokenizer) and GPT's o200k as proxies; a current Claude tokenizer may differ somewhat.*
@@ -65,7 +85,9 @@ Integer-overflow checking (see below) is on in both; the JS target has `--fast` 
 | check | |
 |---|---|
 | 24 corpus programs vs **independent Python reference outputs** (JS target) | 24/24 |
-| 22 of them + 24 more native test programs (incl. a GC torture test): native executable vs JS backend, normal and under GC stress (a collection after every 1 KB allocated, heap verifier on; ~40,000 collections per run) | 46/46 identical |
+| 22 of them + 28 more native test programs (incl. a GC torture test): native executable vs JS backend, normal and under GC stress (a collection after every 1 KB allocated, heap verifier on; ~30,000 collections per run) | 50/50 identical |
+| Terminal UI driven through a real pseudo-terminal (key decoding, raw-mode restore, the game) | 10/10 |
+| GUI against a real X server (Xvfb) with real injected mouse/keyboard events (xdotool): pixels read back through a second X connection, window title, close, the game's moves and the computer's answer | 23/23 |
 | Self-hosting fixpoint (JS-built = native-built = rebuilt, plain and GC-stress) | ✔ |
 | Differential fuzzing (JS target): random programs vs a separate reference interpreter | 20,000 on the final build, 0 mismatches |
 | Differential fuzzing (native executable vs the same reference interpreter, with a test-case shrinker; every program also run under GC stress) | 14,000+ programs, 0 mismatches (found: empty-string compare, list-put padding) |
@@ -84,15 +106,16 @@ The fuzzer found real bugs I would not have written tests for: a spread operand 
 - Compile-time checks: undefined names, arity of direct calls, rest/pattern misuse, misplaced spreads, dangling infix operators — all as `file:line:col: message`.
 
 ## Layout
-`src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `tools/` (token meter, v1→v2 migrator) · `build.sh`.
+`src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `lib/` libraries written in Ak for programs (`x11.ak`, `canvas.ak`, embedded fonts) · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `docs/` (screenshots) · `tools/` (token meter, v1→v2 migrator, font-atlas generator) · `build.sh`.
 
 ## Testing
 GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pull request, and checks that the committed `bin/ak` is exactly what `./build.sh --boot` produces from the sources (if you change `src/` or `rt/`, run `./build.sh` and commit the new `bin/ak`).
 
-`npm test` runs everything (JS-target suites, differential fuzzer, parser/assembler diffs, self-hosting fixpoint, native-vs-JS comparison, native fuzz). `node tests/selfhost.js`, `node tests/native_diff.js` and `node tests/fuzz_native.js COUNT SEED` are the native-specific ones.
+`npm test` runs everything (JS-target suites, differential fuzzer, parser/assembler diffs, self-hosting fixpoint, native-vs-JS comparison, native fuzz, the terminal test, the GUI test). The terminal test needs `python3`; the GUI test needs `Xvfb` and `xdotool` (CI installs them) and is skipped with a message when they are missing. `node tests/selfhost.js`, `node tests/native_diff.js` and `node tests/fuzz_native.js COUNT SEED` are the native-specific ones.
 
 ## Known limits
 - Native target only runs on x86-64 Linux; strings are UTF-8 bytes (`#"é"` is 2; the JS target counts UTF-16 units).
 - Native target has no async/Promises, `req`, `js`, `new`, or Node modules; use the JS target (`node boot/ak.js`) for `fetch`, npm packages, async servers. Natively there are blocking TCP sockets plus `fdwait` (poll) — enough to write an HTTP server in Ak itself (`examples/httpd.ak`) — but no TLS or DNS.
 - `**`/`pow` with fractional exponents can differ from V8 in the last digit (~3% of random inputs); `sin cos tan` of arguments beyond ~1e6 (exact bignum reduction) can be off by one digit in ~1% of cases.
+- The GUI library targets Linux with X11 or XWayland: depth-24 displays, fixed-size windows, ASCII text, no clipboard or window resizing yet. The terminal library needs a Linux terminal (raw mode via `ioctl`).
 - No static types. Overflow-checked arithmetic is a few times slower than unchecked in arithmetic-bound loops.
