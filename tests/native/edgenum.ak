@@ -1,0 +1,6 @@
+; huge / infinite exponents and radix formatting of huge values (these once hung or crashed the native target)
+inf=(exp 1000)
+(p (** 0.5 inf) (** 0 inf) (** 1 inf) (** 2 inf) (** 2.5 inf) (** 0.5 (- inf)) (** 3 (- inf)))
+(p (fmt "%x" 255) (fmt "%o" 8) (fmt "%b" 5) (fmt "%x" 9007199254740992) (fmt "%x" 1e19) (fmt "%x" -1e19) (fmt "%b" 1e16))
+(p (fmt "%x" 1e300))
+(p (fmt "%x" inf) (fmt "%x" (- inf)) (fmt "%x" (- inf inf)))

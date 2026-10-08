@@ -13,7 +13,7 @@ HID=0
      (: t=($type k) (? (|| t==1 t==7) (hashstr k) t==2 (hashid k 3) t==4 (hashid k 5) t==10 (hashstr (bigstr k)) 5))))
 (= (keyeq a b)     ; a: stored key, b: probe key
   (? ($eqp a b) true
-     ($isnum a) (&& ($isnum b) (== a b))
+     ($isnum a) (&& ($isnum b) (|| (== a b) (&& (!= a a) (!= b b))))          ; like JS Map: NaN is a key equal to itself
      (! ($isptr a)) ($eqp a b)
      (! ($isptr b)) false
      ($isstr a) ($streq a b)
@@ -32,7 +32,7 @@ HID=0
        (: i=($hslot (hashof k) size) e=($ldw idx i+1)
           (wh (&& r<0 (! ($isnil e)))
             ek=($ldw ent 2*e+1)
-            (? (&& ($isnum ek) (== ek k)) r=e (: i=i+1 (? i==size i=0) e=($ldw idx i+1)))))
+            (? (&& ($isnum ek) (|| (== ek k) (&& (!= ek ek) (!= k k)))) r=e (: i=i+1 (? i==size i=0) e=($ldw idx i+1)))))
      (: i=($hslot (hashof k) size) e=($ldw idx i+1)
         (wh (&& r<0 (! ($isnil e)))
           (? (keyeq ($ldw ent 2*e+1) k) r=e (: i=i+1 (? i==size i=0) e=($ldw idx i+1))))))

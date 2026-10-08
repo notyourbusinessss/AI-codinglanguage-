@@ -122,9 +122,16 @@ P10=nil
                     (? (&& (! ($isnil v)) neg) ($fsub 0 v) v))))))))
 
 ; ---- fmt: %[-][0][width][.prec](s|d|f|x|X|b|o|%)
+(= (toradix_big x radix)                 ; exact digits of a huge integral double (>= 2^53), like the JS target
+  a=(bigunwrap (bigfromnum x)) buf=(strnew 1100) i=1100
+  (wh #a>0 qr=(bn_divmod_small a radix) d=qr[1] i-=1 ($stb buf i (? d<10 48+d 87+d)) a=qr[0])
+  (strslice buf i 1100))
 (= (toradix x radix)
   neg=x<0 x=(abs ($ftrunc x))
   (? x==0 "0"
+     (!= x x) "NaN"
+     (== x ($fdiv 1 0)) (strcat2 (? neg "-" "") "Infinity")
+     x>=9007199254740992 (strcat2 (? neg "-" "") (toradix_big x radix))
      (: buf=(strnew 64) i=64
         (wh x>0 q=($ffloor ($fdiv x radix)) d=($fsub x ($fmul q radix)) i-=1 ($stb buf i (? d<10 48+d 87+d)) x=q)
         (? neg (: i-=1 ($stb buf i 45)))
