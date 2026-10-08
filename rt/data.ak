@@ -20,13 +20,19 @@ CHARS=nil
 (= (strfind s p from)             ; index of p in s at or after from, or -1
   n=($hlen s) m=($hlen p) i=from r=-1
   (? m==0 (? from<=n from -1)
+     m==1 (: c=($ldb p 0) (wh (&& r<0 i<n) (? (== ($ldb s i) c) r=i i+=1)) r)
      (: (wh (&& r<0 i+m<=n)
           (: j=0 (wh (&& (< j m) (== ($ldb s i+j) ($ldb p j))) j+=1)
              (? j==m r=i i+=1)))
         r)))
 (= (idx c x)
   (? (isstr c) (strfind c (needstr x) 0)
-     (: l=(toarr c) r=-1 i=0 n=#l (wh (&& r<0 i<n) (? (eq2 (lget l i) x) r=i) i+=1) r)))
+     (: l=(toarr c) r=-1 i=0 n=#l
+        (? ($isnum x) (wh (&& r<0 i<n) e=(lget l i) (? (&& ($isnum e) (== e x)) r=i) i+=1)           ; scalars compare inline; only lists/maps/bigs need eq2
+           (isstr x) (wh (&& r<0 i<n) e=(lget l i) (? ($streq x e) r=i) i+=1)
+           (! ($isptr x)) (wh (&& r<0 i<n) e=(lget l i) (? ($eqp e x) r=i) i+=1)
+           (wh (&& r<0 i<n) (? (eq2 (lget l i) x) r=i) i+=1))
+        r)))
 (= (has c x)
   (? ($isnil c) false
      (isstr c) (>= (strfind c (needstr x) 0) 0)
@@ -51,8 +57,8 @@ CHARS=nil
      ($isnil d)
      (: i=0
         (wh i<n
-          (wh (&& (< i n) (isspace ($ldb s i))) i+=1)
-          (? i<n (: j=i (wh (&& (< j n) (! (isspace ($ldb s j)))) j+=1) (lpush r (strslice s i j)) i=j)))
+          (wh (&& (< i n) (<= ($ldb s i) 32) (isspace ($ldb s i))) i=($fadd i 1))
+          (? i<n (: j=i (wh (&& (< j n) (? (> ($ldb s j) 32) true (! (isspace ($ldb s j))))) j=($fadd j 1)) (lpush r (strslice s i j)) i=j)))
         r)
      (: (needstr d) dl=($hlen d)
         (? dl==0 (: (for i n (lpush r (chr1 ($ldb s i)))) r)
@@ -62,12 +68,13 @@ CHARS=nil
                 (? b<0 (: (lpush r (strslice s a n)) a=-1) (: (lpush r (strslice s a b)) a=b+dl)))
               r)))))
 (= (join l d=nil)
-  l=(toarr l) d=(?? d "") n=#l parts=(mklist n) total=0
-  (for i n s=(tostr (lget l i)) (lpush parts s) total+=($hlen s))
+  l=(toarr l) d=(?? d "") n=#l parts=(mklist n) pa=($ldw parts 2) total=0
+  (for i n x=(lget l i) s=(? (isstr x) x (tostr x)) ($stw pa ($fadd i 1) s) total=($fadd total ($hlen s)))
+  ($stw parts 1 n)
   total+=($hlen d)*(? n>0 n-1 0)
-  r=(strnew total) off=0
-  (for i n s=(lget parts i) ($copy r off s 0 ($hlen s)) off+=($hlen s)
-    (? i<n-1 (: ($copy r off d 0 ($hlen d)) off+=($hlen d))))
+  r=(strnew total) off=0 dl=($hlen d)
+  (for i n s=(lget parts i) sl=($hlen s) ($copy r off s 0 sl) off=($fadd off sl)
+    (? (&& i<n-1 dl>0) (: ($copy r off d 0 dl) off=($fadd off dl))))
   r)
 (= (rpt x k)
   k=(tonum k) k=(? k<0 0 k)
@@ -116,7 +123,7 @@ SYMTAB=nil
 
 ; ---- lists
 (= (mklist cap) arr=($new 3 cap cap) l=($new 2 3 3) ($stw l 1 0) ($stw l 2 arr) l)
-(= (lgrow arr n) cap=(? ($hlen arr)<4 4 ($hlen arr)*2) a2=($new 3 cap cap) (for i n ($stw a2 i+1 ($ldw arr i+1))) a2)
+(= (lgrow arr n) cap=(? ($hlen arr)<4 4 ($hlen arr)*2) a2=($new 3 cap cap) ($copy a2 0 arr 0 n*8) a2)
 (= (lpush l x) n=($ldw l 1) arr=($ldw l 2)
   (? n>=($hlen arr) (: arr=(lgrow arr n) ($stw l 2 arr)))
   ($stw arr n+1 x) ($stw l 1 n+1) x)
@@ -125,23 +132,30 @@ SYMTAB=nil
 (= (lat l i) n=($ldw l 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lget l i) nil))
 (= (needlist l) (? (! (islist l)) ($throw (strcat2 "expected list, got " (ty l)))) l)
 (= (push l ..xs) (needlist l) (for x xs (lpush l x)) l)
+(= (push1 l x) (? (! (islist l)) (needlist l)) (lpush l x) l)         ; (push l x) with exactly one value: called directly, no rest list
 (= (pop l) (needlist l) n=($ldw l 1)
   (? n==0 nil (: arr=($ldw l 2) x=($ldw arr n) ($stw arr n nil) ($stw l 1 n-1) x)))
 (= (list ..a) a)
-(= (copylist l) n=($ldw l 1) r=(mklist n) (for i n (lpush r (lget l i))) r)
+(= (copylist l) n=($ldw l 1) r=(mklist n) ($copy ($ldw r 2) 0 ($ldw l 2) 0 n*8) ($stw r 1 n) r)
 (= (+> l ..x) (concat l x))
 (= (concat ..ls) total=0 (for l ls total+=($ldw l 1))
-  r=(mklist total) (for l ls (for i ($ldw l 1) (lpush r (lget l i)))) r)
+  r=(mklist total) arr=($ldw r 2) off=0
+  (for l ls n=($ldw l 1) ($copy arr off*8 ($ldw l 2) 0 n*8) off+=n)
+  ($stw r 1 total) r)
 (= (.. a b=nil s=nil)
   (? ($isnil b) (: b=a a=0)) s=(?? s 1)
   (? s==0 ($throw "..: zero step"))
-  r=(mklist 8)
-  (? s>0 (: i=a (wh i<b (lpush r i) i+=s)) (: i=a (wh i>b (lpush r i) i+=s)))
-  r)
+  (? (&& s==1 ($isnum a) ($isnum b) (isint a) a<4503599627370496 a>-4503599627370496 b-a<134217728)
+     (: n=(? b>a ($fceil ($fsub b a)) 0) r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 a+i)) ($stw r 1 n) r)
+     (: r=(mklist 8)
+        (? s>0 (: i=a (wh i<b (lpush r i) i+=s)) (: i=a (wh i>b (lpush r i) i+=s)))
+        r)))
 (= (rev l)
   (? (isstr l) (: n=($hlen l) r=(strnew n) (for i n ($stb r i ($ldb l n-1-i))) r)
-     (: l=(toarr l) n=#l r=(mklist n) (for i n (lpush r (lget l n-1-i))) r)))
-(= (enum l) l=(toarr l) n=#l r=(mklist n) (for i n (lpush r (list i (lget l i)))) r)
+     (: l=(toarr l) n=#l r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 (lget l n-1-i))) ($stw r 1 n) r)))
+(= (enum l) l=(toarr l) n=#l r=(mklist n) arr=($ldw r 2)
+  (for i n pa=($new 3 2 2) ($stw pa 1 i) ($stw pa 2 (lget l i)) pl=($new 2 3 3) ($stw pl 1 2) ($stw pl 2 pa) ($stw arr ($fadd i 1) pl))
+  ($stw r 1 n) r)
 (= (fst l) (? (|| ($isnil l) (== (len l) 0)) nil (at l 0)))
 (= (lst l) (? (|| ($isnil l) (== (len l) 0)) nil (at l -1)))
 (= (take n l) (slice l 0 n))
@@ -156,7 +170,7 @@ SYMTAB=nil
      ($throw (strcat2 "not callable: " (show f)))))
 (= (~ f l ..more)
   f=(fnv f) l=(toarr l) n=#l
-  (? #more==0 (: r=(mklist n) (for i n (lpush r (f (lget l i)))) r)
+  (? #more==0 (: r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 (f (lget l i)))) ($stw r 1 n) r)
      (: ls=(~ toarr more) m=n (for x ls (? #x<m m=#x))
         r=(mklist m)
         (for i m (lpush r (apply f (concat [(lget l i)] (~ x=>(lget x i) ls))))) r)))
@@ -180,28 +194,78 @@ SYMTAB=nil
 (= (grp f l) f=(fnv f) m=(map)
   (for x (toarr l) k=(f x) g=(mapget m k) (? g (lpush g x) (mapset m k (list x)))) m)
 
-; ---- sorting (stable merge sort on a copy)
-(= (msort src key cmpf)       ; src: list of items; key: list of sort keys parallel to src (or same as src)
-  n=#src idx=(mklist n) (for i n (lpush idx i))
-  tmp=(mklist n) (for i n (lpush tmp 0))
-  w=1
+; ---- sorting (stable merge sort on a copy; runs of 8 by insertion sort, then bottom-up merges between two buffers)
+;   K: ARR of sort keys, V: ARR of items moving with them (hasv=false: the keys are the items). mode: 0 all numbers, 1 all strings, 2 anything else
+(= (sortmode K n)
+  m=(? n>0 (? ($isnum ($ldw K 1)) 0 (isstr ($ldw K 1)) 1 2) 0) i=0
+  (wh (&& m<2 i<n) x=($ldw K i+1) (? (? m==0 (! ($isnum x)) (! (isstr x))) m=2) i+=1)
+  m)
+(= (gtany mode a b) (? mode==1 (> (strcmp a b) 0) (> (cmp a b) 0)))
+(= (msortn K n)                 ; numbers only, no items: tight loops (raw index arithmetic, no mode/hasv tests)
+  b=0
+  (wh b<n
+    e=(? b+8<n b+8 n) i=b+1
+    (wh i<e
+      x=($ldw K i+1) j=i-1
+      (wh (&& j>=b (> ($ldw K j+1) x)) ($stw K j+2 ($ldw K j+1)) j=($fsub j 1))
+      ($stw K j+2 x)
+      i=($fadd i 1))
+    b=($fadd b 8))
+  K2=($new 3 n n) w=8
   (wh w<n
-    lo=0
+    lo=0 w2=($fadd w w)
     (wh lo<n
-      mid=(? lo+w<n lo+w n) hi=(? lo+2*w<n lo+2*w n)
-      i=lo j=mid k=lo
-      (wh (&& i<mid j<hi)
-        (? (<= (cmpf (lget key (lget idx i)) (lget key (lget idx j))) 0) (: (lset tmp k (lget idx i)) i+=1) (: (lset tmp k (lget idx j)) j+=1))
-        k+=1)
-      (wh i<mid (lset tmp k (lget idx i)) i+=1 k+=1)
-      (wh j<hi (lset tmp k (lget idx j)) j+=1 k+=1)
-      lo+=2*w)
-    (for i n (lset idx i (lget tmp i)))
-    w*=2)
-  r=(mklist n) (for i n (lpush r (lget src (lget idx i)))) r)
+      mid=(? lo+w<n lo+w n) hi=(? lo+w2<n lo+w2 n) i=($fadd lo 1) j=($fadd mid 1) k=i ie=($fadd mid 1) je=($fadd hi 1)
+      (wh (&& i<ie j<je)
+        x=($ldw K i) y=($ldw K j)
+        (? (> x y) (: ($stw K2 k y) j=($fadd j 1))
+                   (: ($stw K2 k x) i=($fadd i 1)))
+        k=($fadd k 1))
+      (? i<ie (: ($copy K2 (k-1)*8 K (i-1)*8 (ie-i)*8) k=($fadd k (ie-i))))
+      (? j<je ($copy K2 (k-1)*8 K (j-1)*8 (je-j)*8))
+      lo=($fadd lo w2))
+    t=K K=K2 K2=t
+    w=w2)
+  K)
+(= (msort2 K V hasv n mode)     ; -> the sorted ARR (items if hasv, else keys)
+  (? (&& mode==0 (! hasv)) (msortn K n) (msort2g K V hasv n mode)))
+(= (msort2g K V hasv n mode)
+  b=0
+  (wh b<n
+    e=(? b+8<n b+8 n) i=b+1
+    (wh i<e
+      x=($ldw K i+1) v=(? hasv ($ldw V i+1) nil) j=i-1
+      (wh (&& j>=b (? mode==0 (> ($ldw K j+1) x) (gtany mode ($ldw K j+1) x)))
+        ($stw K j+2 ($ldw K j+1)) (? hasv ($stw V j+2 ($ldw V j+1))) j=($fsub j 1))
+      ($stw K j+2 x) (? hasv ($stw V j+2 v))
+      i=($fadd i 1))
+    b=($fadd b 8))
+  K2=($new 3 n n) V2=(? hasv ($new 3 n n) nil) w=8
+  (wh w<n
+    lo=0 w2=($fadd w w)
+    (wh lo<n
+      mid=(? lo+w<n lo+w n) hi=(? lo+w2<n lo+w2 n) i=($fadd lo 1) j=($fadd mid 1) k=i ie=($fadd mid 1) je=($fadd hi 1)
+      (wh (&& i<ie j<je)
+        x=($ldw K i) y=($ldw K j)
+        (? (? mode==0 (> x y) (gtany mode x y))
+           (: ($stw K2 k y) (? hasv ($stw V2 k ($ldw V j))) j=($fadd j 1))
+           (: ($stw K2 k x) (? hasv ($stw V2 k ($ldw V i))) i=($fadd i 1)))
+        k=($fadd k 1))
+      (? i<ie (: ($copy K2 (k-1)*8 K (i-1)*8 (ie-i)*8) (? hasv ($copy V2 (k-1)*8 V (i-1)*8 (ie-i)*8)) k=($fadd k (ie-i))))
+      (? j<je (: ($copy K2 (k-1)*8 K (j-1)*8 (je-j)*8) (? hasv ($copy V2 (k-1)*8 V (j-1)*8 (je-j)*8))))
+      lo=($fadd lo w2))
+    t=K K=K2 K2=t
+    (? hasv (: t=V V=V2 V2=t))
+    w=w2)
+  (? hasv V K))
+(= (sortlist src keys hasv)     ; src: LIST of items, keys: ARR (a private copy) of their keys
+  n=($ldw src 1) mode=(sortmode keys n)
+  V=(? hasv (: v=($new 3 n n) ($copy v 0 ($ldw src 2) 0 n*8) v) nil)
+  arr=(msort2 keys V hasv n mode)
+  r=(mklist 0) ($stw r 2 arr) ($stw r 1 n) r)
 (= (sort a b=nil)
-  (? ($isnil b) (: l=(toarr a) (msort l l cmp))
-     (: f=(fnv a) l=(toarr b) ks=(mklist #l) (for x l (lpush ks (f x))) (msort l ks cmp))))
+  (? ($isnil b) (: l=(toarr a) n=#l K=($new 3 n n) ($copy K 0 ($ldw l 2) 0 n*8) (sortlist l K false))
+     (: f=(fnv a) l=(toarr b) n=#l K=($new 3 n n) (for i n ($stw K i+1 (f (lget l i)))) (sortlist l K true))))
 
 ; ---- generic container access
 (= (len x)
@@ -222,12 +286,12 @@ SYMTAB=nil
      (: n=(len x) a=(?? a 0) b=(?? b n)
         (? a<0 a=n+a) (? b<0 b=n+b) (? a<0 a=0) (? b>n b=n) (? b<a b=a)
         (? (isstr x) (strslice x a b)
-           (islist x) (: r=(mklist b-a) (for i a..b (lpush r (lget x i))) r)
+           (islist x) (: m=b-a r=(mklist m) ($copy ($ldw r 2) 0 ($ldw x 2) a*8 m*8) ($stw r 1 m) r)
            ($throw (strcat2 "cannot slice " (ty x)))))))
 (= (toarr x)
   (? (islist x) x
      ($isnil x) (mklist 0)
-     (isstr x) (: n=($hlen x) r=(mklist n) (for i n (lpush r (chr1 ($ldb x i)))) r)
+     (isstr x) (: n=($hlen x) r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 (lget CHARS ($ldb x i)))) ($stw r 1 n) r)
      (ismap x) (mapentries x)
      (istyped x) (typed_list x)
      (list x)))
@@ -268,7 +332,9 @@ SYMTAB=nil
      (for x l x=(tonum x) (? (|| first (? sign<0 x<r x>r)) r=x) first=false) r))
 (= (min ..a) (minmax -1 a))
 (= (max ..a) (minmax 1 a))
-(= (sum l) s=0 (for x (toarr l) s=(add2 s (tonum x))) s)
+(= (sum l) s=0 l=(toarr l)
+  (for x l (? ($isnum x) (: t=($fadd s x) (? (&& t<=MAXI t>=-MAXI) s=t s=(add2 s x))) s=(add2 s (tonum x))))      ; |sum| <= 2^53 cannot overflow: no check needed
+  s)
 RNGI=nil
 (= (rand n=nil)
   (? ($isnil RNGI) (<- RNGI (+ 1 (% (now) 2147483646))))
@@ -277,13 +343,15 @@ RNGI=nil
   (? ($isnil n) r ($ffloor ($fmul r n))))
 
 (= (apply f l) ($apply f l))
-(= (tostr x) (? (isstr x) x (issym x) (symstr x) (isbig x) (bigstr x) (show x)))
+(= (tostr x) (? (isstr x) x ($isnum x) (fmtnum x) (issym x) (symstr x) (isbig x) (bigstr x) (show x)))
 (= (++ ..a)
   n=#a
   (? (&& n>0 (islist a[0]))
-       (: total=0 (for l a total+=(len l)) r=(mklist total) (for l a (for i #l (lpush r (lget l i)))) r)
+       (: total=0 (for l a total+=(len l)) r=(mklist total) arr=($ldw r 2) off=0
+          (for l a m=(len l) ($copy arr off*8 ($ldw l 2) 0 m*8) off+=m) ($stw r 1 total) r)
      (: total=0 (for i n s=(tostr (lget a i)) (lset a i s) total+=($hlen s))
         r=(strnew total) off=0 (for i n s=(lget a i) ($copy r off s 0 ($hlen s)) off+=($hlen s)) r)))
+(= (cat2 a b) (? (&& (isstr a) (isstr b)) (strcat2 a b) (++ ..(list a b))))       ; (++ a b): two strings are joined without building the rest list
 (= ($ x) (tostr x))
 (= (err ..a) ($throw (join a " ")))
 (= (f64bits x) (list ($bitshi x) ($bitslo x)))

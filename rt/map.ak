@@ -87,22 +87,25 @@ HID=0
 (= (map ..a) n=#a/2 cap=4 (wh cap<n cap*=2) m=(mapnew cap) i=0
   (wh i<#a (mapset m (lget a i) (lget a i+1)) i+=2) m)
 
-; field access with a literal key: k is the static key string, h its hash (computed by the compiler)
-(= (dotc o k h)
+; field access with a literal key: k is the static key string, h its hash (computed by the compiler), site the address of the call site's inline cache
+; (compiled code first tries the cached entry; here, on a miss, the entry found is remembered: the cache holds the byte offset of its value slot)
+(= (dotc o k h site)
   (? ($ismap o)
      (: idx=($ldw o 3) ent=($ldw o 2) mask=($hlen idx)-1 i=($hslot h mask+1) e=($ldw idx i+1) r=nil
         (wh (! ($isnil e))
           ek=($ldw ent 2*e+1)
-          (? (|| ($eqp ek k) (&& ($isstr ek) ($streq ek k))) (: r=($ldw ent 2*e+2) e=nil)
+          (? (|| ($eqp ek k) (&& ($isstr ek) ($streq ek k)))
+             (: r=($ldw ent 2*e+2) (? ($eqp ek k) ($pokew site ($frombits 0 16*e+16))) e=nil)
              (: i=($band i+1 mask) e=($ldw idx i+1))))
         r)
      (dot o k)))
-(= (setdotc o k h v)
+(= (setdotc o k h v site)
   (? ($ismap o)
      (: idx=($ldw o 3) ent=($ldw o 2) mask=($hlen idx)-1 i=($hslot h mask+1) e=($ldw idx i+1) found=false
         (wh (! ($isnil e))
           ek=($ldw ent 2*e+1)
-          (? (|| ($eqp ek k) (&& ($isstr ek) ($streq ek k))) (: ($stw ent 2*e+2 v) found=true e=nil)
+          (? (|| ($eqp ek k) (&& ($isstr ek) ($streq ek k)))
+             (: ($stw ent 2*e+2 v) (? ($eqp ek k) ($pokew site ($frombits 0 16*e+16))) found=true e=nil)
              (: i=($band i+1 mask) e=($ldw idx i+1))))
         (? found v (mapset o k v)))
      (setdot o k v)))

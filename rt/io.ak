@@ -41,10 +41,11 @@
 (= (env k)
   (? ($isnil k)
      (: m=(map) i=(+ ($argc) 1) (wh (> ($argv i) 0) kv=(cpeek ($argv i)) j=(strfind kv "=" 0) (? j>0 (mapset m (strslice kv 0 j) (strslice kv j+1 #kv))) i+=1) m)
-     (: i=(+ ($argc) 1) pre=(strcat2 k "=") r=nil
+     (: i=(+ ($argc) 1) pre=(strcat2 k "=") n=#pre r=nil
         (wh (&& ($isnil r) (> ($argv i) 0))
-          kv=(cpeek ($argv i)) (? (starts kv pre) r=(strslice kv #pre #kv)) i+=1)
+          a=($argv i) (? (envmatch a pre n) (: kv=(cpeek a) r=(strslice kv n #kv))) i+=1)         ; compare in place; only the matching entry is copied
         r)))
+(= (envmatch a pre n) i=0 (wh (&& i<n (== ($peek a+i) ($ldb pre i))) i+=1) i==n)
 (= (ru64 buf w) (+ (* ($bitshi ($ldw buf w)) 4294967296) ($bitslo ($ldw buf w))))
 (= (now) buf=($newb 8 16 16) ($syscall 228 0 ($addr buf))
   (+ (* (ru64 buf 1) 1000) ($ffloor ($fdiv (ru64 buf 2) 1000000))))
@@ -72,9 +73,9 @@ IEOF=false
   (? (== line false) nil
      (: n=#line (? (&& n>0 (== ($ldb line n-1) 13)) (strslice line 0 n-1) line))))
 (= (inall) (flush)
-  (? ($isnil IBUF) (<- IBUF ""))
-  (wh (! IEOF) (infill))
-  s=(strslice IBUF IPOS #IBUF) (<- IBUF "") (<- IPOS 0) s)
+  rest=(? ($isnil IBUF) "" (strslice IBUF IPOS #IBUF))
+  s=(? IEOF rest (? ($hlen rest)==0 (readfd 0) (strcat2 rest (readfd 0))))      ; one doubling read loop (appending 64 KB chunks one by one copied the whole input each time)
+  (<- IEOF true) (<- IBUF "") (<- IPOS 0) s)
 
 ; ---- runx: run an executable image (string or byte list) with arguments; replaces this process (memfd + execve, no temp files)
 (= (scratch) ($syscall 9 0 1048576 3 16418 -1 0))

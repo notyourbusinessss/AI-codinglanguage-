@@ -29,7 +29,7 @@ boot/ (JS) ──compiles──▶ src/main.ak ──▶ ak1 ──compiles─�
 - `src/` — the compiler, written in Ak: `parse.ak` (parser) → `lower.ak` (names, scopes, closures, tail calls → core IR) → `gen.ak` (x86-64 code generation) → `x86.ak` (assembler + ELF writer) · `fmt.ak` (formatter) · `main.ak` (CLI, tree shaking).
 - `rt/` — the runtime, also Ak, compiled into every program: arithmetic with overflow checks, strings, lists, hash maps, `show`, exact float printing/parsing (bignum), regex, BigInt, typed arrays, JSON, math (fdlibm ports), file/process I/O, and the copying garbage collector (the copy loop is a hand-written assembly stub).
 - `boot/` — the stage-0 bootstrap and the JS target (`ak.js`, `runtime.js`, `syntax.js`, …). It is only needed to build the very first compiler, and as an alternative backend with Node interop (`fs`, `fetch`, `async`).
-- The runtime is compiled once into a **prebuilt image** (code + data + labels) baked into `bin/ak`; user programs are lowered and assembled against it, which is why compile+run of a small program takes ~17 ms. `ak build --image` produces such a compiler; `AK_NOIMAGE=1` forces the slow full path.
+- The runtime is compiled once into a **prebuilt image** (code + data + labels) baked into `bin/ak`; user programs are lowered and assembled against it, which is why compile+run of a small program takes ~7 ms. `ak build --image` produces such a compiler; `AK_NOIMAGE=1` forces the slow full path.
 - Values are NaN-boxed doubles; Ak values live on a separate value stack (precise GC roots); closures are converted and boxed; general tail calls; exceptions are a handler chain. Programs report uncaught errors as `error: msg (file:line:col)`.
 
 `tests/selfhost.js` checks the fixpoint (JS-built ak1 == native-built ak2 == ak3, also under GC stress, and seed→b2 == ak2).
@@ -49,10 +49,10 @@ My first version was actually *more* expensive than Python (the cryptic `~?` and
 ### Speed
 | benchmark | Ak native | Ak → JS (V8) | Python 3.13 |
 |---|---|---|---|
-| naive `fib(38)` | 0.60 s | 0.77 s | 5.0 s |
-| sieve of 20M (`u8` array) | 0.71 s | 0.88 s | — |
-| compile the compiler (5.5k lines of Ak) | 0.6–0.75 s | — | — |
-| compile + run hello world | 0.017 s | 0.07 s | — |
+| naive `fib(38)` | 0.41 s | 0.77 s | 5.0 s |
+| sieve of 20M (`u8` array) | 0.37 s | 0.88 s | — |
+| compile the compiler (5.5k lines of Ak) | 0.30 s | — | — |
+| compile + run hello world | 0.007 s | 0.07 s | — |
 
 Integer-overflow checking (see below) is on in both; the JS target has `--fast` to skip it.
 
@@ -60,7 +60,7 @@ Integer-overflow checking (see below) is on in both; the JS target has `--fast` 
 | check | |
 |---|---|
 | 24 corpus programs vs **independent Python reference outputs** (JS target) | 24/24 |
-| 22 of them + 22 more native test programs (incl. a GC torture test): native executable vs JS backend, normal and under GC stress (a collection after every 1 KB allocated, heap verifier on; ~40,000 collections per run) | 44/44 identical |
+| 22 of them + 24 more native test programs (incl. a GC torture test): native executable vs JS backend, normal and under GC stress (a collection after every 1 KB allocated, heap verifier on; ~40,000 collections per run) | 46/46 identical |
 | Self-hosting fixpoint (JS-built = native-built = rebuilt, plain and GC-stress) | ✔ |
 | Differential fuzzing (JS target): random programs vs a separate reference interpreter | 20,000 on the final build, 0 mismatches |
 | Differential fuzzing (native executable vs the same reference interpreter, with a test-case shrinker; every program also run under GC stress) | 14,000+ programs, 0 mismatches (found: empty-string compare, list-put padding) |

@@ -126,8 +126,8 @@ INFATAL=false
      (: i=0 (wh (&& (< i n) (eq2 (lget a i) (lget b i))) i+=1) (== i n))))
 (= (cmp2 a b)
   (? (&& ($isnum a) ($isnum b)) (? (< a b) -1 (> a b) 1 0)
-     (&& (|| (isbig a) (isbig b)) (|| ($isnum a) (isbig a)) (|| ($isnum b) (isbig b))) (bigcmpany a b)
      (&& (isstr a) (isstr b)) (strcmp a b)
+     (&& (|| (isbig a) (isbig b)) (|| ($isnum a) (isbig a)) (|| ($isnum b) (isbig b))) (bigcmpany a b)
      (&& (islist a) (islist b))
        (: n=(? ($ldw a 1)<($ldw b 1) ($ldw a 1) ($ldw b 1)) i=0 c=0
           (wh (&& (< i n) (== c 0)) c=(cmp2 (lget a i) (lget b i)) i+=1)
@@ -139,7 +139,10 @@ INFATAL=false
      (&& (isstr a) (isstr b)) (strcmp a b)
      (&& (islist a) (islist b))
        (: n=(? ($ldw a 1)<($ldw b 1) ($ldw a 1) ($ldw b 1)) i=0 c=0
-          (wh (&& (< i n) (== c 0)) c=(cmp (lget a i) (lget b i)) i+=1)
+          (wh (&& (< i n) (== c 0))
+            x=(lget a i) y=(lget b i)
+            c=(? (&& ($isnum x) ($isnum y)) (? (< x y) -1 (> x y) 1 0) (cmp x y))
+            i+=1)
           (? (!= c 0) c (- ($ldw a 1) ($ldw b 1))))
      (strcmp (show a) (show b))))
 

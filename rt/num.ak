@@ -57,6 +57,24 @@ BNB=16777216
 
 ; ---- shortest digits that round-trip (Burger & Dybvig free-format): positive finite x -> [digit string, n], x = 0.DIGITS * 10^n
 (= (shortest x)
+  r=(shortest15 x) (? ($isnil r) (shortest_exact x) r))
+(= (shortest15 x)             ; fast path for values whose shortest form has <= 15 digits (0.5, 3.14, 12.25, ...): the unique 15-digit decimal near x, verified by converting it back
+  (? (|| (< x 1e-7) (>= x 1e21)) nil
+     (: n=($ffloor ($fadd ($fmul (floorlog2 x) 0.30102999566398114) 1)) r=nil tries=0
+        (wh (&& ($isnil r) tries<3)
+          tries+=1 p=15-n
+          v=(? p>=0 ($fmul x (pow10 p)) ($fdiv x (pow10 (- p))))
+          (? v<1e14 n-=1
+             v>=1e15 n+=1
+             (: c0=($ffloor v) c1=($fadd c0 1) lo=(? ($fsub v c0)<0.5 c0 c1) hi=(? ($fsub v c0)<0.5 c1 c0)
+                c=(? (rtrip lo p x) lo (rtrip hi p x) hi nil)
+                (? ($isnil c) tries=9
+                   (: (? c>=1e15 (: c=1e14 n+=1))
+                      ds=(fmtint c) k=15 (wh (== ($ldb ds k-1) 48) k-=1)
+                      r=(list (? k==15 ds (strslice ds 0 k)) n))))))
+        r)))
+(= (rtrip c p x) (== (? p>=0 ($fdiv c (pow10 p)) ($fmul c (pow10 (- p)))) x))
+(= (shortest_exact x)
   m=(decomp x) mz=m[0] ez=m[1] even=(== ($band mz 1) 0) two52=4503599627370496
   r=nil s=nil mp=nil mm=nil
   (? ez>=0
@@ -132,13 +150,26 @@ BNB=16777216
 (= (tofixed x prec)
   neg=x<0 ax=(abs x)
   (? ax>=1e21 (fmtnum x)
-     (: d=(? ax==0 (list 0 -1074) (decomp ax)) mz=d[0] ez=d[1]
-        n0=(bn_mul_big (bn_small mz) (bn_pow10 prec))
-        nn=(? ez>=0 (bn_shl n0 ez) (bn_shr (bn_add n0 (bn_pow2 -ez-1)) (- ez)))
-        ds=(bn_tostr nn)
-        (? (<= #ds prec) ds=(strcat2 (rpt "0" prec+1-#ds) ds))
-        r=(? prec==0 ds (strcat2 (strcat2 (strslice ds 0 #ds-prec) ".") (strslice ds #ds-prec #ds)))
-        (? neg (strcat2 "-" r) r))))
+     (: n=(tofixed_fast ax prec)
+        (? ($isnil n) (tofixed_exact neg ax prec)
+           (: ds=(fmtint n)
+              (? (<= #ds prec) ds=(strcat2 (rpt "0" prec+1-#ds) ds))
+              r=(? prec==0 ds (strcat2 (strcat2 (strslice ds 0 #ds-prec) ".") (strslice ds #ds-prec #ds)))
+              (? neg (strcat2 "-" r) r))))))
+(= (tofixed_fast ax prec)       ; round(ax * 10^prec) when it is safely away from a tie and exactly representable, else nil
+  (? (> prec 22) nil
+     (: v=($fmul ax (pow10 prec))
+        (? v>=1e15 nil
+           (: f=($ffloor v) fr=($fsub v f) d=(? fr>0.5 ($fsub fr 0.5) ($fsub 0.5 fr))
+              (? d<=($fmul v 1e-15) nil (? fr>0.5 ($fadd f 1) f)))))))
+(= (tofixed_exact neg ax prec)
+  (: d=(? ax==0 (list 0 -1074) (decomp ax)) mz=d[0] ez=d[1]
+     n0=(bn_mul_big (bn_small mz) (bn_pow10 prec))
+     nn=(? ez>=0 (bn_shl n0 ez) (bn_shr (bn_add n0 (bn_pow2 -ez-1)) (- ez)))
+     ds=(bn_tostr nn)
+     (? (<= #ds prec) ds=(strcat2 (rpt "0" prec+1-#ds) ds))
+     r=(? prec==0 ds (strcat2 (strcat2 (strslice ds 0 #ds-prec) ".") (strslice ds #ds-prec #ds)))
+     (? neg (strcat2 "-" r) r)))
 
 ; ---- bignum long division (Knuth algorithm D, base 2^24): a, b non-negative, b != 0 -> [quotient remainder]
 (= (bn_divmod a b)

@@ -29,7 +29,10 @@
   v)
 (= (tarr kind a)      ; constructor: a is a length or a list/typed array/string
   (? ($isnum a) (tnew kind a)
-     (: l=(toarr a) n=#l x=(tnew kind n) (for i n (tput x i (lget l i))) x)))
+     (: l=(toarr a) n=#l x=(tnew kind n)
+        (? kind==0 (for i n v=(lget l i) (? ($isnum v) ($stb x i v) (tput x i v)))           ; u8 from numbers: no per-element kind dispatch
+           (for i n (tput x i (lget l i))))
+        x)))
 (= (u8 a) (tarr 0 a))
 (= (i8 a) (tarr 1 a))
 (= (u16 a) (tarr 2 a))
