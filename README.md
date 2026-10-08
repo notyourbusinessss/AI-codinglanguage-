@@ -33,7 +33,7 @@ Everything below is plain Ak, compiled by the native compiler, with no library u
 
 | program | what it shows |
 |---|---|
-| `tictactoe.ak` | a complete game against an unbeatable computer (minimax) in ~40 lines |
+| `tictactoe.ak` | a complete game against an unbeatable computer (minimax) in 28 lines |
 | `connect4.ak` | Connect Four in the terminal: raw mode, key decoding (arrows, Esc, UTF-8), ANSI colour, braille-dot discs, animation (`rt/term.ak`) |
 | `connect4web.ak` | the same game with a browser UI, served by the program itself (poll-multiplexed HTTP server on native sockets) |
 | `connect4gui.ak` | the same game in **its own window**: mouse and keyboard, falling-disc animation, level buttons, flashing win line; idle CPU is 0 |
