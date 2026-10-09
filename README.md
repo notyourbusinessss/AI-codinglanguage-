@@ -30,6 +30,7 @@ install -D -m 755 bin/ak ~/.local/bin/ak           # just for you (make sure ~/.
 ```
 Then `ak prog.ak` runs a program, and `ak build prog.ak out` writes a standalone executable that runs on any x86-64 Linux machine, with or without Ak installed. To update, `git pull`. (`examples/connect4*.ak` load `examples/connect4/game.ak`, so run them from the checkout.)
 
+- **Install script (a start, experimental):** from a clone, `./install.sh` copies `bin/ak` to `~/.local/bin` after checking the platform and that the binary runs (`--prefix DIR` to choose another place, `--check` to only look, `--uninstall` to remove it). It does not download anything or edit your shell profile yet; the remaining steps are listed at the end of the script.
 - **Platforms:** Linux x86-64 only. On Windows use WSL2, on macOS or ARM a Linux x86-64 VM or container; those are real Linux, so they should work, but I have only run Ak on native x86-64 Linux.
 - **Optional extras:** Node.js 22 (what CI uses) for the JS target (`node boot/ak.js prog.ak`), `./build.sh --boot` and `npm test`; `python3` for the terminal test; `Xvfb` and `xdotool` for the GUI test (`sudo apt install xvfb xdotool`). The windowed game needs an X11 or XWayland display. Tests whose tools are missing are skipped with a message.
 - **Check your install:** `./bin/ak examples/tictactoe.ak` plays a game; `npm test` runs everything (about 2 minutes). `./build.sh` rebuilds `bin/ak` from `src/` with itself.
