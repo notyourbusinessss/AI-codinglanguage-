@@ -16,6 +16,24 @@ It also draws its own windows: a pure-Ak **X11 client** (`lib/x11.ak`) and a sof
 
 Statements are S-expression forms, or *lines* (`p x`, `f a b =` + indented body); expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,800 tokens). `ak fmt` prints the cheapest layout. Source files use the extension `.ak`.
 
+## Install
+Ak is one static executable (x86-64 Linux, no libc): there is nothing else to install to run programs.
+```
+git clone https://github.com/notyourbusinessss/AI-codinglanguage-.git
+cd AI-codinglanguage-
+./bin/ak -e '(p 1+2)'              # prints 3: it works
+```
+To run it from anywhere, put `bin/ak` on your `PATH` (either line):
+```
+sudo install -m 755 bin/ak /usr/local/bin/ak       # for everyone
+install -D -m 755 bin/ak ~/.local/bin/ak           # just for you (make sure ~/.local/bin is on your PATH)
+```
+Then `ak prog.ak` runs a program, and `ak build prog.ak out` writes a standalone executable that runs on any x86-64 Linux machine, with or without Ak installed. To update, `git pull`. (`examples/connect4*.ak` load `examples/connect4/game.ak`, so run them from the checkout.)
+
+- **Platforms:** Linux x86-64 only. On Windows use WSL2, on macOS or ARM a Linux x86-64 VM or container; those are real Linux, so they should work, but I have only run Ak on native x86-64 Linux.
+- **Optional extras:** Node.js 22 (what CI uses) for the JS target (`node boot/ak.js prog.ak`), `./build.sh --boot` and `npm test`; `python3` for the terminal test; `Xvfb` and `xdotool` for the GUI test (`sudo apt install xvfb xdotool`). The windowed game needs an X11 or XWayland display. Tests whose tools are missing are skipped with a message.
+- **Check your install:** `./bin/ak examples/tictactoe.ak` plays a game; `npm test` runs everything (about 2 minutes). `./build.sh` rebuilds `bin/ak` from `src/` with itself.
+
 ## Quick start
 ```
 ./bin/ak prog.ak [args]          compile to memory and run (a 1.3 MB static binary; Linux x86-64)
