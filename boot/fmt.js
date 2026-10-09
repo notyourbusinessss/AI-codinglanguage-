@@ -136,8 +136,9 @@ function isSpecial(n) { return SPECIALS.has(n); }
 // ---- layout: statement-level pretty printing -----------------------------------------------
 // top-level forms one per line; bodies of fn/for/wh/let split over lines (layout 'lines': no indent)
 function fmt(forms, o = {}) {
-  const pr = new Printer(o);
   const layout = o.layout || 'lines';
+  if (layout === 'tight') return tight(forms, o);
+  const pr = new Printer(o);
   const BODYFORMS = { '=': 2, 'for': 3, 'wh': 2, 'let': 2, '\\': 2, ':': 1, 'try': 99 };
   function stmt(x, depth) {
     if (layout === 'flat' || !Array.isArray(x) || !(x[0] instanceof Sym)) return pr.pr(x)[0];
@@ -152,6 +153,34 @@ function fmt(forms, o = {}) {
     return '(' + head2 + '\n' + body.map(b => ind + b).join('\n') + ')';
   }
   return forms.map(f => stmt(f, 0)).join('\n') + '\n';
+}
+
+// ---- layout 'tight': the cheapest canonical text (measured with the real tokenizer; see the line forms in syntax.js)
+//   nested calls f(a b); a statement call or special form as a `head a b` line; a function as `f a b =` plus one indented line per statement;
+//   plain chunk statements share a line inside bodies; inside bodies an implicit line is only used when it ends in a word character
+const NOCALL = new Set([...SPECIALS, '<@', '@', '-', '!', '#', 'bnot', '<-', 'true', 'false', 'nil']);
+const IMPLICIT_SF = new Set(['?', ':', 'wh', 'for', 'let', 'try', 'sw', 'q', 'aw', 'req', 'js', 'new', 'use']);
+const isCallForm = x => Array.isArray(x) && x.length > 0 && x[0] instanceof Sym && ID.test(x[0].n) && !NOCALL.has(x[0].n);
+function tight(forms, o) {
+  const pr = new Printer({ ...o, calls: 'call' });
+  const imp = x => pr.sform(x)[0].slice(1, -1);
+  const implicitOK = x => Array.isArray(x) && x[0] instanceof Sym && x.length >= 2 && (isCallForm(x) || IMPLICIT_SF.has(x[0].n));
+  const isFnDef = x => isForm(x, '=') && x.length >= 3 && isCallForm(x[1]);
+  function block(xs, top) {                       // statements -> lines
+    const lines = []; let open = false;
+    for (const x of xs) {
+      if (implicitOK(x) && (top || /[A-Za-z0-9_]$/.test(imp(x)))) { lines.push(imp(x)); open = false; }
+      else if (x instanceof Sym) { if (open && !top) lines[lines.length - 1] += ' ' + pr.pr(x)[0]; else { lines.push(pr.pr(x)[0]); open = false; } }
+      else { if (open && !top) lines[lines.length - 1] += ' ' + pr.pr(x)[0]; else lines.push(pr.pr(x)[0]); open = true; }
+    }
+    return lines;
+  }
+  const out = [];
+  for (const x of forms) {
+    if (isFnDef(x)) out.push(x[1].map((e, i) => i === 0 ? e.n : pr.arg(e)).join(' ') + ' =', ...block(x.slice(2), false).map(l => ' ' + l));
+    else out.push(...block([x], true));
+  }
+  return out.join('\n') + '\n';
 }
 
 module.exports = { fmt, Printer, atom };

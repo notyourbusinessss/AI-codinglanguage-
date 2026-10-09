@@ -1,7 +1,7 @@
-(= (qs [p ..r]) (? p==nil [] [..(qs (~? x=>x<p r)) p ..(qs (~? x=>x>=p r))]))
-(= (ms l) (? #l<2 l (: m=#l//2 a=ms(l[..m]) b=ms(l[m..]) o=[] i=0 j=0
-  (wh (&& i<#a j<#b) (? a[i]<=b[j] (: (push o a[i]) i+=1) (: (push o b[j]) j+=1)))
-  [..o ..a[i..] ..b[j..]])))
+qs [p ..r] =
+ (? p==nil [] [..qs((~? x=>x<p r)) p ..qs((~? x=>x>=p r))])
+ms l =
+ (? #l<2 l (: m=#l//2 a=ms(l[..m]) b=ms(l[m..]) o=[] i=0 j=0 (wh i<#a&&j<#b (? a[i]<=b[j] (: push(o a[i]) i+=1) (: push(o b[j]) j+=1))) [..o ..a[i..] ..b[j..]]))
 xs=[38 27 43 3 9 82 10 3]
-(p ..qs(xs))
-(p ..ms(xs))
+p ..qs(xs)
+p ..ms(xs)

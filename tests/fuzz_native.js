@@ -33,7 +33,7 @@ function runNative(ast, stress) {
   const forms = ast.slice(); const last = forms.pop();
   forms.push([S('p'), [S('show'), last]]);
   const file = path.join(tmp, 'f' + (n++) + '.ak');
-  fs.writeFileSync(file, fmt(forms, { layout: 'lines' }));
+  fs.writeFileSync(file, fmt(forms, { layout: n % 3 === 0 ? 'tight' : 'lines' }));
   if (!stress) return norm(cp.spawnSync(ak, [file], { encoding: 'utf8', timeout: 8000 }));
   const exe = file + '.exe';
   const c = cp.spawnSync(ak, ['build', file, exe], { encoding: 'utf8', timeout: 8000 });

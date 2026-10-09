@@ -6,6 +6,7 @@ SPECIALS=["?" ":" "=" "\\" "&&" "||" "??" "wh" "for" "try" "let" "sw" "q" "aw" "
 SFORMS=["?" ":" "wh" "for" "let" "try" "sw" "q" "aw" "req" "js" "new" "use"]
 OPCHARS="+-*/%<>=!&|^~?@#\\:."
 P_ASSIGN=1 P_LAMBDA=2 P_UNARY=17 P_POSTFIX=20 P_ATOM=100
+CALLS=false                                       ; nested calls as f(a b) instead of (f a b)
 
 (= (fisform x n) (&& (is "list" x) #x>0 (is "sym" x[0]) (== ($ x[0]) n)))
 (= (identstart b) (|| (&& b>=65 b<=90) (&& b>=97 b<=122) b==95 b==36 b>=128))
@@ -40,7 +41,7 @@ P_ASSIGN=1 P_LAMBDA=2 P_UNARY=17 P_POSTFIX=20 P_ATOM=100
                    s=(fat a[0] (? (|| rassoc iscmp) p+1 p))
                    (for i 1..#a s=(++ s hn (fat a[i] (? rassoc p p+1))))
                    [s p]))
-           (&& (! (has SPECIALS hn)) (! (isopsym hn))) [(car (fsform x)) P_ATOM]
+           (&& (! (has SPECIALS hn)) (! (isopsym hn))) (? (&& CALLS n>=1) [(++ hn "(" (join (~ farg a) " ") ")") P_POSTFIX] [(car (fsform x)) P_ATOM])
            (fsform x)))))
 (= (car x) x[0])
 
@@ -88,16 +89,26 @@ P_ASSIGN=1 P_LAMBDA=2 P_UNARY=17 P_POSTFIX=20 P_ATOM=100
 (= (farg x key=false) (car (fpr x key)))
 (= (fat x mn) r=(fpr x false) (? r[1]<mn (++ "(" r[0] ")") r[0]))
 
-; ---- layout: top-level forms one per line; long bodies of fn/for/wh/let split over lines
-(= (fstmt x)
-  (? (|| (! (is "list" x)) #x==0 (! (is "sym" x[0]))) (car (fpr x))
-     (: h=($ x[0])
-        bs=(? (== h "for") 3 (== h "wh") 2 (== h "let") 2
-              (&& (== h "=") (is "list" x[1]) #x[1]>0 #x>3) 2
-              (&& (== h "\\") #x>3) 2
-              -1)
-        (? (|| bs<0 #x-bs<2) (car (fpr x))
-           (: head=(join (~ [i e]=>(? (== i 0) ($ e) (farg e)) (enum x[..bs])) " ")
-              body=(~ fstmt x[bs..])
-              (++ "(" head "\n" (join body "\n") ")"))))))
-(= (fmtforms forms) (++ (join (~ fstmt forms) "\n") "\n"))
+;---- layout 'tight' (same text as boot/fmt.js tight()): nested calls f(a b); a statement call or special form is a `head a b` line; a function is
+; `f a b =` plus one indented line per statement; plain chunk statements share a line inside bodies, an implicit line inside a body is only used
+; when it ends in a word character
+NOCALL=[..SPECIALS "<@" "@" "-" "!" "#" "bnot" "<-" "true" "false" "nil"]
+(= (iscallform x) (&& (is "list" x) #x>0 (is "sym" x[0]) (isidentstr ($ x[0])) !(has NOCALL ($ x[0]))))
+(= (fimplicit x) (&& (is "list" x) #x>=2 (is "sym" x[0]) (|| (iscallform x) (has SFORMS ($ x[0])))))
+(= (fimp x) s=(car (fsform x)) s[1..#s-1])          ; the S-form without its parens: "head a b"
+(= (fword s) c=s[#s-1] (&& c (|| (&& c>="a" c<="z") (&& c>="A" c<="Z") (&& c>="0" c<="9") c=="_") true))
+(= (fblock xs top) lines=[] open=false
+  (for x xs
+    (? (&& (fimplicit x) (|| top (fword (fimp x)))) (: (push lines (fimp x)) open=false)
+       (is "sym" x) (? (&& open !top) lines[#lines-1]=(++ lines[#lines-1] " " (car (fpr x))) (: (push lines (car (fpr x))) open=false))
+       (: (? (&& open !top) lines[#lines-1]=(++ lines[#lines-1] " " (car (fpr x))) (push lines (car (fpr x)))) open=true)))
+  lines)
+(= (fmtforms forms) out=[]
+  (<- CALLS true)
+  (for x forms
+    (? (&& (fisform x "=") #x>=3 (iscallform x[1]))
+         (: (push out (++ (join (~ [i e]=>(? (== i 0) ($ e) (farg e)) (enum x[1])) " ") " ="))
+            (for l (fblock x[2..] false) (push out (++ " " l))))
+       (for l (fblock [x] true) (push out l))))
+  (<- CALLS false)
+  (++ (join out "\n") "\n"))

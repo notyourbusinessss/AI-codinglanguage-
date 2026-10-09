@@ -19,7 +19,7 @@ const OK = eval(m1[1]), ERRS = eval(m2[1]);
 OK.forEach(([s], i) => add(`ok${i}.ak`, s)); ERRS.forEach(([s], i) => add(`err${i}.ak`, s));
 // fuzz-generated programs, printed by the canonical formatter (stresses precedence/associativity/chains/patterns)
 const N = +process.argv[2] || 1500;
-for (let n = 0; n < N; n++) { F.setSeed(7000000 + n); const g = new F.Gen(); add(`fz${n}.ak`, fmt(g.program(F.ri(4, 14)), { layout: n % 2 ? 'lines' : 'flat' })); }
+for (let n = 0; n < N; n++) { F.setSeed(7000000 + n); const g = new F.Gen(); add(`fz${n}.ak`, fmt(g.program(F.ri(4, 14)), { layout: ['flat', 'lines', 'tight'][n % 3] })); }
 
 fs.writeFileSync(path.join(tmp, 'list.txt'), files.join('\n'));
 const r = cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), path.join(__dirname, 'parse_dump.ak')], { input: files.join('\n'), encoding: 'utf8', maxBuffer: 1 << 30 });

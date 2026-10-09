@@ -5,14 +5,16 @@
 A programming language designed for an LLM to write and read: **cheap in tokens, fast at runtime, able to do everything, and verified for correctness** — and now **self-hosted**: the compiler is written in Ak and emits native x86-64 Linux executables directly (own assembler, own ELF writer, own runtime and garbage collector; no libc, no linker, no C, no JavaScript at run time).
 
 ```
-(= (fib n a=0 b=1) (? n==0 a (fib n-1 b a+b)))
-(= (qs [p ..r]) (? p==nil [] [..(qs (~? x=>x<p r)) p ..(qs (~? x=>x>=p r))]))
-(for [w n] (sort kv=>[-kv[1] kv[0]] c) (p w n))
+fib n a=0 b=1 =
+ (? n==0 a fib(n-1 b a+b))
+qs [p ..r] =
+ (? p==nil [] [..qs((~? x=>x<p r)) p ..qs((~? x=>x>=p r))])
+for [w n] sort(kv=>[-kv[1] kv[0]] c) p(w n)
 ```
 
 It also draws its own windows: a pure-Ak **X11 client** (`lib/x11.ak`) and a software **canvas** with anti-aliased shapes and real fonts (`lib/canvas.ak`) — no GUI library, no browser (see [Connect Four in its own window](#programs-written-in-ak)).
 
-Statements are S-expression forms; expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,870 tokens). Source files use the extension `.ak`.
+Statements are S-expression forms, or *lines* (`p x`, `f a b =` + indented body); expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,800 tokens). `ak fmt` prints the cheapest layout. Source files use the extension `.ak`.
 
 ## Quick start
 ```
@@ -62,10 +64,13 @@ boot/ (JS) ──compiles──▶ src/main.ak ──▶ ak1 ──compiles─�
 | | Anthropic tokenizer | GPT o200k |
 |---|---|---|
 | Python | 3078 (100%) | 2948 (100%) |
-| **Ak** | **2567 (83.4%)** | **2429 (82.4%)** |
+| **Ak** | **2421 (78.7%)** | **2262 (76.7%)** |
+| Ak before the line forms (`(= (f a b) ..)` and `(p x)` everywhere) | 2567 (83.4%) | 2429 (82.4%) |
 | Ak v1 (my first design) | 3257 (106%) | 3354 (114%) |
 
-The language reference ([`SPEC.md`](SPEC.md)) is 1,871 tokens. Real Ak code that was not tuned for tokens (the compiler, runtime, GUI library and games: 57 files, `src/ rt/ lib/ examples/ tests/native/`) is about 150,000 tokens. Re-measure with `node tools/measure.js py ak` (needs the tokenizer packages, see `tools/tok.js`).
+The language reference ([`SPEC.md`](SPEC.md)) is 1,824 tokens (1,871 before the line forms were added and the JS-target-only details moved to `SPEC-extra.md`). The same change on real code that was not tuned for tokens (the compiler, runtime, GUI library and games: 57 files, `src/ rt/ lib/ examples/ tests/native/`): printed with `ak fmt` they are 130,377 tokens against 137,710 in the previous canonical layout (-5.3%; GPT -5.6%); the hand-written originals with their comments are 151,671 and were not rewritten. Re-measure with `node tools/measure.js py ak` (needs the tokenizer packages, see `tools/tok.js`).
+
+The *line forms* (`head a b` lines and `f a b =` function blocks, see SPEC.md) took the corpus from 2567 to 2421 tokens: a function header costs 4 tokens instead of 9, a statement call 2 fewer, and a newline plus its indentation is one token. They are plain layout: the same syntax trees as the parenthesised forms, which still work everywhere (`tests/fmt_tight.test.js` round-trips all 91 `.ak` files in the repo, and the fuzzers print a third of their programs this way).
 
 My first version was actually *more* expensive than Python (the cryptic `~?` and `<@` heads cost more tokens than the words they replaced). The v2 design came from measuring: single-character heads fuse with the paren into one token while words and 2-char operators cost two; tight infix saves parens; compound assignment (`x+=1`: 3 tokens vs 7), multi-index (`t[i j]`), destructuring, truthiness (`(wh q ..)` vs `(wh (> (# q) 0) ..)`) and `fmt` removed most of the rest. See `tools/tok.js`, `tools/measure.js`.
 *Caveat: counts use the `@anthropic-ai/tokenizer` package (a legacy Claude tokenizer) and GPT's o200k as proxies; a current Claude tokenizer may differ somewhat.*
