@@ -283,8 +283,9 @@ function runInterp(ast) {
 }
 const norm = o => o.startsWith('INVALID') ? 'INVALID' : o.startsWith('JSERR') ? o : o;
 
+let layoutN = 0;
 function check(ast) {
-  const text = fmt(ast, { layout: 'lines' });
+  const text = fmt(ast, { layout: layoutN++ % 3 === 0 ? 'tight' : 'lines' });   // every third program goes through the tight layout and the line forms of the parser
   let ast2;
   try { ast2 = parse(text, '<fuzz>'); } catch (e) { return { bad: 'parse-error: ' + e.message, text }; }
   if (!same(ast, ast2)) return { bad: 'roundtrip mismatch', text };

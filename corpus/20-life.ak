@@ -1,6 +1,4 @@
-(= (step g) h=#g w=#g[0]
-  (~ y=>(join (~ x=>(: n=0
-      (for dy -1..2 (for dx -1..2 (? (&& (|| dy dx) 0<=y+dy<h 0<=x+dx<w g[y+dy x+dx]=="#") n+=1)))
-      (? (|| n==3 (&& n==2 g[y x]=="#")) "#" ".")) 0..w) "") 0..h))
+step g =
+ h=#g w=#g[0] (~ y=>join((~ x=>(: n=0 (for dy -1..2 (for dx -1..2 (? (dy||dx)&&0<=y+dy<h&&0<=x+dx<w&&g[y+dy x+dx]=="#" n+=1))) (? n==3||n==2&&g[y x]=="#" "#" ".")) 0..w) "") 0..h)
 g=["....." "..#.." "..#.." "..#.." "....."]
-(for 2 g=step(g) (p (join g "\n")) (p ""))
+for 2 g=step(g) p(join(g "\n")) p("")

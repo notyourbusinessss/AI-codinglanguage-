@@ -48,9 +48,53 @@ class Parser {
   // end of an expression chunk: whitespace, closing bracket, comment, EOF
   atBreak() { const c = this.s[this.i]; return c === undefined || this.isWs(c) || c === ')' || c === ']' || c === '}' || c === ';'; }
 
+  // Line forms (outside brackets only; everything inside ( [ { is unchanged):
+  //   `head a b`        a line whose first chunk is a bare identifier/operator symbol and that has more chunks = (head a b); lines indented deeper below it are more arguments
+  //   `f a b =`         a line ending in a standalone `=` opens a function: the deeper-indented lines below are its body = (= (f a b) body..)
+  // Any other line: every chunk is its own statement, as before.
   program() {
     const out = [];
-    for (;;) { this.skipWs(); if (this.eof()) return out; if (this.peek() === ')' || this.peek() === ']' || this.peek() === '}') this.err(`unexpected '${this.peek()}'`); out.push(this.chunk()); }
+    for (;;) {
+      this.skipWs(); if (this.eof()) return out;
+      if (this.peek() === ')' || this.peek() === ']' || this.peek() === '}') this.err(`unexpected '${this.peek()}'`);
+      const ind = this.indentAt(this.i), p = this.pos(), ln = this.lineChunks();
+      if (ln.hdr) {
+        const kids = this.children(ind);
+        if (!kids.length) this.err('function header needs an indented body', ln.at);
+        out.push(form([S('='), form(ln.hdr, p), ...kids], p));
+      } else if (ln.chunks[0] instanceof Sym && ln.chunks.length >= 2) out.push(form([...ln.chunks, ...this.children(ind)], p));
+      else out.push(...ln.chunks);
+    }
+  }
+  // column of position p if only blanks precede it on its line, else -1
+  indentAt(p) { let j = p - 1; while (j >= 0 && (this.s[j] === ' ' || this.s[j] === '\t')) j--; return j < 0 || this.s[j] === '\n' ? p - j - 1 : -1; }
+  // the chunks of one line (it ends at a newline outside brackets, or at a comment)
+  lineChunks() {
+    const chunks = []; const at = this.i;
+    for (;;) {
+      while (this.i < this.s.length && (this.s[this.i] === ' ' || this.s[this.i] === '\t' || this.s[this.i] === ',' || this.s[this.i] === '\r')) this.i++;
+      const c = this.s[this.i];
+      if (c === undefined || c === '\n') break;
+      if (c === ';') { while (this.i < this.s.length && this.s[this.i] !== '\n') this.i++; break; }
+      if (c === ')' || c === ']' || c === '}') this.err(`unexpected '${c}'`);
+      chunks.push(this.chunk());
+    }
+    const n = chunks.length;
+    const hdr = n >= 2 && chunks[0] instanceof Sym && chunks[n - 1] instanceof Sym && chunks[n - 1].n === '=' && IDS.test(chunks[0].n[0]) && !isSpecialHead(chunks[0].n) ? chunks.slice(0, n - 1) : null;
+    return { chunks: hdr ? [] : chunks, hdr, at };
+  }
+  // the lines indented deeper than ind: each is one statement (`head arg..` = one form) or several chunks; all at the same indentation
+  children(ind) {
+    const kids = []; let ci0 = -1;
+    for (;;) {
+      this.skipWs(); if (this.eof()) return kids;
+      const ci = this.indentAt(this.i);
+      if (ci <= ind) return kids;
+      if (ci0 < 0) ci0 = ci; else if (ci !== ci0) this.err('inconsistent indentation: body lines must all be indented the same (nested blocks use parentheses)');
+      const p = this.pos(), ln = this.lineChunks();
+      if (ln.hdr) this.err('a function header (`f a b =`) cannot be nested; use (= (f a b) body)', ln.at);
+      if (ln.chunks[0] instanceof Sym && ln.chunks.length >= 2) kids.push(form(ln.chunks, p)); else kids.push(...ln.chunks);
+    }
   }
   elems(close, opener) {
     const out = [];

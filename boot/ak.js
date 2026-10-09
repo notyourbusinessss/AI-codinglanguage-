@@ -886,7 +886,7 @@ function main(argv) {
     if (a[0] === 'fmt') {
       if (!a[1]) usage();
       const forms = require('./syntax.js').parse(fs.readFileSync(a[1], 'utf8'), a[1]);
-      process.stdout.write(require('./fmt.js').fmt(forms, { layout: 'lines' })); return;
+      process.stdout.write(require('./fmt.js').fmt(forms, { layout: 'tight' })); return;
     }
     if (a[0] === 'exe') {
       if (!a[1]) usage();

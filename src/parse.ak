@@ -31,10 +31,43 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
   (? (isws c) (: P.i+=1 (skipws))
      c==";" (: (wh (&& P.i<#P.s P.s[P.i]!="\n") P.i+=1) (skipws))))
 
+;   `head a b`  a line whose first chunk is a bare symbol and that has more chunks = (head a b); lines indented deeper below it are more arguments
+;   `f a b =`    a line ending in a standalone `=` opens a function; the deeper-indented lines below are its body = (= (f a b) body..)
+; (outside brackets only; any other line: each chunk is its own statement)
+(= (indentat p) j=p-1                      ; column of p if only blanks precede it on its line, else -1
+  (wh (&& j>=0 (has " \t" P.s[j])) j-=1)
+  (? (|| j<0 P.s[j]=="\n") p-j-1 -1))
+(= (linechunks) chunks=[] at=P.i done=false        ; the chunks of one line: ends at a newline outside brackets or at a comment
+  (wh !done
+    (wh (&& P.i<#P.s (has " \t,\r" P.s[P.i])) P.i+=1)
+    c=P.s[P.i]
+    (? (|| c==nil c=="\n") done=true
+       c==";" (: (wh (&& P.i<#P.s P.s[P.i]!="\n") P.i+=1) done=true)
+       (closer c) (perr (++ "unexpected '" c "'"))
+       (push chunks (chunk))))
+  n=#chunks
+  hdr=(? (&& n>=2 (issym chunks[0]) (issym chunks[n-1]) ($ chunks[n-1])=="=" (: nm=($ chunks[0]) (&& (ids nm[0]) !(has SPECIAL nm)))) chunks[0..n-1] nil)
+  [(? hdr [] chunks) hdr at])
+(= (children ind) kids=[] ci0=-1 done=false        ; the lines indented deeper than ind: one statement each, all at the same indentation
+  (wh !done (skipws)
+    (? P.i>=#P.s done=true
+       (: ci=(indentat P.i)
+          (? ci<=ind done=true
+             (: (? ci0<0 ci0=ci ci!=ci0 (perr "inconsistent indentation: body lines must all be indented the same (nested blocks use parentheses)"))
+                ps=(pos) [chunks hdr at]=(linechunks)
+                (? hdr (perr "a function header (`f a b =`) cannot be nested; use (= (f a b) body)" at))
+                (? (&& #chunks>=2 (issym chunks[0])) (push kids (mk chunks ps)) (for c chunks (push kids c))))))))
+  kids)
 (= (program) out=[] (skipws)
   (wh P.i<#P.s
     (? (closer P.s[P.i]) (perr (++ "unexpected '" P.s[P.i] "'")))
-    (push out (chunk)) (skipws))
+    ind=(indentat P.i) ps=(pos) [chunks hdr at]=(linechunks)
+    (? hdr (: kids=(children ind)
+              (? #kids==0 (perr "function header needs an indented body" at))
+              (push out (mk [(S "=") (mk hdr ps) ..kids] ps)))
+       (&& #chunks>=2 (issym chunks[0])) (push out (mk [..chunks ..(children ind)] ps))
+       (for c chunks (push out c)))
+    (skipws))
   out)
 
 (= (elems close op) out=[] done=false

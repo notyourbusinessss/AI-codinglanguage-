@@ -1,9 +1,14 @@
-(= (pop n) c=0 (wh n>0 c+=n&1 n=n>>>1) c)
-(= (pow2 n) (&& n>0 n&n-1==0))
-(= (gray n) n^n>>1)
-(p pop(255) pop(1023) pop(0))
-(p ..(~ n=>(? pow2(n) "y" "n") [1 2 3 64 100]))
-(p ..(~ i=>(fmt "%03b" gray(i)) 0..8))
+pop n =
+ c=0
+ wh n>0 c+=n&1 n=n>>>1
+ c
+pow2 n =
+ n>0&&n&n-1==0
+gray n =
+ n^n>>1
+p pop(255) pop(1023) pop(0)
+p ..(~ n=>(? pow2(n) "y" "n") [1 2 3 64 100])
+p ..(~ i=>fmt("%03b" gray(i)) 0..8)
 [x y]=[12 25]
 [x y]=[y x]
-(p x y)
+p x y

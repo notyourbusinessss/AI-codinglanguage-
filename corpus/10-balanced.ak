@@ -1,5 +1,4 @@
 pairs={")" "(" "]" "[" "}" "{"}
-(= (bal s) st=[] ok=true
-  (for c s (? (has "([{" c) (push st c) pairs[c] (? (|| !st (pop st)!=pairs[c]) ok=false)))
-  (&& ok !st))
-(for s ["([]{})" "([)]" "((" "{[()]}()"] (p (? bal(s) "yes" "no")))
+bal s =
+ st=[] ok=true (for c s (? has("([{" c) push(st c) pairs[c] (? !st||pop(st)!=pairs[c] ok=false))) ok&&!st
+for s ["([]{})" "([)]" "((" "{[()]}()"] p((? bal(s) "yes" "no"))
