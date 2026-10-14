@@ -1,7 +1,7 @@
-; Connect Four in its own window: Ak's X11 client (lib/x11.ak) and software canvas (lib/canvas.ak), no libraries, no browser.
-;   ak examples/connect4gui.ak        click a column or use left/right + enter; n: new game, l: level, q: quit      (needs an X11 display or XWayland)
-(use "../lib/x11.ak")
-(use "connect4/game.ak")
+; Connect Four in its own window: Ak's X11 client (lib/x11.aklang) and software canvas (lib/canvas.aklang), no libraries, no browser.
+;   ak examples/connect4gui.aklang        click a column or use left/right + enter; n: new game, l: level, q: quit      (needs an X11 display or XWayland)
+(use "../lib/x11.aklang")
+(use "connect4/game.aklang")
 WW=600 WH=730 CELL=72 BX=36 BY=170 BWD=528 BHT=456       ; window, cell size, board face rectangle
 (= (cx c) BX+12+CELL*c+CELL//2)
 (= (cy r) BY+12+CELL*r+CELL//2)

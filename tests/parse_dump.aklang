@@ -1,4 +1,4 @@
-(use "../src/parse.ak")
+(use "../src/parse.aklang")
 ; reads file names (one per line) from stdin; for each prints "--- name" then one dumped form per line, or "ERR message"
 (for f (split (trim (inall)) "\n")
   (p "---" f)

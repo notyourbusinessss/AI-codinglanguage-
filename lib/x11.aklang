@@ -1,13 +1,13 @@
 ; Ak's own window system client: the X11 protocol spoken directly over a socket (no libraries). Native target, Linux (X11 or XWayland).
-;   (use "x11.ak")
+;   (use "x11.aklang")
 ;   w=(gui_open "title" 640 480)        open a fixed-size window (uses $DISPLAY and ~/.Xauthority)
-;   (gui_present w canvas)              show a canvas (see canvas.ak); the window repaints itself when it is uncovered
+;   (gui_present w canvas)              show a canvas (see canvas.aklang); the window repaints itself when it is uncovered
 ;   ev=(gui_event w 16)                 next event, or nil after 16 ms: {:type "key" :key "left" :down true :shift false :ctrl false}
 ;                                       {:type "mouse" :button "left" :down true :x 10 :y 20} {:type "motion" :x :y} {:type "wheel" :dy 1 :x :y} {:type "close"}
 ;   (gui_snapshot w)                    a canvas holding what the window really shows (GetImage)
 ;   (gui_close w)
 ; Keys are named "left" "right" "up" "down" "enter" "esc" "tab" "backspace" "delete" "home" "end" "shift" "ctrl" "alt", or the typed character.
-(use "canvas.ak")
+(use "canvas.aklang")
 
 (= (le16 v) [(v&255) (v>>8&255)])
 (= (le32 v) [(v&255) (v>>8&255) (v>>16&255) (v>>24&255)])

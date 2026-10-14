@@ -1,6 +1,6 @@
 ; Connect Four in your browser, served by this program itself (native sockets: no libraries, no JavaScript).
-;   ak examples/connect4web.ak [port]     then open http://localhost:8080        (ak examples/connect4web.ak selftest: no server)
-(use "connect4/game.ak")
+;   ak examples/connect4web.aklang [port]     then open http://localhost:8080        (ak examples/connect4web.aklang selftest: no server)
+(use "connect4/game.aklang")
 (= (reply c status head body)
   (fdw c (++ "HTTP/1.1 " status "\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " #body "\r\n" head "\r\n" body)))
 (= (handle c rq)

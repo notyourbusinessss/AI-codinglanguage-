@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds the font atlases embedded by lib/canvas.ak (anti-aliased glyphs for ASCII 32..126, rasterised from DejaVu Sans).
+"""Builds the font atlases embedded by lib/canvas.aklang (anti-aliased glyphs for ASCII 32..126, rasterised from DejaVu Sans).
 usage: python3 tools/mkfont.py          (needs Pillow and the DejaVu fonts; the generated lib/font*.bin files are committed)
 file layout: [size, ascent, line height, 95] then 95 little-endian u32 offsets, then per glyph:
              [advance u8, left i8, top i8 (above the baseline), width u8, height u8, width*height coverage bytes]"""
