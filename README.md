@@ -40,6 +40,7 @@ Then `ak prog.aklang` runs a program, and `ak build prog.aklang out` writes a st
 ./bin/ak prog.aklang [args]          compile to memory and run (a 1.3 MB static binary; Linux x86-64)
 ./bin/ak build prog.aklang out       write a native executable
 ./bin/ak -e '(p 1+2)'            run a snippet
+echo '(p 1+2)' | ./bin/ak -        run a program read from stdin (also `ak check -`, `ak fmt -`)
 ./bin/ak check prog.aklang           parse + resolve only      ./bin/ak fmt prog.aklang    canonical source
 ./build.sh                       rebuild bin/ak from src/ with itself (iterates to a fixpoint)
 ./bin/ak examples/tictactoe.aklang   a small game: tic-tac-toe against an unbeatable computer (build it into its own executable with `ak build`)

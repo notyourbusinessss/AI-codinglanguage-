@@ -58,8 +58,10 @@ IMAGE=nil                       ; a prebuilt runtime image (see gen_image), bake
         (tm "generated") bytes)
      (: bytes=(gen_program (front src file (? bake img))) (tm "generated") bytes)))
 
-USAGE="usage: ak file.aklang [args] | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak fmt file.aklang | ak --version | ak --help"
+USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak fmt file.aklang | ak --version | ak --help"
 (= (usage) (ep USAGE) (exit 2))
+(= (srcname f) (? f=="-" "<stdin>" f))      ; `-` means the program is read from stdin
+(= (rdsrc f) (? f=="-" (inall) (rd f)))
 (= (cli) a=(args)
   (? #a==0 (usage)
      (sw a[0]
@@ -69,9 +71,9 @@ USAGE="usage: ak file.aklang [args] | ak build file.aklang out | ak -e 'code' | 
        ["build" "exe"] (? (&& #a==4 a[1]=="--image") (wrx a[3] (compile_src (rd a[2]) a[2] true))
                           #a!=3 (usage)
                           (wrx a[2] (compile_src (rd a[1]) a[1])))
-       "check" (? #a!=2 (usage) (: (front (rd a[1]) a[1]) (p "ok")))
-       "fmt" (? #a!=2 (usage) (pr (fmtforms (parse (rd a[1]) a[1]))))
+       "check" (? #a!=2 (usage) (: (front (rdsrc a[1]) (srcname a[1])) (p "ok")))
+       "fmt" (? #a!=2 (usage) (pr (fmtforms (parse (rdsrc a[1]) (srcname a[1])))))
        "run" (? #a<2 (usage) (runx (compile_src (rd a[1]) a[1]) a[2..]))
        "compile" (? #a!=3 (usage) (wrx a[2] (compile_src (rd a[1]) a[1])))
-       (runx (compile_src (rd a[0]) a[0]) a[1..]))))
+       (runx (compile_src (rdsrc a[0]) (srcname a[0])) a[1..]))))
 (? (env "AK_DEBUG") (cli) (try (cli) e=>(: (ep (++ "error: " e)) (exit 1))))
