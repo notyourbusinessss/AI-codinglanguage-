@@ -874,7 +874,14 @@ function usage(ok) {
   process.exit(ok ? 0 : 2);
 }
 
-const rdsrc = f => fs.readFileSync(f === '-' ? 0 : f, 'utf8'), srcname = f => f === '-' ? '<stdin>' : f;   // `-` = program on stdin
+const SRCS = {};   // source text by name, so a compile error can show its line
+function withLine(msg) {   // "f:L:C: text" -> the same plus the source line and a caret under column C
+  const m = /^(.+?):(\d+):(\d+): /.exec(msg); if (!m) return msg;
+  let src = SRCS[m[1]]; if (src === undefined) { try { src = fs.readFileSync(m[1], 'utf8'); } catch (e) { return msg; } }
+  const line = (src.split('\n')[+m[2] - 1] || '').replace(/\r$/, '');
+  return line ? `${msg}\n  ${line}\n  ${' '.repeat(+m[3] - 1)}^` : msg;
+}
+const rdsrc = f => (SRCS[f === '-' ? '<stdin>' : f] = fs.readFileSync(f === '-' ? 0 : f, 'utf8')), srcname = f => f === '-' ? '<stdin>' : f;   // `-` = program on stdin
 
 function main(argv) {
   let a = argv.slice(2);
@@ -915,10 +922,11 @@ function main(argv) {
       fs.writeFileSync(outf, bundle(code, a[1])); fs.chmodSync(outf, 0o755);
       console.error('wrote ' + outf); return;
     }
+    if (a[0] === '-e') SRCS['<-e>'] = a[1];
     if (a[0] === '-e') RT.launch(compile(a[1], { file: '<-e>', dir: process.cwd(), ...copts }), a.slice(2), '<-e>');
     else RT.launch(compile(rdsrc(a[0]), { file: srcname(a[0]), ...copts }), a.slice(1), srcname(a[0]));
   } catch (e) {
-    if (e instanceof CErr || e.name === 'SyntaxError' && e.message.includes(':') || e.code === 'ENOENT') { console.error('error: ' + e.message); process.exit(1); }
+    if (e instanceof CErr || e.name === 'SyntaxError' && e.message.includes(':') || e.code === 'ENOENT') { console.error('error: ' + withLine(e.message)); process.exit(1); }
     throw e;
   }
 }
