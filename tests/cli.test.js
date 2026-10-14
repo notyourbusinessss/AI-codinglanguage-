@@ -12,7 +12,7 @@ r = ak(['-e', '(p (in) (in) (in))'], 'one\ntwo\n');         t('stdin lines + eof
 r = ak(['-e', '(p (inall))'], 'a\nb\n');                    t('inall', r.stdout === 'a\nb\n\n', r);
 const f1 = w('e1.aklang', '(= (f x)\n  y=x*2\n  z=nil\n  y+z)\n(p "start")\n(f 3)\n');
 r = ak([f1]);                                                 t('runtime error: output flushed first, position, exit 1', r.stdout === 'start\n' && r.status === 1 && r.stderr === `error: cannot add num and nil (${f1}:4:4)\n`, r);
-r = ak(['-e', '(p undefinedname)']);                         t('compile error', r.status === 1 && r.stderr === 'error: <-e>:1:4: undefined: undefinedname\n' && r.stdout === '', r);
+r = ak(['-e', '(p undefinedname)']);                         t('compile error', r.status === 1 && r.stderr === 'error: <-e>:1:4: undefined: undefinedname\n  (p undefinedname)\n     ^\n' && r.stdout === '', r);
 r = ak(['-e', '(p (+ 1']);                                    t('syntax error', r.status === 1 && /missing '\)'/.test(r.stderr), r);
 r = ak(['-e', '(p 1) (exit 3) (p 2)']);                      t('exit code + flush', r.status === 3 && r.stdout === '1\n', r);
 r = ak(['-e', '(err "bad" 1)']);                              t('err exits 1', r.status === 1 && r.stderr.startsWith('error: bad 1'), r);
@@ -63,5 +63,17 @@ for (const [label, cmd, pre] of [['js', 'node', [AK]], ['native', path.join(__di
   r = sh(['fmt', '-'], '(p   1)');                            t(label + ' fmt -', r.status === 0 && r.stdout === 'p 1\n', r);
   r = sh(['-'], '(p (');                                      t(label + ' stdin syntax error names <stdin>', r.status === 1 && r.stderr.startsWith('error: <stdin>:1:'), r);
   r = sh(['-'], '');                                          t(label + ' empty stdin runs nothing', r.status === 0 && r.stdout === '', r);
+}
+// compile errors show the source line and a caret under the column, on both targets
+for (const [label, cmd, pre] of [['js', 'node', [AK]], ['native', path.join(__dirname, '..', 'bin', 'ak'), []]]) {
+  const sh = (args, input) => cp.spawnSync(cmd, [...pre, ...args], { encoding: 'utf8', input: input || '', timeout: 60000 });
+  r = sh(['-e', '(p 1']);                                     t(label + ' caret: unclosed paren', r.stderr === "error: <-e>:1:5: missing ')' for '(' opened at 1:1\n  (p 1\n      ^\n", r);
+  r = sh(['-e', '(p 1\n']);                                   t(label + ' caret: error past the last line shows no empty source line', r.status === 1 && r.stderr.split('\n').length === 2, r);
+  r = sh(['-e', '(p 1)\n(p  zz)']);                          t(label + ' caret: undefined name, second line', r.stderr === 'error: <-e>:2:5: undefined: zz\n  (p  zz)\n      ^\n', r);
+  r = sh(['-'], '(p 1)\r\n(p  zz)\r\n');                      t(label + ' caret: stdin, CRLF source', r.stderr === 'error: <stdin>:2:5: undefined: zz\n  (p  zz)\n      ^\n', r);
+  const bad = w('bad-' + label + '.aklang', '(p 1)\n(p  zz)\n');
+  r = sh([bad]);                                              t(label + ' caret: file', r.stderr === `error: ${bad}:2:5: undefined: zz\n  (p  zz)\n      ^\n`, r);
+  r = sh(['check', bad]);                                     t(label + ' caret: check', r.status === 1 && r.stderr.endsWith('(p  zz)\n      ^\n'), r);
+  r = sh(['-e', '(p (+ 1 nil))']);                            t(label + ' no caret on runtime errors', r.status === 1 && r.stderr.split('\n').length === 2, r);
 }
 console.log(`cli: ${n - bad}/${n} passed`); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(bad ? 1 : 0);
