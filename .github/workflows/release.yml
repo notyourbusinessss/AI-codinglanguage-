@@ -2,9 +2,16 @@ name: Release
 
 # Pushing a tag like v0.5.0 publishes the committed seed compiler (bin/ak) as a GitHub release, with the SHA-256 that install.sh checks.
 # The CI workflow already guarantees that bin/ak matches src/ and rt/ on every commit.
+# If the release already exists (for example it was drafted on GitHub), the files are attached to it. It can also be run by hand
+# (Actions -> Release -> Run workflow) with an existing tag, to publish or repair that release.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'existing tag to publish, e.g. v0.5.0'
+        required: true
 
 permissions:
   contents: write
@@ -16,17 +23,26 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: the tag must match package.json
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           want="v$(node -p "require('./package.json').version")"
-          if [ "$GITHUB_REF_NAME" != "$want" ]; then echo "::error::tag $GITHUB_REF_NAME does not match package.json version $want"; exit 1; fi
+          if [ "$TAG" != "$want" ]; then echo "::error::tag $TAG does not match package.json version $want"; exit 1; fi
       - name: smoke test the binary
         run: test "$(./bin/ak -e '(p 1+2)')" = 3
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           mkdir dist
           cp bin/ak dist/ak-linux-x86_64
           (cd dist && sha256sum ak-linux-x86_64 > ak-linux-x86_64.sha256)
-          gh release create "$GITHUB_REF_NAME" dist/ak-linux-x86_64 dist/ak-linux-x86_64.sha256 --title "$GITHUB_REF_NAME" --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/ak-linux-x86_64 dist/ak-linux-x86_64.sha256 --clobber
+          else
+            gh release create "$TAG" dist/ak-linux-x86_64 dist/ak-linux-x86_64.sha256 --title "$TAG" --generate-notes --verify-tag
+          fi
