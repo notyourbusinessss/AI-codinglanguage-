@@ -26,7 +26,7 @@ GCADDR=0
      (: (eout (strcat2 (strcat2 (strcat2 (strcat2 "gc: bad object type " (fmtint t)) " phase ") (fmtint GCPHASE)) (strcat2 (strcat2 " src-tb " (fmtint GCSRC-GCTB)) (strcat2 (strcat2 " addr-fb " (fmtint GCADDR-GCFB)) (strcat2 (strcat2 " fe-fb " (fmtint GCFE-GCFB)) (strcat2 (strcat2 " free-tb " (fmtint GCFREE-GCTB)) (strcat2 " obj " (show GCOBJ)))))))) ($syscall 231 99))))
 (= (gcwords h t) n=($bitshi h)
   (? (|| t==3 t==10) (? n>0 n 1) t==2 3 t==4 5 t==5 n+1 t==6 1 0))
-(= (gc)       ; the copying itself is the assembly routine .gccopy (see gen.ak)
+(= (gc)       ; the copying itself is the assembly routine .gccopy (see gen.aklang)
   fb=($heapbase) fe=($hptr)
   tb=(? GCOTHER GCOTHER ($syscall 9 0 GCSPACE 3 16418 -1 0))
   (? tb<0 ($syscall 231 137))

@@ -9,7 +9,7 @@ const run = (cmd, args, env) => {
   if (r.status !== 0) { console.log('FAIL', cmd, args.join(' '), '\n', (r.stderr || r.stdout).slice(0, 500)); process.exit(1); }
 };
 const same = (a, b) => Buffer.compare(fs.readFileSync(a), fs.readFileSync(b)) === 0;
-const src = path.join(root, 'src/main.ak');
+const src = path.join(root, 'src/main.aklang');
 const f = n => path.join(tmp, n);
 let t = Date.now();
 run('node', [path.join(root, 'boot', 'ak.js'), src, 'build', '--image', src, f('ak1')]); console.log(`bootstrap (JS) -> ak1   ${Date.now() - t}ms  ${fs.statSync(f('ak1')).size} bytes`);

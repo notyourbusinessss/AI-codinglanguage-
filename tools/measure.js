@@ -1,5 +1,5 @@
 'use strict';
-// token totals per surface syntax over the corpus. usage: node tools/measure.js py ak [..]
+// token totals per surface syntax over the corpus. usage: node tools/measure.js py aklang [..]
 const fs = require('fs'), path = require('path'); const t = require('./tok.js');
 const dir = path.join(__dirname, '..', 'corpus');
 const exts = process.argv.slice(2); const tot = {};

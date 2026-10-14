@@ -12,9 +12,9 @@ qs [p ..r] =
 for [w n] sort(kv=>[-kv[1] kv[0]] c) p(w n)
 ```
 
-It also draws its own windows: a pure-Ak **X11 client** (`lib/x11.ak`) and a software **canvas** with anti-aliased shapes and real fonts (`lib/canvas.ak`) — no GUI library, no browser (see [Connect Four in its own window](#programs-written-in-ak)).
+It also draws its own windows: a pure-Ak **X11 client** (`lib/x11.aklang`) and a software **canvas** with anti-aliased shapes and real fonts (`lib/canvas.aklang`) — no GUI library, no browser (see [Connect Four in its own window](#programs-written-in-ak)).
 
-Statements are S-expression forms, or *lines* (`p x`, `f a b =` + indented body); expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,800 tokens). `ak fmt` prints the cheapest layout. Source files use the extension `.ak`.
+Statements are S-expression forms, or *lines* (`p x`, `f a b =` + indented body); expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,800 tokens). `ak fmt` prints the cheapest layout. Source files use the extension **`.aklang`** (the old `.ak` still works, but other programs such as Avidemux use that one, so it is no longer the default).
 
 ## Install
 Ak is one static executable (x86-64 Linux, no libc): there is nothing else to install to run programs.
@@ -28,23 +28,23 @@ To run it from anywhere, put `bin/ak` on your `PATH` (either line):
 sudo install -m 755 bin/ak /usr/local/bin/ak       # for everyone
 install -D -m 755 bin/ak ~/.local/bin/ak           # just for you (make sure ~/.local/bin is on your PATH)
 ```
-Then `ak prog.ak` runs a program, and `ak build prog.ak out` writes a standalone executable that runs on any x86-64 Linux machine, with or without Ak installed. To update, `git pull`. (`examples/connect4*.ak` load `examples/connect4/game.ak`, so run them from the checkout.)
+Then `ak prog.aklang` runs a program, and `ak build prog.aklang out` writes a standalone executable that runs on any x86-64 Linux machine, with or without Ak installed. To update, `git pull`. (`examples/connect4*.aklang` load `examples/connect4/game.aklang`, so run them from the checkout.)
 
 - **Platforms:** Linux x86-64 only. On Windows use WSL2, on macOS or ARM a Linux x86-64 VM or container; those are real Linux, so they should work, but I have only run Ak on native x86-64 Linux.
-- **Optional extras:** Node.js 22 (what CI uses) for the JS target (`node boot/ak.js prog.ak`), `./build.sh --boot` and `npm test`; `python3` for the terminal test; `Xvfb` and `xdotool` for the GUI test (`sudo apt install xvfb xdotool`). The windowed game needs an X11 or XWayland display. Tests whose tools are missing are skipped with a message.
-- **Check your install:** `./bin/ak examples/tictactoe.ak` plays a game; `npm test` runs everything (about 2 minutes). `./build.sh` rebuilds `bin/ak` from `src/` with itself.
+- **Optional extras:** Node.js 22 (what CI uses) for the JS target (`node boot/ak.js prog.aklang`), `./build.sh --boot` and `npm test`; `python3` for the terminal test; `Xvfb` and `xdotool` for the GUI test (`sudo apt install xvfb xdotool`). The windowed game needs an X11 or XWayland display. Tests whose tools are missing are skipped with a message.
+- **Check your install:** `./bin/ak examples/tictactoe.aklang` plays a game; `npm test` runs everything (about 2 minutes). `./build.sh` rebuilds `bin/ak` from `src/` with itself.
 
 ## Quick start
 ```
-./bin/ak prog.ak [args]          compile to memory and run (a 1.3 MB static binary; Linux x86-64)
-./bin/ak build prog.ak out       write a native executable
+./bin/ak prog.aklang [args]          compile to memory and run (a 1.3 MB static binary; Linux x86-64)
+./bin/ak build prog.aklang out       write a native executable
 ./bin/ak -e '(p 1+2)'            run a snippet
-./bin/ak check prog.ak           parse + resolve only      ./bin/ak fmt prog.ak    canonical source
+./bin/ak check prog.aklang           parse + resolve only      ./bin/ak fmt prog.aklang    canonical source
 ./build.sh                       rebuild bin/ak from src/ with itself (iterates to a fixpoint)
-./bin/ak examples/tictactoe.ak   a small game: tic-tac-toe against an unbeatable computer (build it into its own executable with `ak build`)
-./bin/ak examples/connect4.ak    Connect Four in your terminal (arrow keys, colour, animation): uses the native terminal library, no libraries
-./bin/ak examples/connect4web.ak Connect Four with a graphical UI in your browser (http://localhost:8080), served by the program itself: native sockets, no JavaScript
-./bin/ak examples/connect4gui.ak Connect Four in its own native window: Ak speaks the X11 protocol itself (lib/x11.ak) and draws with its own canvas (lib/canvas.ak): no browser, no GUI library
+./bin/ak examples/tictactoe.aklang   a small game: tic-tac-toe against an unbeatable computer (build it into its own executable with `ak build`)
+./bin/ak examples/connect4.aklang    Connect Four in your terminal (arrow keys, colour, animation): uses the native terminal library, no libraries
+./bin/ak examples/connect4web.aklang Connect Four with a graphical UI in your browser (http://localhost:8080), served by the program itself: native sockets, no JavaScript
+./bin/ak examples/connect4gui.aklang Connect Four in its own native window: Ak speaks the X11 protocol itself (lib/x11.aklang) and draws with its own canvas (lib/canvas.aklang): no browser, no GUI library
 ```
 `bin/ak` is the committed seed. Without it (or to re-derive everything from scratch) Node can bootstrap it once: `./build.sh --boot`.
 
@@ -53,22 +53,22 @@ Everything below is plain Ak, compiled by the native compiler, with no library u
 
 | program | what it shows |
 |---|---|
-| `tictactoe.ak` | a complete game against an unbeatable computer (minimax) in 28 lines |
-| `connect4.ak` | Connect Four in the terminal: raw mode, key decoding (arrows, Esc, UTF-8), ANSI colour, braille-dot discs, animation (`rt/term.ak`) |
-| `connect4web.ak` | the same game with a browser UI, served by the program itself (poll-multiplexed HTTP server on native sockets) |
-| `connect4gui.ak` | the same game in **its own window**: mouse and keyboard, falling-disc animation, level buttons, flashing win line; idle CPU is 0 |
+| `tictactoe.aklang` | a complete game against an unbeatable computer (minimax) in 28 lines |
+| `connect4.aklang` | Connect Four in the terminal: raw mode, key decoding (arrows, Esc, UTF-8), ANSI colour, braille-dot discs, animation (`rt/term.aklang`) |
+| `connect4web.aklang` | the same game with a browser UI, served by the program itself (poll-multiplexed HTTP server on native sockets) |
+| `connect4gui.aklang` | the same game in **its own window**: mouse and keyboard, falling-disc animation, level buttons, flashing win line; idle CPU is 0 |
 
-The shared game logic (rules, alpha-beta computer player at three depths) is `examples/connect4/game.ak`; the three front ends only draw and read input.
+The shared game logic (rules, alpha-beta computer player at three depths) is `examples/connect4/game.aklang`; the three front ends only draw and read input.
 
 ![Connect Four in an Ak window](docs/connect4gui-start.png) ![the computer wins: the four flash](docs/connect4gui-win.png)
 
-How the window works: `lib/x11.ak` speaks the X11 core protocol itself over the display's Unix socket (authorization cookie from `~/.Xauthority`, window, events, `PutImage`/`GetImage`; ~170 lines) and `lib/canvas.ak` is a software renderer (BGRA canvas, anti-aliased discs/rings/rounded rectangles, alpha blending, masked blits, DejaVu text at 15/22/34 px; ~100 lines). API: [`SPEC-extra.md`](SPEC-extra.md) ("Windows and graphics").
+How the window works: `lib/x11.aklang` speaks the X11 core protocol itself over the display's Unix socket (authorization cookie from `~/.Xauthority`, window, events, `PutImage`/`GetImage`; ~170 lines) and `lib/canvas.aklang` is a software renderer (BGRA canvas, anti-aliased discs/rings/rounded rectangles, alpha blending, masked blits, DejaVu text at 15/22/34 px; ~100 lines). API: [`SPEC-extra.md`](SPEC-extra.md) ("Windows and graphics").
 
 ## How self-hosting works
 ```
-boot/ (JS) ──compiles──▶ src/main.ak ──▶ ak1 ──compiles──▶ src/main.ak ──▶ ak2 ──▶ ak3 …   ak1 == ak2 == ak3 (byte-identical)
+boot/ (JS) ──compiles──▶ src/main.aklang ──▶ ak1 ──compiles──▶ src/main.aklang ──▶ ak2 ──▶ ak3 …   ak1 == ak2 == ak3 (byte-identical)
 ```
-- `src/` — the compiler, written in Ak: `parse.ak` (parser) → `lower.ak` (names, scopes, closures, tail calls → core IR) → `gen.ak` (x86-64 code generation) → `x86.ak` (assembler + ELF writer) · `fmt.ak` (formatter) · `main.ak` (CLI, tree shaking).
+- `src/` — the compiler, written in Ak: `parse.aklang` (parser) → `lower.aklang` (names, scopes, closures, tail calls → core IR) → `gen.aklang` (x86-64 code generation) → `x86.aklang` (assembler + ELF writer) · `fmt.aklang` (formatter) · `main.aklang` (CLI, tree shaking).
 - `rt/` — the runtime, also Ak, compiled into every program: arithmetic with overflow checks, strings, lists, hash maps, `show`, exact float printing/parsing (bignum), regex, BigInt, typed arrays, JSON, math (fdlibm ports), file/process I/O, and the copying garbage collector (the copy loop is a hand-written assembly stub).
 - `boot/` — the stage-0 bootstrap and the JS target (`ak.js`, `runtime.js`, `syntax.js`, …). It is only needed to build the very first compiler, and as an alternative backend with Node interop (`fs`, `fetch`, `async`).
 - The runtime is compiled once into a **prebuilt image** (code + data + labels) baked into `bin/ak`; user programs are lowered and assembled against it, which is why compile+run of a small program takes ~7 ms. `ak build --image` produces such a compiler; `AK_NOIMAGE=1` forces the slow full path.
@@ -86,9 +86,9 @@ boot/ (JS) ──compiles──▶ src/main.ak ──▶ ak1 ──compiles─�
 | Ak before the line forms (`(= (f a b) ..)` and `(p x)` everywhere) | 2567 (83.4%) | 2429 (82.4%) |
 | Ak v1 (my first design) | 3257 (106%) | 3354 (114%) |
 
-The language reference ([`SPEC.md`](SPEC.md)) is 1,824 tokens (1,871 before the line forms were added and the JS-target-only details moved to `SPEC-extra.md`). The same change on real code that was not tuned for tokens (the compiler, runtime, GUI library and games: 57 files, `src/ rt/ lib/ examples/ tests/native/`): printed with `ak fmt` they are 130,377 tokens against 137,710 in the previous canonical layout (-5.3%; GPT -5.6%); the hand-written originals with their comments are 151,671 and were not rewritten. Re-measure with `node tools/measure.js py ak` (needs the tokenizer packages, see `tools/tok.js`).
+The language reference ([`SPEC.md`](SPEC.md)) is 1,824 tokens (1,871 before the line forms were added and the JS-target-only details moved to `SPEC-extra.md`). The same change on real code that was not tuned for tokens (the compiler, runtime, GUI library and games: 57 files, `src/ rt/ lib/ examples/ tests/native/`): printed with `ak fmt` they are 130,377 tokens against 137,710 in the previous canonical layout (-5.3%; GPT -5.6%); the hand-written originals with their comments are 151,671 and were not rewritten. Re-measure with `node tools/measure.js py aklang` (needs the tokenizer packages, see `tools/tok.js`).
 
-The *line forms* (`head a b` lines and `f a b =` function blocks, see SPEC.md) took the corpus from 2567 to 2421 tokens: a function header costs 4 tokens instead of 9, a statement call 2 fewer, and a newline plus its indentation is one token. They are plain layout: the same syntax trees as the parenthesised forms, which still work everywhere (`tests/fmt_tight.test.js` round-trips all 91 `.ak` files in the repo, and the fuzzers print a third of their programs this way).
+The *line forms* (`head a b` lines and `f a b =` function blocks, see SPEC.md) took the corpus from 2567 to 2421 tokens: a function header costs 4 tokens instead of 9, a statement call 2 fewer, and a newline plus its indentation is one token. They are plain layout: the same syntax trees as the parenthesised forms, which still work everywhere (`tests/fmt_tight.test.js` round-trips all 91 `.aklang` files in the repo, and the fuzzers print a third of their programs this way).
 
 My first version was actually *more* expensive than Python (the cryptic `~?` and `<@` heads cost more tokens than the words they replaced). The v2 design came from measuring: single-character heads fuse with the paren into one token while words and 2-char operators cost two; tight infix saves parens; compound assignment (`x+=1`: 3 tokens vs 7), multi-index (`t[i j]`), destructuring, truthiness (`(wh q ..)` vs `(wh (> (# q) 0) ..)`) and `fmt` removed most of the rest. See `tools/tok.js`, `tools/measure.js`.
 *Caveat: counts use the `@anthropic-ai/tokenizer` package (a legacy Claude tokenizer) and GPT's o200k as proxies; a current Claude tokenizer may differ somewhat.*
@@ -129,7 +129,7 @@ The fuzzer found real bugs I would not have written tests for: a spread operand 
 - Compile-time checks: undefined names, arity of direct calls, rest/pattern misuse, misplaced spreads, dangling infix operators — all as `file:line:col: message`.
 
 ## Layout
-`src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `lib/` libraries written in Ak for programs (`x11.ak`, `canvas.ak`, embedded fonts) · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `docs/` (screenshots) · `tools/` (token meter, v1→v2 migrator, font-atlas generator) · `build.sh`.
+`src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `lib/` libraries written in Ak for programs (`x11.aklang`, `canvas.aklang`, embedded fonts) · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `docs/` (screenshots) · `tools/` (token meter, v1→v2 migrator, font-atlas generator) · `build.sh`.
 
 ## Testing
 GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pull request, and checks that the committed `bin/ak` is exactly what `./build.sh --boot` produces from the sources (if you change `src/` or `rt/`, run `./build.sh` and commit the new `bin/ak`).
@@ -138,7 +138,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pu
 
 ## Known limits
 - Native target only runs on x86-64 Linux; strings are UTF-8 bytes (`#"é"` is 2; the JS target counts UTF-16 units).
-- Native target has no async/Promises, `req`, `js`, `new`, or Node modules; use the JS target (`node boot/ak.js`) for `fetch`, npm packages, async servers. Natively there are blocking TCP sockets plus `fdwait` (poll) — enough to write an HTTP server in Ak itself (`examples/httpd.ak`) — but no TLS or DNS.
+- Native target has no async/Promises, `req`, `js`, `new`, or Node modules; use the JS target (`node boot/ak.js`) for `fetch`, npm packages, async servers. Natively there are blocking TCP sockets plus `fdwait` (poll) — enough to write an HTTP server in Ak itself (`examples/httpd.aklang`) — but no TLS or DNS.
 - `**`/`pow` with fractional exponents can differ from V8 in the last digit (~3% of random inputs); `sin cos tan` of arguments beyond ~1e6 (exact bignum reduction) can be off by one digit in ~1% of cases.
 - The GUI library targets Linux with X11 or XWayland: depth-24 displays, fixed-size windows, ASCII text, no clipboard or window resizing yet. The terminal library needs a Linux terminal (raw mode via `ioctl`).
 - No static types. Overflow-checked arithmetic is a few times slower than unchecked in arithmetic-bound loops.
