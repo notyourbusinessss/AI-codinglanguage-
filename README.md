@@ -74,7 +74,7 @@ boot/ (JS) ──compiles──▶ src/main.aklang ──▶ ak1 ──compiles�
 - `rt/` — the runtime, also Ak, compiled into every program: arithmetic with overflow checks, strings, lists, hash maps, `show`, exact float printing/parsing (bignum), regex, BigInt, typed arrays, JSON, math (fdlibm ports), file/process I/O, and the copying garbage collector (the copy loop is a hand-written assembly stub).
 - `boot/` — the stage-0 bootstrap and the JS target (`ak.js`, `runtime.js`, `syntax.js`, …). It is only needed to build the very first compiler, and as an alternative backend with Node interop (`fs`, `fetch`, `async`).
 - The runtime is compiled once into a **prebuilt image** (code + data + labels) baked into `bin/ak`; user programs are lowered and assembled against it, which is why compile+run of a small program takes ~7 ms. `ak build --image` produces such a compiler; `AK_NOIMAGE=1` forces the slow full path.
-- Values are NaN-boxed doubles; Ak values live on a separate value stack (precise GC roots); closures are converted and boxed; general tail calls; exceptions are a handler chain. Programs report uncaught errors as `error: msg (file:line:col)`.
+- Values are NaN-boxed doubles; Ak values live on a separate value stack (precise GC roots); closures are converted and boxed; general tail calls; exceptions are a handler chain. Programs report uncaught errors as `error: msg (file:line:col)`. Compile and syntax errors also print the source line with a caret under the column.
 
 `tests/selfhost.js` checks the fixpoint (JS-built ak1 == native-built ak2 == ak3, also under GC stress, and seed→b2 == ak2).
 

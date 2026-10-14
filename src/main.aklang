@@ -46,7 +46,9 @@ IMAGE=nil                       ; a prebuilt runtime image (see gen_image), bake
      (env "AK_IMGTEST") (: (<- IMAGE (build_image)) IMAGE)))
 (= (bake forms img)           ; `IMAGE=...` at top level of the program becomes the baked image
   (~ f=>(? (&& (is "list" f) #f==3 (is "sym" f[0]) (== ($ f[0]) "=") (is "sym" f[1]) (== ($ f[1]) "IMAGE")) [f[0] f[1] [(S "%static") 0]] f) forms))
+SRCS={}                       ; source text by name, so a compile error can show its line
 (= (compile_src src file bake=false)
+  (<- SRCS[file] src)
   img=(? bake (build_image) (get_image))
   (reset_lower)
   (? (&& img (! bake))
@@ -62,6 +64,12 @@ USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.ak
 (= (usage) (ep USAGE) (exit 2))
 (= (srcname f) (? f=="-" "<stdin>" f))      ; `-` means the program is read from stdin
 (= (rdsrc f) (? f=="-" (inall) (rd f)))
+(= (withline e)               ; "f:L:C: msg" -> the same plus the source line and a caret under column C
+  m=(match "^(.+?):(\\d+):(\\d+): " e)
+  src=(? m (?? SRCS[m[1]] (? (ex m[1]) (rd m[1]))))
+  ls=(? src (split src "\n"))
+  l=(? ls (num m[2]))
+  (? (&& ls l>=1 l<=#ls (> #(rep ls[l-1] "\r" "") 0)) (++ e "\n  " (rep ls[l-1] "\r" "") "\n  " (rpt " " (num m[3])-1) "^") e))
 (= (cli) a=(args)
   (? #a==0 (usage)
      (sw a[0]
@@ -76,4 +84,4 @@ USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.ak
        "run" (? #a<2 (usage) (runx (compile_src (rd a[1]) a[1]) a[2..]))
        "compile" (? #a!=3 (usage) (wrx a[2] (compile_src (rd a[1]) a[1])))
        (runx (compile_src (rdsrc a[0]) (srcname a[0])) a[1..]))))
-(? (env "AK_DEBUG") (cli) (try (cli) e=>(: (ep (++ "error: " e)) (exit 1))))
+(? (env "AK_DEBUG") (cli) (try (cli) e=>(: (ep (++ "error: " (withline e))) (exit 1))))
