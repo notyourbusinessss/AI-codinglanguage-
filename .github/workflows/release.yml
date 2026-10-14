@@ -1,0 +1,32 @@
+name: Release
+
+# Pushing a tag like v0.5.0 publishes the committed seed compiler (bin/ak) as a GitHub release, with the SHA-256 that install.sh checks.
+# The CI workflow already guarantees that bin/ak matches src/ and rt/ on every commit.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: publish bin/ak
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: the tag must match package.json
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then echo "::error::tag $GITHUB_REF_NAME does not match package.json version $want"; exit 1; fi
+      - name: smoke test the binary
+        run: test "$(./bin/ak -e '(p 1+2)')" = 3
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir dist
+          cp bin/ak dist/ak-linux-x86_64
+          (cd dist && sha256sum ak-linux-x86_64 > ak-linux-x86_64.sha256)
+          gh release create "$GITHUB_REF_NAME" dist/ak-linux-x86_64 dist/ak-linux-x86_64.sha256 --title "$GITHUB_REF_NAME" --generate-notes
