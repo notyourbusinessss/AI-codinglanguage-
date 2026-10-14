@@ -861,8 +861,8 @@ function bundle(code, name) {
     `R.standalone(__filename,function(R,require){\n//@@PROGRAM\n${code.replace(/^"use strict";\n/, '')}\n},${JSON.stringify(name || '')});\n`;
 }
 
-function usage() {
-  console.error(`ak - fast Ak compiler/runner   (prefix any command with --fast to skip integer-overflow checks)
+function usage(ok) {
+  (ok ? console.log : console.error)(`ak - fast Ak compiler/runner   (prefix any command with --fast to skip integer-overflow checks)
   ak file.aklang [args..]        compile and run
   ak -e 'code' [args..]      run code
   ak js file.aklang              print generated JavaScript
@@ -870,7 +870,7 @@ function usage() {
   ak exe file.aklang [out]       native single-file executable (embeds node; needs npm access once for 'postject')
   ak check file.aklang           compile only; report errors
   ak fmt file.aklang             print canonical, token-cheap source (comments are dropped)`);
-  process.exit(2);
+  process.exit(ok ? 0 : 2);
 }
 
 function main(argv) {
@@ -878,6 +878,7 @@ function main(argv) {
   const fast = a[0] === '--fast'; if (fast) a = a.slice(1);      // --fast: skip integer-overflow checks (speed)
   const copts = { safe: !fast };
   if (!a.length) usage();
+  if (['-h', '--help', 'help'].includes(a[0])) usage(true);
   try {
     if (a[0] === 'check') {
       if (!a[1]) usage();
