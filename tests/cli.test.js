@@ -54,6 +54,13 @@ for (const h of ['-h', '--help', 'help']) {
 }
 const nu = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [], { encoding: 'utf8' });
 t('native no args: usage on stderr, exit 2', nu.status === 2 && /^usage: ak /.test(nu.stderr) && nu.stdout === '', nu);
+// hidden subcommands: plain output, exit 0, and --version stays exactly one line
+for (const [label, cmd, pre] of [['js', 'node', [AK]], ['native', path.join(__dirname, '..', 'bin', 'ak'), []]]) {
+  const sh = (args) => cp.spawnSync(cmd, [...pre, ...args], { encoding: 'utf8', timeout: 60000 });
+  r = sh(['xyzzy']);                                          t(label + ' xyzzy', r.status === 0 && r.stdout === 'Nothing happens.\n' && r.stderr === '', r);
+  r = sh(['koan']);                                           t(label + ' koan', r.status === 0 && /^[^\n]+\n$/.test(r.stdout) && r.stderr === '', r);
+  r = sh(['--version']);                                      t(label + ' --version is one plain line', r.status === 0 && /^ak \d+\.\d+\.\d+\n$/.test(r.stdout), r);
+}
 // program on stdin: `ak -`, `ak check -`, `ak fmt -`, on both targets
 for (const [label, cmd, pre] of [['js', 'node', [AK]], ['native', path.join(__dirname, '..', 'bin', 'ak'), []]]) {
   const sh = (args, input) => cp.spawnSync(cmd, [...pre, ...args], { encoding: 'utf8', input, timeout: 60000 });
