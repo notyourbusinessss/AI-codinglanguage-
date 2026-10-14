@@ -414,6 +414,7 @@ const B = {
   // types / errors
   ty: tyOf, is: (t, x) => tyOf(x) === t,
   err: (...a) => { throw new AkError(a.map(tostr).join(' ')); },
+  assert: (c, ...a) => { if (!tr(c)) throw new AkError(a.length ? a.map(tostr).join(' ') : 'assertion failed'); return null; },
   // io / system
   p: (...a) => { out(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
   pr: (...a) => { out(a.map(tostr).join(' ')); return a.length ? a[a.length - 1] : null; },

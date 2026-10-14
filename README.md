@@ -42,6 +42,7 @@ Then `ak prog.aklang` runs a program, and `ak build prog.aklang out` writes a st
 ./bin/ak -e '(p 1+2)'            run a snippet
 echo '(p 1+2)' | ./bin/ak -        run a program read from stdin (also `ak check -`, `ak fmt -`)
 ./bin/ak check prog.aklang           parse + resolve only      ./bin/ak fmt prog.aklang    canonical source
+./bin/ak test [paths]                run every *.test.aklang under the paths (default .): PASS/FAIL per file, summary, exit 1 on failure
 ./build.sh                       rebuild bin/ak from src/ with itself (iterates to a fixpoint)
 ./bin/ak examples/tictactoe.aklang   a small game: tic-tac-toe against an unbeatable computer (build it into its own executable with `ak build`)
 ./bin/ak examples/connect4.aklang    Connect Four in your terminal (arrow keys, colour, animation): uses the native terminal library, no libraries
