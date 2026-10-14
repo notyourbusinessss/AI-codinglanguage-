@@ -37,7 +37,7 @@ t('native: (use "lib") finds lib.aklang', nat2.stdout === '100\n', nat2);
 r = ak(['check', main]);                                      t('check ok', r.stdout === 'ok\n' && r.status === 0, r);
 r = ak(['check', f1.replace('e1', 'nope')]);                  t('check missing file', r.status === 1, r);
 const prog = w('p.aklang', '; comment\n(= (fib n) (? n<2 n fib(n-1)+fib(n-2)))\n(p fib(20))\n');
-r = ak(['fmt', prog]);                                        t('fmt', r.stdout === 'fib n =\n (? n<2 n fib(n-1)+fib(n-2))\np fib(20)\n', r);
+r = ak(['fmt', prog]);                                        t('fmt', r.stdout === 'fib n = (? n<2 n fib(n-1)+fib(n-2))\np fib(20)\n', r);
 const fmtd = w('fmt.aklang', r.stdout); r = ak([fmtd]);          t('fmt output runs', r.stdout === '6765\n', r);
 r = ak(['js', prog]);                                         t('js emits code', /function \$fib/.test(r.stdout), r.stdout.slice(0, 100));
 const out = path.join(tmp, 'p.js');
