@@ -58,11 +58,13 @@ IMAGE=nil                       ; a prebuilt runtime image (see gen_image), bake
         (tm "generated") bytes)
      (: bytes=(gen_program (front src file (? bake img))) (tm "generated") bytes)))
 
-(= (usage) (ep "usage: ak file.aklang [args] | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak --version") (exit 2))
+USAGE="usage: ak file.aklang [args] | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak fmt file.aklang | ak --version | ak --help"
+(= (usage) (ep USAGE) (exit 2))
 (= (cli) a=(args)
   (? #a==0 (usage)
      (sw a[0]
        ["-v" "--version" "version"] (p (++ "ak " VERSION))
+       ["-h" "--help" "help"] (p USAGE)
        "-e" (? #a<2 (usage) (runx (compile_src a[1] "<-e>") a[2..]))
        ["build" "exe"] (? (&& #a==4 a[1]=="--image") (wrx a[3] (compile_src (rd a[2]) a[2] true))
                           #a!=3 (usage)
