@@ -34,6 +34,7 @@ CALLS=false                                       ; nested calls as f(a b) inste
   (? sp sp
      (&& (has ASSIGN_OPS hn) n==2 (! (is "list" a[0]))) [(++ (fat a[0] P_POSTFIX) hn (fat a[1] P_ASSIGN)) P_ASSIGN]
      (&& (has ASSIGN_OPS hn) n==2 (|| (fisform a[0] "@") (fisform a[0] ".@"))) [(++ (fat a[0] P_POSTFIX) hn (fat a[1] P_ASSIGN)) P_ASSIGN]
+     (&& hn==".." n==2 (fisform a[1] "+") #a[1]==3 a[1][2]==1) [(++ (fat a[0] 10) "..=" (fat a[1][1] 10)) 9]      ; a..b+1 as a..=b
      (: p=BINPREC[hn]
         (? (&& p!=nil n>=2 (|| n==2 (has ["+" "*" "&&" "||" "??"] hn)))
              (? (&& (has CHAIN_NONASSOC hn) n!=2) (fsform x)
@@ -55,7 +56,10 @@ CALLS=false                                       ; nested calls as f(a b) inste
     "%cmp" (: s=(fat a[0] 9) (for i (.. 1 #a 2) s=(++ s a[i] (fat a[i+1] 9))) [s 8])
     "=" (? (&& n==2 (! (is "list" a[0]))) [(++ (fat a[0] P_POSTFIX) "=" (fat a[1] P_ASSIGN)) P_ASSIGN]
            (&& n==2 (|| (fisform a[0] "%list") (fisform a[0] "%map"))) [(++ (car (fpr a[0])) "=" (fat a[1] P_ASSIGN)) P_ASSIGN])
-    "<@" (? n==3 [(++ (fat a[0] P_POSTFIX) "[" (farg a[1]) "]=" (fat a[2] P_ASSIGN)) P_ASSIGN])
+    "<@" (? n==3
+            (: idx=[(farg a[1])] base=a[0]                      ; t[i][j]=v as t[i j]=v
+               (wh (&& (fisform base "@") #base==3) (: idx=[(farg base[2] true) ..idx] base=base[1]))
+               [(++ (fat base P_POSTFIX) "[" (join idx " ") "]=" (fat a[2] P_ASSIGN)) P_ASSIGN]))
     ".=" (? (&& n==3 (isidentstr a[1])) [(++ (fat a[0] P_POSTFIX) "." a[1] "=" (fat a[2] P_ASSIGN)) P_ASSIGN])
     "@" (? n==2
            (: idx=[(farg a[1] true)] base=a[0]
@@ -90,7 +94,7 @@ CALLS=false                                       ; nested calls as f(a b) inste
 (= (fat x mn) r=(fpr x false) (? r[1]<mn (++ "(" r[0] ")") r[0]))
 
 ;---- layout 'tight' (same text as boot/fmt.js tight()): nested calls f(a b); a statement call or special form is a `head a b` line; a function is
-; `f a b =` plus one indented line per statement; plain chunk statements share a line inside bodies, an implicit line inside a body is only used
+; `f a b = body` when the body is one line, else `f a b =` plus one indented line per statement; plain chunk statements share a line inside bodies, an implicit line inside a body is only used
 ; when it ends in a word character
 NOCALL=[..SPECIALS "<@" "@" "-" "!" "#" "bnot" "<-" "true" "false" "nil"]
 (= (iscallform x) (&& (is "list" x) #x>0 (is "sym" x[0]) (isidentstr ($ x[0])) !(has NOCALL ($ x[0]))))
@@ -107,8 +111,9 @@ NOCALL=[..SPECIALS "<@" "@" "-" "!" "#" "bnot" "<-" "true" "false" "nil"]
   (<- CALLS true)
   (for x forms
     (? (&& (fisform x "=") #x>=3 (iscallform x[1]))
-         (: (push out (++ (join (~ [i e]=>(? (== i 0) ($ e) (farg e)) (enum x[1])) " ") " ="))
-            (for l (fblock x[2..] false) (push out (++ " " l))))
+         (: hd=(join (~ [i e]=>(? (== i 0) ($ e) (farg e)) (enum x[1])) " ") lines=(fblock x[2..] false)
+            (? #lines==1 (push out (++ hd " = " lines[0]))      ; a one-line body stays on the header line (saves the newline token)
+               (: (push out (++ hd " =")) (for l lines (push out (++ " " l))))))
        (for l (fblock [x] true) (push out l))))
   (<- CALLS false)
   (++ (join out "\n") "\n"))
