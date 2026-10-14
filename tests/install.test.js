@@ -43,10 +43,42 @@ for (const [e, what] of [[{ AK_INSTALL_ARCH: 'aarch64' }, 'ARM'], [{ AK_INSTALL_
 
 // a copy of the script without the binary, and with a binary that does not run
 const lone = path.join(tmp, 'lone'); fs.mkdirSync(path.join(lone, 'bin'), { recursive: true }); fs.copyFileSync(script, path.join(lone, 'install.sh'));
-r = run(['--prefix', p2], {}, path.join(lone, 'install.sh'));
-t('no bin/ak: asks for a clone', r.status === 1 && /clone/.test(r.stderr) && !fs.existsSync(p2), out(r));
+const loneSh = path.join(lone, 'install.sh');
+const nowhere = 'file://' + path.join(tmp, 'no-such-release');
+r = run(['--prefix', p2], { AK_INSTALL_BASE_URL: nowhere }, loneSh);
+t('no bin/ak and no release: says so and points at the clone', r.status === 1 && /download failed/.test(r.stderr) && /git clone/.test(r.stderr) && !fs.existsSync(p2), out(r));
 fs.writeFileSync(path.join(lone, 'bin', 'ak'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
-r = run(['--prefix', p2], {}, path.join(lone, 'install.sh'));
+r = run(['--prefix', p2], {}, loneSh);
 t('a binary that does not run is not installed', r.status === 1 && /does not run/.test(r.stderr) && !fs.existsSync(path.join(p2, 'bin', 'ak')), out(r));
+
+// download mode against a local "release" (file://): checksum ok, wrong checksum, missing checksum
+const rel = path.join(tmp, 'rel'); fs.mkdirSync(rel);
+const asset = path.join(rel, 'ak-linux-x86_64'); fs.copyFileSync(path.join(root, 'bin', 'ak'), asset); fs.chmodSync(asset, 0o755);
+const sum = cp.execFileSync('sha256sum', [asset], { encoding: 'utf8' }).split(' ')[0];
+fs.writeFileSync(asset + '.sha256', sum + '  ak-linux-x86_64\n');
+const base = 'file://' + rel, p3 = path.join(tmp, 'p3');
+r = run(['--prefix', p3, '--download'], { AK_INSTALL_BASE_URL: base });
+t('--download installs a verified binary', r.status === 0 && /checksum ok/.test(r.stdout) && cp.spawnSync(path.join(p3, 'bin', 'ak'), ['-e', '(p 1+2)'], { encoding: 'utf8' }).stdout === '3\n', out(r));
+t('--download leaves nothing but ak', fs.readdirSync(path.join(p3, 'bin')).join() === 'ak', fs.readdirSync(path.join(p3, 'bin')));
+r = run(['--prefix', p3, '--version', '9.9.9', '--check']); t('--version with --check is fine', r.status === 0, out(r));
+r = run(['--prefix', p3, '--version']);     t('--version needs an argument', r.status === 2, out(r));
+fs.unlinkSync(path.join(lone, 'bin', 'ak'));
+r = run(['--prefix', path.join(tmp, 'p4')], { AK_INSTALL_BASE_URL: base }, loneSh);
+t('no bin/ak next to the script: downloads', r.status === 0 && /downloading/.test(r.stdout) && fs.existsSync(path.join(tmp, 'p4', 'bin', 'ak')), out(r));
+fs.writeFileSync(asset + '.sha256', '0'.repeat(64) + '  ak-linux-x86_64\n');
+const p5 = path.join(tmp, 'p5');
+r = run(['--prefix', p5, '--download'], { AK_INSTALL_BASE_URL: base });
+t('a wrong checksum installs nothing', r.status === 1 && /mismatch/.test(r.stderr) && !fs.existsSync(path.join(p5, 'bin', 'ak')), out(r));
+fs.unlinkSync(asset + '.sha256');
+r = run(['--prefix', p5, '--download'], { AK_INSTALL_BASE_URL: base });
+t('a missing checksum installs nothing', r.status === 1 && !fs.existsSync(path.join(p5, 'bin', 'ak')), out(r));
+
+// --yes edits the profile once; without it the profile is untouched
+const p6 = path.join(tmp, 'p6'), prof = path.join(tmp, '.profile');
+r = run(['--prefix', p6]);                  t('no --yes: profile untouched', !fs.existsSync(prof) && /add it to your PATH/.test(out(r)), out(r));
+r = run(['--prefix', p6, '--yes']);         t('--yes adds the PATH line', r.status === 0 && fs.readFileSync(prof, 'utf8').includes(`export PATH="${p6}/bin:$PATH"`), out(r));
+r = run(['--prefix', p6, '--yes']);         t('--yes twice does not duplicate it', fs.readFileSync(prof, 'utf8').split(`${p6}/bin`).length === 2 && /already has/.test(r.stdout), out(r));
+r = run(['--prefix', p6, '--yes'], { PATH: path.join(p6, 'bin') + ':' + process.env.PATH });
+t('--yes when already on PATH leaves the profile alone', fs.readFileSync(prof, 'utf8').split(`${p6}/bin`).length === 2, out(r));
 
 console.log(`install: ${n - bad}/${n} passed`); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(bad ? 1 : 0);
