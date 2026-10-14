@@ -864,6 +864,7 @@ function bundle(code, name) {
 function usage(ok) {
   (ok ? console.log : console.error)(`ak - fast Ak compiler/runner   (prefix any command with --fast to skip integer-overflow checks)
   ak file.aklang [args..]        compile and run
+  ak -                           read the program from stdin and run it
   ak -e 'code' [args..]      run code
   ak js file.aklang              print generated JavaScript
   ak build file.aklang [out.js]  standalone JS bundle (needs only node)
@@ -872,6 +873,8 @@ function usage(ok) {
   ak fmt file.aklang             print canonical, token-cheap source (comments are dropped)`);
   process.exit(ok ? 0 : 2);
 }
+
+const rdsrc = f => fs.readFileSync(f === '-' ? 0 : f, 'utf8'), srcname = f => f === '-' ? '<stdin>' : f;   // `-` = program on stdin
 
 function main(argv) {
   let a = argv.slice(2);
@@ -882,11 +885,11 @@ function main(argv) {
   try {
     if (a[0] === 'check') {
       if (!a[1]) usage();
-      compile(fs.readFileSync(a[1], 'utf8'), { file: a[1] }); console.log('ok'); return;
+      compile(rdsrc(a[1]), { file: srcname(a[1]) }); console.log('ok'); return;
     }
     if (a[0] === 'fmt') {
       if (!a[1]) usage();
-      const forms = require('./syntax.js').parse(fs.readFileSync(a[1], 'utf8'), a[1]);
+      const forms = require('./syntax.js').parse(rdsrc(a[1]), srcname(a[1]));
       process.stdout.write(require('./fmt.js').fmt(forms, { layout: 'tight' })); return;
     }
     if (a[0] === 'exe') {
@@ -913,7 +916,7 @@ function main(argv) {
       console.error('wrote ' + outf); return;
     }
     if (a[0] === '-e') RT.launch(compile(a[1], { file: '<-e>', dir: process.cwd(), ...copts }), a.slice(2), '<-e>');
-    else RT.launch(compile(fs.readFileSync(a[0], 'utf8'), { file: a[0], ...copts }), a.slice(1), a[0]);
+    else RT.launch(compile(rdsrc(a[0]), { file: srcname(a[0]), ...copts }), a.slice(1), srcname(a[0]));
   } catch (e) {
     if (e instanceof CErr || e.name === 'SyntaxError' && e.message.includes(':') || e.code === 'ENOENT') { console.error('error: ' + e.message); process.exit(1); }
     throw e;
