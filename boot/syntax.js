@@ -12,7 +12,7 @@ const IDS = /[A-Za-z_$\u0080-￿]/, IDC = /[A-Za-z0-9_$\u0080-￿]/, DIG = /[0-9
 // binary operators, longest first. prec: higher binds tighter
 const BIN = [
   ['>>>', 13], ['**=', 1], ['//=', 1], ['||=', 1], ['??=', 1],
-  ['=>', 2], ['==', 8], ['!=', 8], ['<=', 8], ['>=', 8], ['&&', 4], ['||', 3], ['??', 3], ['**', 17], ['//', 15], ['<<', 13], ['>>', 13], ['..', 9],
+  ['=>', 2], ['==', 8], ['!=', 8], ['<=', 8], ['>=', 8], ['&&', 4], ['||', 3], ['??', 3], ['**', 17], ['//', 15], ['<<', 13], ['>>', 13], ['..=', 9], ['..', 9],
   ['+=', 1], ['-=', 1], ['*=', 1], ['/=', 1], ['%=', 1],
   ['+', 14], ['-', 14], ['*', 15], ['/', 15], ['%', 15], ['<', 8], ['>', 8], ['=', 1], ['&', 12], ['|', 10], ['^', 11],
 ];
@@ -51,6 +51,7 @@ class Parser {
   // Line forms (outside brackets only; everything inside ( [ { is unchanged):
   //   `head a b`        a line whose first chunk is a bare identifier/operator symbol and that has more chunks = (head a b); lines indented deeper below it are more arguments
   //   `f a b =`         a line ending in a standalone `=` opens a function: the deeper-indented lines below are its body = (= (f a b) body..)
+//   `f a b = body`    a standalone `=` in the middle of a line: the rest of the line is the whole body (one line, no indented lines)
   // Any other line: every chunk is its own statement, as before.
   program() {
     const out = [];
@@ -59,7 +60,7 @@ class Parser {
       if (this.peek() === ')' || this.peek() === ']' || this.peek() === '}') this.err(`unexpected '${this.peek()}'`);
       const ind = this.indentAt(this.i), p = this.pos(), ln = this.lineChunks();
       if (ln.hdr) {
-        const kids = this.children(ind);
+        const kids = ln.body.length ? this.bodyLine(ln.body, p) : this.children(ind);
         if (!kids.length) this.err('function header needs an indented body', ln.at);
         out.push(form([S('='), form(ln.hdr, p), ...kids], p));
       } else if (ln.chunks[0] instanceof Sym && ln.chunks.length >= 2) out.push(form([...ln.chunks, ...this.children(ind)], p));
@@ -80,9 +81,13 @@ class Parser {
       chunks.push(this.chunk());
     }
     const n = chunks.length;
-    const hdr = n >= 2 && chunks[0] instanceof Sym && chunks[n - 1] instanceof Sym && chunks[n - 1].n === '=' && IDS.test(chunks[0].n[0]) && !isSpecialHead(chunks[0].n) ? chunks.slice(0, n - 1) : null;
-    return { chunks: hdr ? [] : chunks, hdr, at };
+    let k = -1;                                                       // the first standalone `=` chunk
+    if (n >= 2 && chunks[0] instanceof Sym && IDS.test(chunks[0].n[0]) && !isSpecialHead(chunks[0].n)) for (let j = 1; j < n; j++) if (chunks[j] instanceof Sym && chunks[j].n === '=') { k = j; break; }
+    const hdr = k > 0 ? chunks.slice(0, k) : null;
+    return { chunks: hdr ? [] : chunks, hdr, body: hdr ? chunks.slice(k + 1) : [], at };
   }
+  // the statements of one body line: `head a b` is one form, anything else is one statement per chunk
+  bodyLine(chunks, p) { return chunks[0] instanceof Sym && chunks.length >= 2 ? [form(chunks, p)] : chunks; }
   // the lines indented deeper than ind: each is one statement (`head arg..` = one form) or several chunks; all at the same indentation
   children(ind) {
     const kids = []; let ci0 = -1;
@@ -93,7 +98,7 @@ class Parser {
       if (ci0 < 0) ci0 = ci; else if (ci !== ci0) this.err('inconsistent indentation: body lines must all be indented the same (nested blocks use parentheses)');
       const p = this.pos(), ln = this.lineChunks();
       if (ln.hdr) this.err('a function header (`f a b =`) cannot be nested; use (= (f a b) body)', ln.at);
-      if (ln.chunks[0] instanceof Sym && ln.chunks.length >= 2) kids.push(form(ln.chunks, p)); else kids.push(...ln.chunks);
+      kids.push(...this.bodyLine(ln.chunks, p));
     }
   }
   elems(close, opener) {
@@ -151,6 +156,8 @@ class Parser {
         }
         left = ops.length === 1 ? form([S(op), operands[0], operands[1]], opPos)
           : form([S('%cmp'), ...operands.flatMap((x, k) => k < ops.length ? [x, ops[k]] : [x])], opPos);
+      } else if (op === '..=') {                       // a..=b is the inclusive range: (.. a (+ b 1))
+        left = form([S('..'), left, form([S('+'), this.bin(prec + 1), 1], opPos)], opPos);
       } else {
         const right = op === '**' ? this.bin(prec) : this.bin(prec + 1);
         left = form([S(op), left, right], opPos);

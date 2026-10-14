@@ -2,11 +2,11 @@
 Self-hosted native x86-64 Linux compiler (`ak`; JS target: `node boot/ak.js`). Statements are S-forms; expressions are **tight infix chunks: no spaces inside a chunk** (`a+b`, never `a + b`; spaces/commas separate elements).
 ## Syntax
 `12 1.5 0xff 1_000 10n(BigInt) "s" :key(="key") true false nil ; comment`
-`(f a b)` or `f(a b)` call · `[1 2]` list · `{:k v}` map (keys are expressions) · `a[i]` `a[i j]`(=a[i][j]) `a[1..3]` `a[2..]` `a[..n]` · `m.k` `m.k=v` `o.method(x)` · `..xs` spread · `0..n` range [0,n) · `#x` len · `!x` `-x` `~x`
+`(f a b)` or `f(a b)` call · `[1 2]` list · `{:k v}` map (keys are expressions) · `a[i]` `a[i j]`(=a[i][j]) `a[1..3]` `a[2..]` `a[..n]` · `m.k` `m.k=v` `o.method(x)` · `..xs` spread · `0..n` range [0,n) `0..=n` · `#x` len · `!x` `-x` `~x`
 Infix, Python precedence (tight→loose): `**` · unary · `* / // %` · `+ -` · `<< >>` · `&` · `^` · `|` · `..` · `< > <= >= == !=`(chains: `0<=i<n`) · `&&` · `|| ??` · `= += -= *= /= %= **= //= ||= ??=` · `=>`
 Lambda: `x=>x*2` `(a b)=>a+b` `[a b]=>a` `()=>1`; several statements: `(\ (x) s1 s2 result)`
 ## Forms
-Lines (outside brackets): `head a b` = `(head a b)` · `f a b =` + indented lines (one statement each, same indent) = `(= (f a b) ..)` · `x=1 y=2` = two statements. `ak fmt` prints this cheapest layout.
+Lines (outside brackets): `head a b` = `(head a b)` · `f a b =` + indented lines (one statement each, same indent) = `(= (f a b) ..)` (a one-line body may follow the `=`) · `x=1 y=2` = two statements. `ak fmt` prints this cheapest layout.
 `(= x v)`=`x=v` · `(= (f a b=1 ..r) body..)` fn (last expr returned; patterns ok: `(= (f [x l r]) ..)`) · `[a [b ..c]]=v` destructure (`[a b]=[b a]` swaps; `_` ignores) · `(<- x v)` rebind an OUTER variable
 `(? c a)` `(? c a else)` `(? c1 a c2 b else)` · `(: a b c)` seq · `(&& ..)` `(|| ..)` `(?? ..)` return the deciding value · `(wh c body..)`
 `(for x coll body..)` · `(for [k v] map ..)` · `(for i 0..n ..)` · `(for 3 body)` · `(let (x 1 y 2) body..)` · `(sw v 1 a [2 3] b else)`
