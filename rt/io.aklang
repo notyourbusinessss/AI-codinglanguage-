@@ -120,6 +120,8 @@ IEOF=false
           i+=1)
         nil)))
 (= (mv a b) (? (< ($syscall 82 ($addr (cstr a)) ($addr (cstr b))) 0) ($throw (strcat2 (strcat2 (strcat2 "cannot rename " a) " to ") b))) nil)
+(= (selfexe) buf=(scratch) n=($syscall 89 ($addr (cstr "/proc/self/exe")) buf 4096) (? n<=0 ($throw "cannot find the ak executable"))
+  s=(strnew n) (for i n ($stb s i ($peek buf+i))) s)
 (= (sh cmd)
   (flush)
   mem=(scratch) cmd=(tostr cmd)

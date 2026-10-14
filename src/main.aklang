@@ -63,8 +63,6 @@ SRCS={}                       ; source text by name, so a compile error can show
 USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak fmt file.aklang | ak test [paths] | ak --version | ak --help"
 (= (usage) (ep USAGE) (exit 2))
 ;---- ak test: run *.test.aklang files (or the given files/directories), each in its own process; a test passes when it exits 0
-(= (selfexe) buf=(scratch) n=($syscall 89 ($addr (cstr "/proc/self/exe")) buf 4096) (? n<=0 ($throw "cannot find the ak executable"))
-  s=(strnew n) (for i n ($stb s i ($peek buf+i))) s)
 (= (shq s) (++ "'" (rep s "'" "'\\''") "'"))
 (= (istest f) (|| (ends f ".test.aklang") (ends f ".test.ak")))
 (= (findtests p out)         ; a directory is searched recursively for *.test.aklang; a file is taken as given
