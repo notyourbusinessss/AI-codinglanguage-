@@ -1,4 +1,4 @@
-; examples/httpd.ak's server loop driven by clients in the same process (three connections multiplexed)
+; examples/httpd.aklang's server loop driven by clients in the same process (three connections multiplexed)
 (= (route path)
   (? path=="/" [200 "text/plain" "hello from Ak"]
      (starts path "/echo/") [200 "text/plain" path[6..]]

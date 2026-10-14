@@ -1,11 +1,11 @@
 ; ak: the Ak compiler, written in Ak. Compiles Ak source to a native x86-64 Linux executable (no libc, no linker).
-;   ak file.ak [args]      compile and run        ak build file.ak out   write an executable
-;   ak -e 'code'           run a snippet           ak check file.ak       parse + resolve only
-(use "parse.ak")
-(use "lower.ak")
-(use "gen.ak")
-(use "fmt.ak")
-PRELUDE=(++ (embed "../rt/core.ak") "\n" (embed "../rt/data.ak") "\n" (embed "../rt/map.ak") "\n" (embed "../rt/num.ak") "\n" (embed "../rt/show.ak") "\n" (embed "../rt/io.ak") "\n" (embed "../rt/net.ak") "\n" (embed "../rt/term.ak") "\n" (embed "../rt/math.ak") "\n" (embed "../rt/regex.ak") "\n" (embed "../rt/big.ak") "\n" (embed "../rt/json.ak") "\n" (embed "../rt/typed.ak") "\n" (embed "../rt/gc.ak") "\n" (embed "../rt/prof.ak"))
+;   ak file.aklang [args]      compile and run        ak build file.aklang out   write an executable
+;   ak -e 'code'           run a snippet           ak check file.aklang       parse + resolve only
+(use "parse.aklang")
+(use "lower.aklang")
+(use "gen.aklang")
+(use "fmt.aklang")
+PRELUDE=(++ (embed "../rt/core.aklang") "\n" (embed "../rt/data.aklang") "\n" (embed "../rt/map.aklang") "\n" (embed "../rt/num.aklang") "\n" (embed "../rt/show.aklang") "\n" (embed "../rt/io.aklang") "\n" (embed "../rt/net.aklang") "\n" (embed "../rt/term.aklang") "\n" (embed "../rt/math.aklang") "\n" (embed "../rt/regex.aklang") "\n" (embed "../rt/big.aklang") "\n" (embed "../rt/json.aklang") "\n" (embed "../rt/typed.aklang") "\n" (embed "../rt/gc.aklang") "\n" (embed "../rt/prof.aklang"))
 VERSION="0.5.0"
 
 ; ---- tree shaking: keep only the runtime functions the program can reach (by name)
@@ -27,7 +27,7 @@ ROOTS=["at" "dot" "put" "setdot" "dotc" "setdotc" "slice" "apply" "concat" "isnu
 IMAGE=nil                       ; a prebuilt runtime image (see gen_image), baked into the compiler by `ak build --image`
 (= (front src file img=nil)   ; full path: parse + shake + lower the runtime together with the program (img: bake it in as IMAGE)
   (tm "start")
-  pre=(parse PRELUDE "rt/core.ak")
+  pre=(parse PRELUDE "rt/core.aklang")
   (tm "parsed prelude")
   user=(~ y=>(expand y (dirname file) {}) (parse src file))
   (tm "parsed user")
@@ -38,7 +38,7 @@ IMAGE=nil                       ; a prebuilt runtime image (see gen_image), bake
   main)
 (= (build_image)
   (reset_lower)
-  main=(lower_program (parse PRELUDE "rt/core.ak") [] "rt/core.ak")
+  main=(lower_program (parse PRELUDE "rt/core.aklang") [] "rt/core.aklang")
   (gen_image main))
 (= (get_image)               ; AK_NOIMAGE=1 forces the slow path (runtime lowered together with the program)
   (? (env "AK_NOIMAGE") nil
@@ -58,7 +58,7 @@ IMAGE=nil                       ; a prebuilt runtime image (see gen_image), bake
         (tm "generated") bytes)
      (: bytes=(gen_program (front src file (? bake img))) (tm "generated") bytes)))
 
-(= (usage) (ep "usage: ak file.ak [args] | ak build file.ak out | ak -e 'code' | ak check file.ak | ak --version") (exit 2))
+(= (usage) (ep "usage: ak file.aklang [args] | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak --version") (exit 2))
 (= (cli) a=(args)
   (? #a==0 (usage)
      (sw a[0]

@@ -1,5 +1,5 @@
-(use "../src/parse.ak")
-(use "../src/lower.ak")
+(use "../src/parse.aklang")
+(use "../src/lower.aklang")
 ; smoke driver: lower a file against a stub prelude and print the IR
 pre=(parse "(= (list ..a) a) (= (map ..a) a) (= (at l i) 0) (= (slice l a b) 0) (= (toarr x) x) (= (concat ..a) a) (= (iter x) x) (= (isnum x) 0) (= (len x) 0) (= (apply f l) 0) (= (put a b c) 0) (= (dot a b) 0) (= (setdot a b c) 0) (= (p ..x) x) (= (+ ..a) 0) (= (push l ..x) l) (= (< a b) 0) (= (> a b) 0) (= (<= a b) 0) (= (>= a b) 0) (= (== a b) 0) (= (!= a b) 0) (= (- ..a) 0) (= (* ..a) 0) (= (/ ..a) 0) (= (% a b) 0) (= (// a b) 0) (= (** a b) 0) (= (! a) 0) (= (& ..a) 0) (= (| ..a) 0) (= (^ ..a) 0) (= (<< a b) 0) (= (>> a b) 0) (= (>>> a b) 0) (= (bnot a) 0)" "pre")
 f=(args)[0]

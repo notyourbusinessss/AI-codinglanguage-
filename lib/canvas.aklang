@@ -1,4 +1,4 @@
-; Software canvas: BGRA pixels in a u8 array, anti-aliased shapes and text, no libraries. Native target. (x11.ak shows a canvas in a window.)
+; Software canvas: BGRA pixels in a u8 array, anti-aliased shapes and text, no libraries. Native target. (x11.aklang shows a canvas in a window.)
 ;   cv=(canvas 640 480)             (fill cv c)  (rect cv x y w h c a=255)  (rrect cv x y w h r c)  (circle cv cx cy r c a=255)
 ;   (ring cv cx cy r thick c)       (vgrad cv x y w h c1 c2)  (text cv x y "str" size c a=255) -> width   (text_w "str" size)   (px cv x y)
 ;   (blit dst dx dy src sx sy w h mask)   copy a region of one canvas onto another; mask = a canvas whose blue channel is each pixel's opacity (or nil)

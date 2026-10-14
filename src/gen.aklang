@@ -5,7 +5,7 @@
 ;   frame (value stack): [closure, arg1..argP, (rest), locals..., temporaries...]; slot i at [r14 + 8*i]
 ;   call: push closure, push args, rcx = nargs, call callclosure; callee pops its whole frame (r15 = r14) and returns rax
 ; heap object header (8 bytes): low byte = type, upper 32 bits = length.
-(use "x86.ak")
+(use "x86.aklang")
 HEAD_ADDR=0x10000000
 HLIM_ADDR=0x10000008
 ARGV_ADDR=0x10000010
