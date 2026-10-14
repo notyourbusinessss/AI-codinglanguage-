@@ -414,6 +414,7 @@ const B = {
   // types / errors
   ty: tyOf, is: (t, x) => tyOf(x) === t,
   err: (...a) => { throw new AkError(a.map(tostr).join(' ')); },
+  assert: (c, ...a) => { if (!tr(c)) throw new AkError(a.length ? a.map(tostr).join(' ') : 'assertion failed'); return null; },
   // io / system
   p: (...a) => { out(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
   pr: (...a) => { out(a.map(tostr).join(' ')); return a.length ? a[a.length - 1] : null; },
@@ -452,6 +453,7 @@ const B = {
     try { return require('child_process').execSync(cmd, { encoding: 'utf8', stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 30 }); }
     catch (e) { throw new AkError('sh failed (' + e.status + '): ' + cmd); }
   },
+  selfexe: () => process.execPath,
   now: () => Date.now(), clock: () => performance.now(),
   sleep: ms => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); return null; },
   delay: ms => new Promise(r => setTimeout(r, ms)),

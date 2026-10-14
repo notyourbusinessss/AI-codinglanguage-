@@ -355,4 +355,5 @@ RNGI=nil
 (= (cat2 a b) (? (isstr a) (strcat2 a (tostr b)) (islist a) (concat a b) (strcat2 (tostr a) (tostr b))))       ; (++ a b) without building the rest list
 (= ($ x) (tostr x))
 (= (err ..a) ($throw (join a " ")))
+(= (assert c ..a) (? c nil ($throw (? #a (join a " ") "assertion failed"))))
 (= (f64bits x) (list ($bitshi x) ($bitslo x)))
