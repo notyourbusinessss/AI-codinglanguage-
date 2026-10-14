@@ -870,7 +870,8 @@ function usage(ok) {
   ak build file.aklang [out.js]  standalone JS bundle (needs only node)
   ak exe file.aklang [out]       native single-file executable (embeds node; needs npm access once for 'postject')
   ak check file.aklang           compile only; report errors
-  ak fmt file.aklang             print canonical, token-cheap source (comments are dropped)`);
+  ak fmt file.aklang             print canonical, token-cheap source (comments are dropped)
+  ak test [paths..]              run *.test.aklang files (a test passes when it exits 0)`);
   process.exit(ok ? 0 : 2);
 }
 
@@ -882,6 +883,29 @@ function withLine(msg) {   // "f:L:C: text" -> the same plus the source line and
   return line ? `${msg}\n  ${line}\n  ${' '.repeat(+m[3] - 1)}^` : msg;
 }
 const rdsrc = f => (SRCS[f === '-' ? '<stdin>' : f] = fs.readFileSync(f === '-' ? 0 : f, 'utf8')), srcname = f => f === '-' ? '<stdin>' : f;   // `-` = program on stdin
+
+function runTests(paths) {   // ak test: each *.test.aklang (or given file) runs in its own process; exit 1 if any fails or none is found
+  const cp = require('child_process'), files = [];
+  let explicit = false;
+  const find = p => {
+    let st; try { st = fs.statSync(p); } catch (e) { throw new CErr('no such file or directory: ' + p); }
+    if (st.isDirectory()) { for (const f of fs.readdirSync(p).sort()) if (!f.startsWith('.') && f !== 'node_modules') find(p === '.' ? f : path.join(p, f)); }
+    else if (explicit || /\.test\.(aklang|ak)$/.test(p)) files.push(p);
+  };
+  for (const p of paths.length ? paths : ['.']) { explicit = fs.existsSync(p) && fs.statSync(p).isFile(); find(p); }
+  if (!files.length) { console.error('ak test: no test files found (*.test.aklang)'); return 1; }
+  let pass = 0, fail = 0;
+  for (const f of files.sort()) {
+    const r = cp.spawnSync(process.execPath, [__filename, f], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1 << 28 });
+    const code = r.status === null ? 1 : r.status;
+    if (code === 0) { pass++; console.log('PASS ' + f); continue; }
+    fail++; console.log(`FAIL ${f} (exit ${code})`);
+    const out = ((r.stdout || '') + (r.stderr || '')).trim();
+    if (out) console.log('  ' + out.split('\n').join('\n  '));
+  }
+  console.log(`${pass} passed, ${fail} failed, ${pass + fail} files`);
+  return fail ? 1 : 0;
+}
 
 function main(argv) {
   let a = argv.slice(2);
@@ -899,6 +923,7 @@ function main(argv) {
       const forms = require('./syntax.js').parse(rdsrc(a[1]), srcname(a[1]));
       process.stdout.write(require('./fmt.js').fmt(forms, { layout: 'tight' })); return;
     }
+    if (a[0] === 'test') process.exit(runTests(a.slice(1)));
     if (a[0] === 'exe') {
       if (!a[1]) usage();
       const cp = require('child_process'), os = require('os');

@@ -10,7 +10,7 @@ Lines (outside brackets): `head a b` = `(head a b)` · `f a b =` + indented line
 `(= x v)`=`x=v` · `(= (f a b=1 ..r) body..)` fn (last expr returned; patterns ok: `(= (f [x l r]) ..)`) · `[a [b ..c]]=v` destructure (`[a b]=[b a]` swaps; `_` ignores) · `(<- x v)` rebind an OUTER variable
 `(? c a)` `(? c a else)` `(? c1 a c2 b else)` · `(: a b c)` seq · `(&& ..)` `(|| ..)` `(?? ..)` return the deciding value · `(wh c body..)`
 `(for x coll body..)` · `(for [k v] map ..)` · `(for i 0..n ..)` · `(for 3 body)` · `(let (x 1 y 2) body..)` · `(sw v 1 a [2 3] b else)`
-`(try body e=>handler)` `(err "msg" ..)` · `(use "file.aklang")`(include) `(embed "file")`(file contents as a string, at compile time) `(q x)`(quote: symbols are a type, `ty`="sym", `(sym "x")`)
+`(try body e=>handler)` `(err "msg" ..)` `(assert cond "msg" ..)`(throws "assertion failed" or the message when cond is falsy) · `(use "file.aklang")`(include) `(embed "file")`(file contents as a string, at compile time) `(q x)`(quote: symbols are a type, `ty`="sym", `(sym "x")`)
 ## Semantics
 - Truthiness is Python's: false nil 0 "" [] {} are falsy. `??` replaces only nil: use `m[k]??0` for defaults (`||` would also replace a real 0).
 - `=` is function-local like Python and never changes an outer variable. `x+=1` on an outer variable is a compile error → use `(<- x x+1)`. Only `let` makes a block scope. Closures capture variables; loop variables are per-iteration.
@@ -23,9 +23,9 @@ math `+ - * / % // ** < > <= >= == != !` `& | ^ << >> >>> bnot` `abs sqrt flr ce
 list `# @ push pop enum set del +> .. ~ ~? ~~ ~/ sort rev zip uniq flat grp idx has any all keys vals prs sub take drop fst lst ap` — `(~ f xs)` map · `(~? f xs)` filter · `(~~ f xs)` flatmap · `(~/ f init xs)` reduce · `(sort xs)` `(sort keyfn xs)` (maps sort as `[k v]` entries) · `(+> l x)` pure append · `(set c k v)` pure update · `(has c x)` in
 typed arrays `f64 f32 i32 u32 i16 u16 i8 u8 bcat` (`(u8 n)`, `(bcat a b ..)` joins byte lists/arrays into one `u8`) · fast unchecked access `(@! a i)` `(<@! a i v)`
 text `++ $ show split join trim up lo rep starts ends rpt padl padr chr ord num re match fmt` — `(fmt "%-8s%4d%6.2f%03b" ..)` · `(rep s from to)`(regex ok) · `(rpt x n)` string/list repeat
-io `p pr ep in inall rd wr wrx app ls ex rm mkdir mv isdir runx args env exit sh now clock sleep delay err` (`wr`/`app`/`wrx` take a string or a list of byte values; `wrx` makes the file executable) · `sym mksym symline symcol bytes f64bits` · `(p a b)` prints space-joined · `json unjson` · `ty is` · `ev` · `imp`
+io `p pr ep in inall rd wr wrx app ls ex rm mkdir mv isdir runx args env exit sh now clock sleep delay err assert selfexe` (`wr`/`app`/`wrx` take a string or a list of byte values; `wrx` makes the file executable) · `sym mksym symline symcol bytes f64bits` · `(p a b)` prints space-joined · `json unjson` · `ty is` · `ev` · `imp`
 ## CLI
-`ak f.aklang [args]` compile+run · `ak -e 'code' [args]` · `ak build f.aklang out` native executable · `ak check f.aklang` · `ak fmt f.aklang` (canonical, drops comments) · `ak --version`.
+`ak f.aklang [args]` compile+run · `ak -e 'code' [args]` · `ak build f.aklang out` native executable · `ak check f.aklang` · `ak fmt f.aklang` (canonical, drops comments) · `ak test [paths]` (runs every `*.test.aklang` under the paths, default `.`; a test is a program that exits 0; prints PASS/FAIL per file and a summary, exit 1 on any failure or when none is found) · `ak --version`.
 ## Targets
 Native: strings are UTF-8 bytes (`#s` counts bytes; `chr`/`ord`/regex handle code points); `o.f(x)` calls the function stored under key `f` of map `o`. JS-target-only (`aw req js new imp ev delay`, Node modules and globals such as `fs.readFileSync` `Math.max` `fetch`; natively use `rd wr ex max sin ..`) and native-only (sockets, GC knobs, `pow` precision): SPEC-extra.md. Uncaught errors print `error: msg (file:line:col)` and exit 1.
 ## Cheap style (fewer tokens)
