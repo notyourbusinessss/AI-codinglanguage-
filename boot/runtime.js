@@ -80,11 +80,14 @@ function fn(f) {
   throw new AkError('not callable: ' + show(f));
 }
 
+function chkIdx(i) { if (Math.floor(i) !== i) throw new AkError('@: index must be an integer, got ' + show(i)); }   // fractional indexes are an error on both targets
+
 function at(c, i, j) {
   if (c == null) return null;
   if (Array.isArray(c) || ArrayBuffer.isView(c) || typeof c === 'string') {
     if (arguments.length > 2) return j == null ? c.slice(i) : c.slice(i, j);
     if (typeof i !== 'number') throw new AkError('@: index must be a number, got ' + show(i));
+    chkIdx(i);
     if (i < 0) i += c.length;
     const v = c[i];
     return v === undefined ? null : v;
@@ -97,6 +100,7 @@ function at(c, i, j) {
 function put(c, k, v) {
   if (c instanceof Map) c.set(k, v);
   else {
+    if (typeof k === 'number' && (Array.isArray(c) || ArrayBuffer.isView(c))) chkIdx(k);
     if (typeof k === 'number' && k < 0) k += c.length;
     if (Array.isArray(c) && typeof k === 'number' && k > c.length) { if (k > 134217728) throw new AkError('index out of range'); for (let i = c.length; i < k; i++) c[i] = null; }   // no holes: padding is nil
     c[k] = v;
