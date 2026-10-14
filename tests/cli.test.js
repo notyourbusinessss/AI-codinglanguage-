@@ -54,4 +54,14 @@ for (const h of ['-h', '--help', 'help']) {
 }
 const nu = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [], { encoding: 'utf8' });
 t('native no args: usage on stderr, exit 2', nu.status === 2 && /^usage: ak /.test(nu.stderr) && nu.stdout === '', nu);
+// program on stdin: `ak -`, `ak check -`, `ak fmt -`, on both targets
+for (const [label, cmd, pre] of [['js', 'node', [AK]], ['native', path.join(__dirname, '..', 'bin', 'ak'), []]]) {
+  const sh = (args, input) => cp.spawnSync(cmd, [...pre, ...args], { encoding: 'utf8', input, timeout: 60000 });
+  r = sh(['-'], '(p 1+2)\n(p (args))');                     t(label + ' ak -: runs stdin', r.status === 0 && r.stdout === '3\n[]\n', r);
+  r = sh(['-', 'x'], '(p (args))');                           t(label + ' ak - args', r.stdout === '["x"]\n', r);
+  r = sh(['check', '-'], '(p 1)');                            t(label + ' check -', r.status === 0 && r.stdout === 'ok\n', r);
+  r = sh(['fmt', '-'], '(p   1)');                            t(label + ' fmt -', r.status === 0 && r.stdout === 'p 1\n', r);
+  r = sh(['-'], '(p (');                                      t(label + ' stdin syntax error names <stdin>', r.status === 1 && r.stderr.startsWith('error: <stdin>:1:'), r);
+  r = sh(['-'], '');                                          t(label + ' empty stdin runs nothing', r.status === 0 && r.stdout === '', r);
+}
 console.log(`cli: ${n - bad}/${n} passed`); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(bad ? 1 : 0);
