@@ -47,4 +47,11 @@ const out2 = path.join(tmp, 'e1.js'); ak(['build', f1, out2]);
 r = cp.spawnSync('node', [out2], { encoding: 'utf8' });     t('bundle error position', r.status === 1 && /\(.*e1\.aklang:4:4\)/.test(r.stderr), r.stderr);
 // usage
 r = ak([]);                                                   t('usage', r.status === 2, r);
+for (const h of ['-h', '--help', 'help']) {
+  r = ak([h]);                                                t('js ' + h + ': usage on stdout, exit 0', r.status === 0 && /ak fmt/.test(r.stdout) && r.stderr === '', r);
+  const nh = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [h], { encoding: 'utf8' });
+  t('native ' + h + ': usage on stdout, exit 0', nh.status === 0 && /^usage: ak .*ak fmt .*--help\n$/.test(nh.stdout) && nh.stderr === '', nh);
+}
+const nu = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [], { encoding: 'utf8' });
+t('native no args: usage on stderr, exit 2', nu.status === 2 && /^usage: ak /.test(nu.stderr) && nu.stdout === '', nu);
 console.log(`cli: ${n - bad}/${n} passed`); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(bad ? 1 : 0);
