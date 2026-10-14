@@ -43,7 +43,11 @@ class Printer {
         case '=': if (n === 2 && !Array.isArray(a[0])) return [this.at(a[0], P_POSTFIX) + '=' + this.at(a[1], P_ASSIGN), P_ASSIGN];
           if (n === 2 && (isForm(a[0], '%list') || isForm(a[0], '%map'))) return [this.pr(a[0])[0] + '=' + this.at(a[1], P_ASSIGN), P_ASSIGN];
           break;
-        case '<@': if (n === 3) return [this.at(a[0], P_POSTFIX) + '[' + this.arg(a[1]) + ']=' + this.at(a[2], P_ASSIGN), P_ASSIGN]; break;
+        case '<@': if (n === 3) {
+          const idx = [this.arg(a[1])]; let base = a[0];                       // collapse t[i][j]=v -> t[i j]=v
+          while (isForm(base, '@') && base.length === 3) { idx.unshift(this.arg(base[2], true)); base = base[1]; }
+          return [this.at(base, P_POSTFIX) + '[' + idx.join(' ') + ']=' + this.at(a[2], P_ASSIGN), P_ASSIGN];
+        } break;
         case '.=': if (n === 3 && isIdentStr(a[1])) return [this.at(a[0], P_POSTFIX) + '.' + a[1] + '=' + this.at(a[2], P_ASSIGN), P_ASSIGN]; break;
         case '@': {
           if (n === 2) {
@@ -81,6 +85,7 @@ class Printer {
       }
       if (ASSIGN_OPS.has(h.n) && n === 2 && !Array.isArray(a[0]) ) return [this.at(a[0], P_POSTFIX) + h.n + this.at(a[1], P_ASSIGN), P_ASSIGN];
       if (ASSIGN_OPS.has(h.n) && n === 2 && (isForm(a[0], '@') || isForm(a[0], '.@'))) return [this.at(a[0], P_POSTFIX) + h.n + this.at(a[1], P_ASSIGN), P_ASSIGN];
+      if (h.n === '..' && n === 2 && Array.isArray(a[1]) && a[1].length === 3 && a[1][0] instanceof Sym && a[1][0].n === '+' && a[1][2] === 1) return [this.at(a[0], 10) + '..=' + this.at(a[1][1], 10), 9];   // a..b+1 as a..=b
       const p = BINPREC[h.n];
       if (p !== undefined && n >= 2 && (n === 2 || h.n === '+' || h.n === '*' || h.n === '&&' || h.n === '||' || h.n === '??')) {
         if (CHAIN_NONASSOC.has(h.n) && n !== 2) return this.sform(x);
@@ -156,7 +161,7 @@ function fmt(forms, o = {}) {
 }
 
 // ---- layout 'tight': the cheapest canonical text (measured with the real tokenizer; see the line forms in syntax.js)
-//   nested calls f(a b); a statement call or special form as a `head a b` line; a function as `f a b =` plus one indented line per statement;
+//   nested calls f(a b); a statement call or special form as a `head a b` line; a function as `f a b = body` (one-line body) or `f a b =` plus one indented line per statement;
 //   plain chunk statements share a line inside bodies; inside bodies an implicit line is only used when it ends in a word character
 const NOCALL = new Set([...SPECIALS, '<@', '@', '-', '!', '#', 'bnot', '<-', 'true', 'false', 'nil']);
 const IMPLICIT_SF = new Set(['?', ':', 'wh', 'for', 'let', 'try', 'sw', 'q', 'aw', 'req', 'js', 'new', 'use']);
@@ -177,7 +182,11 @@ function tight(forms, o) {
   }
   const out = [];
   for (const x of forms) {
-    if (isFnDef(x)) out.push(x[1].map((e, i) => i === 0 ? e.n : pr.arg(e)).join(' ') + ' =', ...block(x.slice(2), false).map(l => ' ' + l));
+    if (isFnDef(x)) {
+      const hd = x[1].map((e, i) => i === 0 ? e.n : pr.arg(e)).join(' '), body = block(x.slice(2), false);
+      if (body.length === 1) out.push(hd + ' = ' + body[0]);                 // a one-line body stays on the header line (saves the newline token)
+      else out.push(hd + ' =', ...body.map(l => ' ' + l));
+    }
     else out.push(...block([x], true));
   }
   return out.join('\n') + '\n';

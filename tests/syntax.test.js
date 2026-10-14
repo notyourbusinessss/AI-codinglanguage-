@@ -43,14 +43,16 @@ const OK = [
   // line forms: `head a b` lines and `f a b =` function blocks
   ['p 1+2', '(p (+ 1 2))'], ['p ..xs', '(p (%spread xs))'], ['? c 1 2', '(? c 1 2)'], ['push r x\np r', '(push r x) ; (p r)'], ['x=1 y=2', '(= x 1) ; (= y 2)'], ['foo', 'foo'],
   ['for i 0..3\n p i\n p i*2', '(for i (.. 0 3) (p i) (p (* i 2)))'], ['p 1 ; note\np 2', '(p 1) ; (p 2)'], ['(p 1) (p 2)', '(p 1) ; (p 2)'],
-  ['f a b =\n a+b', '(= (f a b) (+ a b))'], ['f a b=1 ..r =\n x=a+b y=2\n p x', '(= (f a (= b 1) (%spread r)) (= x (+ a b)) (= y 2) (p x))'],
+  ['f a b = a+b', '(= (f a b) (+ a b))'], ['f = 5', '(= (f) 5)'], ['f x = lst x', '(= (f x) (lst x))'], ['f x = y=1 y+x', '(= (f x) (= y 1) (+ y x))'], ['f x = (? x 1 2)\np 1', '(= (f x) (? x 1 2)) ; (p 1)'],
+  ['1..=n', '(.. 1 (+ n 1))'], ['0..=#a-1', '(.. 0 (+ (- (# a) 1) 1))'], ['a[1..=3]', '(@ a 1 (+ 3 1))'], ['(for i 1..=n p(i))', '(for i (.. 1 (+ n 1)) (p i))'],
+    ['f a b =\n a+b', '(= (f a b) (+ a b))'], ['f a b=1 ..r =\n x=a+b y=2\n p x', '(= (f a (= b 1) (%spread r)) (= x (+ a b)) (= y 2) (p x))'],
   ['f [x l r] =\n ? x==nil 0 1\ny=f(1)', '(= (f (%list x l r)) (? (== x nil) 0 1)) ; (= y (f 1))'], ['g =\n 1', '(= (g) 1)'],
   ['f a =\n a\n\nq 1', '(= (f a) a) ; (q 1)'], ['  p 1\n  p 2', '(p 1) ; (p 2)'], ['(= (f a) a)\nf a =\n b', '(= (f a) a) ; (= (f a) b)'],
 ];
 const ERR = [
   ['(f a', "missing ')'"], ['(f a]', "expected ')' but found ']'"], [')', "unexpected ')'"], ['a+ b', 'dangling operator'], ['a +b', ''], ['a+', 'dangling operator'],
   ['"abc', 'unterminated string'], ['x=', ''], ['1=2', 'invalid assignment'], ['{"a"}', 'key/value'], ['a[]', 'empty index'], ['+(f x)', "operator '+' must be followed by a space"],
-  ['(x)=>', ''], ['a"b"', 'unexpected'], ['"\\q"', 'bad escape'], ['f(a b', "missing ')'"],  ['f a b =', 'needs an indented body'], ['f a =\n a\n  b\n c', 'inconsistent indentation'], ['p 1\n x=1\n  y=2', 'inconsistent indentation'], ['f a =\n g b =\n  1', 'cannot be nested'],
+  ['(x)=>', ''], ['a"b"', 'unexpected'], ['"\\q"', 'bad escape'], ['f(a b', "missing ')'"],  ['f a b =', 'needs an indented body'], ['1..=', 'dangling operator'], ['f a =\n a\n  b\n c', 'inconsistent indentation'], ['p 1\n x=1\n  y=2', 'inconsistent indentation'], ['f a =\n g b =\n  1', 'cannot be nested'],
   ['f a =\n (x', "missing ')'"],
 ];
 let bad = 0, n = 0;

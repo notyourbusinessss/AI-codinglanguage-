@@ -1,5 +1,5 @@
 n=20000000
-s=(u8 n+1)
+s=u8(n+1)
 cnt=0
-(for i 2..n+1 (? (@! s i)==0 (: cnt+=1 j=i*i (wh j<=n (<@! s j 1) j+=i))))
-(p cnt)
+for i 2..=n (? (@! s i)==0 (: cnt+=1 j=i*i (wh j<=n (<@! s j 1) j+=i)))
+p cnt

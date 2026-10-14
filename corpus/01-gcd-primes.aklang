@@ -1,7 +1,5 @@
-gcd a b =
- ? b gcd(b a%b) a
-prime n =
- n>=2&&(: i=2 (wh i*i<=n&&n%i i+=1) i*i>n)
+gcd a b = ? b gcd(b a%b) a
+prime n = n>=2&&(: i=2 (wh i*i<=n&&n%i i+=1) i*i>n)
 p gcd(48 18) gcd(17 5)
 p ..(~? prime 2..50)
 p sum((~? prime 2..1000))

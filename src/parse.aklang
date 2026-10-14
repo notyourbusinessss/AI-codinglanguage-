@@ -2,7 +2,7 @@
 ; Form positions live in POS (identity-keyed); symbols carry their own line/col.
 P={:s "" :i 0 :file "" :starts [] :na {} :idx false}
 POS={}
-BIN=[[">>>" 13] ["**=" 1] ["//=" 1] ["||=" 1] ["??=" 1] ["=>" 2] ["==" 8] ["!=" 8] ["<=" 8] [">=" 8] ["&&" 4] ["||" 3] ["??" 3] ["**" 17] ["//" 15] ["<<" 13] [">>" 13] [".." 9] ["+=" 1] ["-=" 1] ["*=" 1] ["/=" 1] ["%=" 1] ["+" 14] ["-" 14] ["*" 15] ["/" 15] ["%" 15] ["<" 8] [">" 8] ["=" 1] ["&" 12] ["|" 10] ["^" 11]]
+BIN=[[">>>" 13] ["**=" 1] ["//=" 1] ["||=" 1] ["??=" 1] ["=>" 2] ["==" 8] ["!=" 8] ["<=" 8] [">=" 8] ["&&" 4] ["||" 3] ["??" 3] ["**" 17] ["//" 15] ["<<" 13] [">>" 13] ["..=" 9] [".." 9] ["+=" 1] ["-=" 1] ["*=" 1] ["/=" 1] ["%=" 1] ["+" 14] ["-" 14] ["*" 15] ["/" 15] ["%" 15] ["<" 8] [">" 8] ["=" 1] ["&" 12] ["|" 10] ["^" 11]]
 PREC={}
 (for [op p] BIN PREC[op]=p)
 ASSIGN=["=" "+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
@@ -45,24 +45,27 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
        c==";" (: (wh (&& P.i<#P.s P.s[P.i]!="\n") P.i+=1) done=true)
        (closer c) (perr (++ "unexpected '" c "'"))
        (push chunks (chunk))))
-  n=#chunks
-  hdr=(? (&& n>=2 (issym chunks[0]) (issym chunks[n-1]) ($ chunks[n-1])=="=" (: nm=($ chunks[0]) (&& (ids nm[0]) !(has SPECIAL nm)))) chunks[0..n-1] nil)
-  [(? hdr [] chunks) hdr at])
+  n=#chunks k=-1                                     ; k: the first standalone `=` chunk
+  (? (&& n>=2 (issym chunks[0]) (: nm=($ chunks[0]) (&& (ids nm[0]) !(has SPECIAL nm))))
+     (for j 1..n (? (&& k<0 (issym chunks[j]) ($ chunks[j])=="=") k=j)))
+  hdr=(? k>0 chunks[0..k] nil)
+  [(? hdr [] chunks) hdr (? hdr chunks[k+1..] []) at])
+(= (bodyline chunks ps) (? (&& #chunks>=2 (issym chunks[0])) [(mk chunks ps)] chunks))     ; `head a b` is one form, anything else one statement per chunk
 (= (children ind) kids=[] ci0=-1 done=false        ; the lines indented deeper than ind: one statement each, all at the same indentation
   (wh !done (skipws)
     (? P.i>=#P.s done=true
        (: ci=(indentat P.i)
           (? ci<=ind done=true
              (: (? ci0<0 ci0=ci ci!=ci0 (perr "inconsistent indentation: body lines must all be indented the same (nested blocks use parentheses)"))
-                ps=(pos) [chunks hdr at]=(linechunks)
+                ps=(pos) [chunks hdr body at]=(linechunks)
                 (? hdr (perr "a function header (`f a b =`) cannot be nested; use (= (f a b) body)" at))
-                (? (&& #chunks>=2 (issym chunks[0])) (push kids (mk chunks ps)) (for c chunks (push kids c))))))))
+                (for c (bodyline chunks ps) (push kids c)))))))
   kids)
 (= (program) out=[] (skipws)
   (wh P.i<#P.s
     (? (closer P.s[P.i]) (perr (++ "unexpected '" P.s[P.i] "'")))
-    ind=(indentat P.i) ps=(pos) [chunks hdr at]=(linechunks)
-    (? hdr (: kids=(children ind)
+    ind=(indentat P.i) ps=(pos) [chunks hdr body at]=(linechunks)
+    (? hdr (: kids=(? #body (bodyline body ps) (children ind))
               (? #kids==0 (perr "function header needs an indented body" at))
               (push out (mk [(S "=") (mk hdr ps) ..kids] ps)))
        (&& #chunks>=2 (issym chunks[0])) (push out (mk [..chunks ..(children ind)] ps))
@@ -101,6 +104,7 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
   (? op=="=>" (: body=(bin 2) (mk [(S "\\") (toparams left) body] oppos))
      (has ASSIGN op) (: right=(bin 1) (mkassign op left right oppos))
      (has CMP op) (cmpchain op prec left oppos)
+     op=="..=" (mk [(S "..") left (mk [(S "+") (bin prec+1) 1] oppos)] oppos)
      (: right=(? op=="**" (bin prec) (bin prec+1)) (mk [(S op) left right] oppos))))
 
 (= (cmpchain op prec left oppos) operands=[left] ops=[op] go=true
