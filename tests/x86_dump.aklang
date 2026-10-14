@@ -1,4 +1,4 @@
-(use "../src/x86.ak")
+(use "../src/x86.aklang")
 ; stdin: one Intel-syntax instruction per line; stdout: its encoding as hex bytes (or ERR)
 (for line (split (trim (inall)) "\n")
   (asm_reset)

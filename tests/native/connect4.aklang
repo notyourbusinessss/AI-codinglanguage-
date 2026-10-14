@@ -1,5 +1,5 @@
 ; Connect Four (examples/connect4): rules, the computer player's tactics, and the HTML page
-(use "../../examples/connect4/game.ak")
+(use "../../examples/connect4/game.aklang")
 (= (setup cells) b=(rpt [0] 42) (for [i v] cells b[i]=v) b)
 (p "lines" #WIN "through the centre cell" #AT[17])
 (p "wins at" (think (setup [[35 2] [36 2] [37 2] [38 1]]) 2 3) "blocks at" (think (setup [[35 1] [28 1] [21 1] [36 2] [29 2]]) 2 3))

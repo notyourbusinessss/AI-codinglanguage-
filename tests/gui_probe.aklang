@@ -1,8 +1,8 @@
 ; Test helper for tests/gui.test.js: Ak's canvas and X11 client against a real X server.
-;   ak build tests/gui_probe.ak probe ; probe canvas      drawing checks, no display needed
+;   ak build tests/gui_probe.aklang probe ; probe canvas      drawing checks, no display needed
 ;   probe window                                          window round trip, then prints every event it receives until the window is closed or "q" is typed
 ;   probe shot WINDOWID WIDTH HEIGHT x,y x,y ...          reads pixels of ANOTHER client's window (GetImage) and prints "x,y rgb" for each point
-(use "../lib/x11.ak")
+(use "../lib/x11.aklang")
 (= (check name ok) (p (? ok "ok" "FAIL") name) nil)
 (= (canvas_checks)
   cv=(canvas 64 48)

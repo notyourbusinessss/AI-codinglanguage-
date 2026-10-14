@@ -1,4 +1,4 @@
-; A small HTTP/1.0 server (native only): `ak examples/httpd.ak [port]`. One process, many connections, multiplexed with fdwait.
+; A small HTTP/1.0 server (native only): `ak examples/httpd.aklang [port]`. One process, many connections, multiplexed with fdwait.
 (= (route path)
   (? path=="/" [200 "text/plain" "hello from Ak"]
      (starts path "/echo/") [200 "text/plain" path[6..]]

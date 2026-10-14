@@ -21,7 +21,7 @@ function expandUse(x, dir, seen, file) {
   }
   if (x[0] instanceof Sym && x[0].n === 'use' && typeof x[1] === 'string') {
     let f = path.resolve(dir, x[1]);
-    if (!fs.existsSync(f) && fs.existsSync(f + '.ak')) f += '.ak';
+    for (const e of ['.aklang', '.ak']) if (!fs.existsSync(f) && fs.existsSync(f + e)) f += e;     // `(use "x")` finds x.aklang, or a legacy x.ak
     if (!fs.existsSync(f)) throw new CErr(`${file}:${x.line}:${x.col}: use: file not found: ${x[1]}`);
     if (seen.has(f)) return null;
     seen.add(f);
@@ -863,13 +863,13 @@ function bundle(code, name) {
 
 function usage() {
   console.error(`ak - fast Ak compiler/runner   (prefix any command with --fast to skip integer-overflow checks)
-  ak file.ak [args..]        compile and run
+  ak file.aklang [args..]        compile and run
   ak -e 'code' [args..]      run code
-  ak js file.ak              print generated JavaScript
-  ak build file.ak [out.js]  standalone JS bundle (needs only node)
-  ak exe file.ak [out]       native single-file executable (embeds node; needs npm access once for 'postject')
-  ak check file.ak           compile only; report errors
-  ak fmt file.ak             print canonical, token-cheap source (comments are dropped)`);
+  ak js file.aklang              print generated JavaScript
+  ak build file.aklang [out.js]  standalone JS bundle (needs only node)
+  ak exe file.aklang [out]       native single-file executable (embeds node; needs npm access once for 'postject')
+  ak check file.aklang           compile only; report errors
+  ak fmt file.aklang             print canonical, token-cheap source (comments are dropped)`);
   process.exit(2);
 }
 
@@ -891,7 +891,7 @@ function main(argv) {
     if (a[0] === 'exe') {
       if (!a[1]) usage();
       const cp = require('child_process'), os = require('os');
-      const out = path.resolve(a[2] || a[1].replace(/\.ak$/, ''));
+      const out = path.resolve(a[2] || a[1].replace(/\.(aklang|ak)$/, ''));
       const tmpd = fs.mkdtempSync(path.join(os.tmpdir(), 'akexe-'));
       const js = path.join(tmpd, 'main.js');
       fs.writeFileSync(js, bundle(compile(fs.readFileSync(a[1], 'utf8'), { file: a[1], ...copts }), a[1]));
@@ -907,7 +907,7 @@ function main(argv) {
       if (!a[1]) usage();
       const code = compile(fs.readFileSync(a[1], 'utf8'), { file: a[1], ...copts });
       if (a[0] === 'js') { console.log(code); return; }
-      const outf = a[2] || a[1].replace(/\.ak$/, '') + '.js';
+      const outf = a[2] || a[1].replace(/\.(aklang|ak)$/, '') + '.js';
       fs.writeFileSync(outf, bundle(code, a[1])); fs.chmodSync(outf, 0o755);
       console.error('wrote ' + outf); return;
     }

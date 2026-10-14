@@ -1,5 +1,5 @@
 'use strict';
-// Byte-exact differential test: src/x86.ak (run on the bootstrap compiler) vs GNU as (dev-time oracle only).
+// Byte-exact differential test: src/x86.aklang (run on the bootstrap compiler) vs GNU as (dev-time oracle only).
 const fs = require('fs'), path = require('path'), os = require('os'), cp = require('child_process');
 const root = path.join(__dirname, '..');
 const R64 = ['rax', 'rcx', 'rdx', 'rbx', 'rsp', 'rbp', 'rsi', 'rdi', 'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'r15'];
@@ -60,7 +60,7 @@ r = cp.spawnSync('objdump', ['-d', '-w', '-M', 'intel', path.join(tmp, 't.o')], 
 const want = []; for (const l of r.stdout.split('\n')) { const m = /^\s*[0-9a-f]+:\t((?:[0-9a-f]{2} )+)\s*\t?(.*)$/.exec(l); if (m) want.push(m[1].trim()); }
 // merge continuation lines are not produced with -w; instructions map 1:1
 // ours
-const o = cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), path.join(__dirname, 'x86_dump.ak')], { input: list.join('\n'), encoding: 'utf8', maxBuffer: 1 << 28 });
+const o = cp.spawnSync('node', [path.join(root, 'boot', 'ak.js'), path.join(__dirname, 'x86_dump.aklang')], { input: list.join('\n'), encoding: 'utf8', maxBuffer: 1 << 28 });
 if (o.status !== 0) { console.log('driver failed', o.stderr.slice(0, 400)); process.exit(1); }
 const have = o.stdout.trim().split('\n');
 let bad = 0;

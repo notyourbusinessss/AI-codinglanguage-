@@ -1,6 +1,6 @@
 ; Connect Four in your terminal, against the computer (native target; needs a terminal of at least 50x24).
-;   ak examples/connect4.ak          left/right or 1-7: choose a column   enter / space / down: drop   n: new game   l: level   q: quit
-(use "connect4/game.ak")
+;   ak examples/connect4.aklang          left/right or 1-7: choose a column   enter / space / down: drop   n: new game   l: level   q: quit
+(use "connect4/game.aklang")
 E=(chr 27)
 RESET=(++ E "[0m")
 (= (fg n) (++ E "[38;5;" n "m"))

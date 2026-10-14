@@ -1,6 +1,6 @@
 'use strict';
-// Ak's own GUI: the software canvas (lib/canvas.ak) and the X11 client (lib/x11.ak) against a real X server (Xvfb), driven with real
-// input events by xdotool, plus the native-window game examples/connect4gui.ak. Skipped when Xvfb or xdotool is missing.
+// Ak's own GUI: the software canvas (lib/canvas.aklang) and the X11 client (lib/x11.aklang) against a real X server (Xvfb), driven with real
+// input events by xdotool, plus the native-window game examples/connect4gui.aklang. Skipped when Xvfb or xdotool is missing.
 const cp = require('child_process'), fs = require('fs'), os = require('os'), path = require('path');
 const root = path.join(__dirname, '..');
 const ak = process.env.AK_BIN || path.join(root, 'bin', 'ak');
@@ -15,7 +15,7 @@ const finish = () => { console.log(`gui: ${n - bad}/${n} passed`); fs.rmSync(tmp
 
 // 1. the canvas needs no display at all
 const probe = path.join(tmp, 'probe');
-t('build probe', build(path.join(__dirname, 'gui_probe.ak'), probe).status === 0);
+t('build probe', build(path.join(__dirname, 'gui_probe.aklang'), probe).status === 0);
 let r = cp.spawnSync(probe, ['canvas'], { encoding: 'utf8', env: { PATH: process.env.PATH } });
 t('canvas checks', r.status === 0 && !/FAIL/.test(r.stdout) && (r.stdout.match(/^ok /gm) || []).length === 14, r.stdout + r.stderr);
 t('no display is a clear error', (r = cp.spawnSync(probe, ['window'], { encoding: 'utf8', env: { PATH: process.env.PATH } })).status !== 0 && /no display/.test(r.stderr + r.stdout), r.stdout + r.stderr);
@@ -71,7 +71,7 @@ const stop = () => { try { xvfb.kill(); } catch (e) { } };
 
     // 5. the game in its own window: click a column, a disc lands; q quits
     const game = path.join(tmp, 'c4gui');
-    t('build connect4gui', build(path.join(root, 'examples', 'connect4gui.ak'), game).status === 0);
+    t('build connect4gui', build(path.join(root, 'examples', 'connect4gui.aklang'), game).status === 0);
     const g = lines(cp.spawn(game, [], { env }), { out: '', code: null });
     const gw = xdo('search', '--sync', '--name', 'Connect Four').split('\n')[0];
     t('game window appears', gw !== '', g.out);

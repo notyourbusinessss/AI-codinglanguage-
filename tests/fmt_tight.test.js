@@ -1,5 +1,5 @@
 'use strict';
-// The tight layout (cheapest canonical text, boot/fmt.js and src/fmt.ak): parse(fmt(ast)) == ast for every .ak file in the repository, and
+// The tight layout (cheapest canonical text, boot/fmt.js and src/fmt.aklang): parse(fmt(ast)) == ast for every .aklang file in the repository, and
 // `ak fmt` (the Ak formatter in the native compiler) prints exactly what the JS formatter prints.
 const fs = require('fs'), path = require('path'), cp = require('child_process');
 const { parse } = require('../boot/syntax.js'); const { fmt } = require('../boot/fmt.js');
@@ -9,7 +9,7 @@ const same = (a, b) => same0(neg(a), neg(b));
 const root = path.join(__dirname, '..');
 const ak = process.env.AK_BIN || path.join(root, 'bin', 'ak');
 const files = [];
-const walk = d => { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) { if (!['node_modules', '.git', 'docs'].includes(f)) walk(p); } else if (f.endsWith('.ak')) files.push(p); } };
+const walk = d => { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) { if (!['node_modules', '.git', 'docs'].includes(f)) walk(p); } else if (f.endsWith('.aklang')) files.push(p); } };
 ['corpus', 'examples', 'bench', 'src', 'rt', 'lib', 'tests'].forEach(d => { if (fs.existsSync(path.join(root, d))) walk(path.join(root, d)); });
 let bad = 0, n = 0, same2 = 0, checkedAk = 0;
 for (const f of files) {

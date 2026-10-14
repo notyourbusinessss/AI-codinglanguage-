@@ -418,7 +418,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   (? !(is "list" x) x
      (&& #x>=2 (isform x "embed") (is "str" x[1])) (: f=(joinpath dir x[1]) (? !(ex f) (err (++ "embed: file not found: " x[1]))) (rd f))
      (&& #x>=2 (isform x "use") (is "str" x[1]))
-       (: f=(joinpath dir x[1]) (? (&& !(ex f) (ex (++ f ".ak"))) f=(++ f ".ak"))
+       (: f=(joinpath dir x[1]) (for e [".aklang" ".ak"] (? (&& !(ex f) (ex (++ f e))) f=(++ f e)))      ; (use "x") finds x.aklang, or a legacy x.ak
           (? !(ex f) (err (++ "use: file not found: " x[1])))
           (? seen[f] ["nil"]
              (: seen[f]=true
@@ -429,7 +429,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 
 ; ---- whole program: prelude (runtime, in Ak) + user program
 (= (lower_program prelude_forms user_forms file)
-  L.file="rt/core.ak"
+  L.file="rt/core.aklang"
   main=(newfn "main" nil) main.ismod=true L.cf=main
   (push_scope) L.prelude=L.cs main.root=L.cs
   (for n INTRINSICS v=(mkvar n "intrinsic") v.intrinsic=true v.pre=true L.prelude.vars[n]=v)

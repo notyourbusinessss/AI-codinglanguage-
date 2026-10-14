@@ -1,4 +1,4 @@
-(use "../src/x86.ak")
+(use "../src/x86.aklang")
 ; builds a tiny native program with the Ak assembler: prints a string, sums 1..10 in a loop, calls a function that does SSE math,
 ; and exits with the total as the exit status (55 + 7 = 62).
 (asm_reset)

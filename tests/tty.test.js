@@ -1,5 +1,5 @@
 'use strict';
-// The native terminal library (raw mode, key decoding, terminal size) and the terminal game (examples/connect4.ak), driven through a real
+// The native terminal library (raw mode, key decoding, terminal size) and the terminal game (examples/connect4.aklang), driven through a real
 // pseudo-terminal by tests/tty_run.py (needs python3; skipped when it is missing).
 const cp = require('child_process'), fs = require('fs'), os = require('os'), path = require('path');
 const root = path.join(__dirname, '..');
@@ -12,7 +12,7 @@ const tty = (rows, cols, cmd, steps) => cp.spawnSync('python3', [path.join(__dir
 const build = (src, out) => cp.spawnSync(ak, ['build', src, out], { encoding: 'utf8' });
 
 // 1. key decoding: arrows, enter, esc (alone), ctrl-c, UTF-8, ESC O A, plain characters; raw mode is left again afterwards
-const keys = path.join(tmp, 'keys.ak');
+const keys = path.join(tmp, 'keys.aklang');
 fs.writeFileSync(keys, `(? !(isatty) (: (p "not a tty") (exit 2)))
 (p "size" (termsize))
 (rawmode (\\ () ks=[] (fdw 1 "READY\\r\\n")
@@ -30,7 +30,7 @@ t('not a tty is detected', cp.spawnSync(path.join(tmp, 'keys'), [], { encoding: 
 
 // 2. the game: draw, move the cursor, drop a disc, the computer answers, quit and restore the screen
 const game = path.join(tmp, 'c4');
-t('build connect4', build(path.join(root, 'examples', 'connect4.ak'), game).status === 0);
+t('build connect4', build(path.join(root, 'examples', 'connect4.aklang'), game).status === 0);
 out = tty(30, 100, game, 'wait:CONNECT;text:4;send:0d;wait:computer played;sleep:1.5;text:q;sleep:0.6');
 t('title and board drawn', out.includes('C O N N E C T') && out.includes('⣴⣿⣿⣦') && out.includes('you 0   computer 0'), out.slice(0, 300));
 t('the computer answered', /computer played column \d: \d+ positions/.test(out), out.slice(-400));
