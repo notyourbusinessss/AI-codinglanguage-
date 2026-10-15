@@ -20,7 +20,11 @@ UNDEF=($frombits 4294508544 3)
 ; ---- output buffer (flushed when full, at exit, before stderr writes and reads)
 OBUF=nil
 OBN=0
-(= (rawwrite fd s n) (wh n>0 r=($syscall 1 fd ($addr s) n) (? r<=0 n=0 (: s=(substr s r n) n-=r))))
+;; write all of s: 0 when done, else the negative errno (EINTR is retried; a write that returns 0 counts as failed so the loop cannot spin)
+(= (rawwrite fd s n) err=0
+  (wh n>0 r=($syscall 1 fd ($addr s) n)
+    (? r==-4 nil r<=0 (: err=(? r<0 r -5) n=0) (: s=(substr s r n) n-=r)))
+  err)
 (= (substr s a n) r=($newb 1 n n) ($copy r 0 s a n) r)
 (= (flush) (? OBN>0 (: n=OBN (<- OBN 0) (rawwrite 1 OBUF n))))
 (= (out s) n=($hlen s)
