@@ -1,0 +1,11 @@
+; failed reads and writes raise instead of looking like EOF or success (the messages differ per target, so only the outcome is printed)
+(p (try (rd ".") e=>"read failed") (try (wr "/dev/full" "hello") e=>"write failed") (try (app "/dev/full" "x") e=>"append failed") (try (wrx "/dev/full" "x") e=>"wrx failed"))
+(p (try (rd "/nonexistent/file") e=>"no file") (rd "/dev/null")=="")
+big=(rpt "0123456789abcdef" 262144)
+f="/tmp/ak-ioerrors-test.txt"
+(wr f big)
+(p #(rd f) (rd f)==big)
+(app f "tail")
+(p #(rd f))
+(wr f "")
+(p #(rd f))
