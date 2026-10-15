@@ -86,6 +86,7 @@ CHARS=nil
 (= (padr s n c=nil) s=(tostr s) c=(?? c " ") m=n-($hlen s)
   (? m<=0 s (strcat2 s (rpt c m))))
 (= (chr n)
+  (? (|| (! ($isnum n)) (! (isint n)) n<0 n>1114111) ($throw (strcat2 "chr: invalid code point " (show n))))
   (? n<128 (chr1 n)
      n<2048 (: r=(strnew 2) ($stb r 0 192+(n>>6)) ($stb r 1 128+(n&63)) r)
      n<65536 (: r=(strnew 3) ($stb r 0 224+(n>>12)) ($stb r 1 128+((n>>6)&63)) ($stb r 2 128+(n&63)) r)
