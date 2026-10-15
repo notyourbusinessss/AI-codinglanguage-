@@ -1,0 +1,9 @@
+; fractional indexes are an error on reads and writes (never truncated onto a neighbouring element); whole and negative indexes are unchanged
+xs=[10 20]
+(p (try xs[0.5] e=>e) (try xs[-1.5] e=>e) (try "ab"[1.5] e=>e))
+(p (try (<@ xs 0.5 99) e=>e) (try (<@ xs 1.25 99) e=>e) xs)
+a=(u8 4)
+(p (try (@ a 0.5) e=>e) (try (<@ a 0.5 7) e=>e) a)
+(p xs[0] xs[1] xs[-1] xs[-2] xs[2] "ab"[1] "ab"[-1] a[3])
+xs[1]=30
+(p xs)
