@@ -273,14 +273,16 @@ SYMTAB=nil
      ($isnil x) 0
      ($throw (strcat2 "len of " (ty x)))))
 (= (# x) (len x))
+(= (chkidx i)                       ; a list, string or typed-array index must be a whole number: a fractional one would be truncated by the raw load/store
+  (? (! (isint i)) ($throw (strcat2 "@: index must be an integer, got " (show i)))))
 (= (at x i j=nil)
   (? (ismap x) (mapget x i)
-     (islist x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i))) (lat x i))
+     (islist x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i))) (: (chkidx i) (lat x i)))
      (isstr x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i)))
-                    (: n=($hlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (chr1 ($ldb x i)) nil)))
+                    (: (chkidx i) n=($hlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (chr1 ($ldb x i)) nil)))
      (ismap x) (mapget x i)
      ($isnil x) nil
-     (istyped x) (: n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tget x i) nil))
+     (istyped x) (: (chkidx i) n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tget x i) nil))
      ($throw (strcat2 "cannot index " (ty x)))))
 (= (slice x a b=nil)
   (? ($isnil x) nil
@@ -298,9 +300,9 @@ SYMTAB=nil
      (list x)))
 (= (iter x) (? ($isnum x) nil (toarr x)))
 (= (put x i v)
-  (? (islist x) (: n=($ldw x 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lset x i v) (&& i>=0 i<134217728) (: (wh (< ($ldw x 1) i) (lpush x nil)) (lpush x v)) ($throw "index out of range")) v)
+  (? (islist x) (: (chkidx i) n=($ldw x 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lset x i v) (&& i>=0 i<134217728) (: (wh (< ($ldw x 1) i) (lpush x nil)) (lpush x v)) ($throw "index out of range")) v)
      (ismap x) (mapset x i v)
-     (istyped x) (: n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tput x i v)) v)
+     (istyped x) (: (chkidx i) n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tput x i v)) v)
      ($throw (strcat2 "cannot assign into " (ty x)))))
 (= (dot o k)
   (? (ismap o) (mapget o k)
