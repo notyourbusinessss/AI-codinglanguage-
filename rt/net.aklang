@@ -18,7 +18,7 @@
              f=(split (trim l))
              (? (&& ($isnil r) #f>1 (! (starts (trim l) "#"))) (for i 1..#f (? (&& ($isnil r) (== f[i] h)) r=(dotted f[0]))))))
         r)))
-(= (netfail what) ($throw what))
+(= (netfail what) ($throwk 4 what))
 (= (tcpl port host="0.0.0.0")           ; listening socket fd (port 0 picks a free one; see tcpp)
   ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))

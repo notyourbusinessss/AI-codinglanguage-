@@ -7,7 +7,7 @@ const { Sym } = require('./ast.js');
 const SYMS = new Map();
 const sym = x => { if (x instanceof Sym) x = x.n; let s = SYMS.get(x); if (!s) { s = new Sym(x); SYMS.set(x, s); } return s; };
 
-class AkError extends Error { constructor(m) { super(m); this.name = 'AkError'; } }
+class AkError extends Error { constructor(m, kind, data) { super(m); this.name = 'AkError'; this.kind = kind || 'error'; this.data = data === undefined ? null : data; } }
 
 // ---------------------------------------------------------------- core helpers
 // Python-style truthiness: false nil 0 0n NaN "" [] {} are falsy
@@ -68,7 +68,9 @@ function show(x) {
 }
 const tostr = x => typeof x === 'string' ? x : typeof x === 'bigint' ? String(x) : show(x);   // symbols print as their name
 
+let lastKind = 'error', lastData = null;       // kind and data of the error a handler is running for (errkind / errdata)
 function msg(e) {
+  lastKind = e instanceof AkError ? e.kind : e && e.code && e.syscall ? 'io' : 'error'; lastData = e instanceof AkError ? e.data : null;
   if (e instanceof AkError) return e.message;
   if (e instanceof Error) return e.name + ': ' + e.message;
   return tostr(e);
@@ -77,16 +79,16 @@ function msg(e) {
 function fn(f) {
   if (typeof f === 'function') return f;
   if (Array.isArray(f) || f instanceof Map || typeof f === 'string' || ArrayBuffer.isView(f)) return i => at(f, i);
-  throw new AkError('not callable: ' + show(f));
+  throw new AkError('not callable: ' + show(f), 'type');
 }
 
-function chkIdx(i) { if (Math.floor(i) !== i) throw new AkError('@: index must be an integer, got ' + show(i)); }   // fractional indexes are an error on both targets
+function chkIdx(i) { if (Math.floor(i) !== i) throw new AkError('@: index must be an integer, got ' + show(i), 'index'); }   // fractional indexes are an error on both targets
 
 function at(c, i, j) {
   if (c == null) return null;
   if (Array.isArray(c) || ArrayBuffer.isView(c) || typeof c === 'string') {
     if (arguments.length > 2) return j == null ? c.slice(i) : c.slice(i, j);
-    if (typeof i !== 'number') throw new AkError('@: index must be a number, got ' + show(i));
+    if (typeof i !== 'number') throw new AkError('@: index must be a number, got ' + show(i), 'index');
     chkIdx(i);
     if (i < 0) i += c.length;
     const v = c[i];
@@ -102,7 +104,7 @@ function put(c, k, v) {
   else {
     if (typeof k === 'number' && (Array.isArray(c) || ArrayBuffer.isView(c))) chkIdx(k);
     if (typeof k === 'number' && k < 0) k += c.length;
-    if (Array.isArray(c) && typeof k === 'number' && k > c.length) { if (k > 134217728) throw new AkError('index out of range'); for (let i = c.length; i < k; i++) c[i] = null; }   // no holes: padding is nil
+    if (Array.isArray(c) && typeof k === 'number' && k > c.length) { if (k > 134217728) throw new AkError('index out of range', 'index'); for (let i = c.length; i < k; i++) c[i] = null; }   // no holes: padding is nil
     c[k] = v;
   }
   return v;
@@ -110,7 +112,7 @@ function put(c, k, v) {
 
 function len(c) {
   if (c == null) return 0;
-  if (typeof c === 'number' || typeof c === 'boolean' || typeof c === 'function') throw new AkError('len of ' + tyOf(c));
+  if (typeof c === 'number' || typeof c === 'boolean' || typeof c === 'function') throw new AkError('len of ' + tyOf(c), 'type');
   if (c.length !== undefined) return c.length;
   if (c instanceof Map || c instanceof Set) return c.size;
   return Object.keys(c).length;
@@ -141,17 +143,17 @@ function slowAdd(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) return a.concat(b);
   if ((ta === 'number' || ta === 'bigint' || ta === 'boolean') && (tb === 'number' || tb === 'boolean') && ta !== 'bigint') return a + b;
   if (ta === 'bigint' && tb === 'bigint') return a + b;
-  throw new AkError('cannot add ' + tyOf(a) + ' and ' + tyOf(b));
+  throw new AkError('cannot add ' + tyOf(a) + ' and ' + tyOf(b), 'type');
 }
 
 // strict arithmetic: operands must be numbers (or bigints); nil/strings/lists never silently coerce
-function bad(x) { throw new AkError('expected number, got ' + tyOf(x)); }
+function bad(x) { throw new AkError('expected number, got ' + tyOf(x), 'type'); }
 const n = x => (typeof x === 'number' || typeof x === 'bigint' || typeof x === 'boolean') ? x : bad(x);   // booleans count as 0/1 (like Python)
 // integer overflow detection: doubles are exact integers only up to 2^53. A result beyond that whose operands were
 // exact integers is a silent-corruption hazard (Python would be exact), so it throws; genuine float math is untouched.
 const MAXI = 9007199254740992;
 function over(r, a, b, op) {
-  if (Number.isSafeInteger(a) && Number.isSafeInteger(b)) throw new AkError('integer overflow: ' + op + ' exceeds 2^53 (use BigInt, e.g. 10n)');
+  if (Number.isSafeInteger(a) && Number.isSafeInteger(b)) throw new AkError('integer overflow: ' + op + ' exceeds 2^53 (use BigInt, e.g. 10n)', 'arith');
   return r;
 }
 function ckadd(a, b) {
@@ -163,18 +165,18 @@ function ckmul(a, b) { n(a); n(b); const r = a * b; return (typeof r === 'number
 function ckpow(a, b) { n(a); n(b); const r = a ** b; return (typeof r === 'number' && (r > MAXI || r < -MAXI)) ? over(r, a, b, '**') : r; }
 function div(a, b) {
   n(a); n(b);
-  if (b == 0) throw new AkError('division by zero');
+  if (b == 0) throw new AkError('division by zero', 'arith');
   return a / b;
 }
 function mod(a, b) {
   n(a); n(b);
-  if (b == 0) throw new AkError('division by zero');
+  if (b == 0) throw new AkError('division by zero', 'arith');
   const r = a % b;
   return (r != 0 && (r < 0) !== (b < 0)) ? r + b : r;
 }
 function fdiv(a, b) {
   n(a); n(b);
-  if (b == 0) throw new AkError('division by zero');
+  if (b == 0) throw new AkError('division by zero', 'arith');
   if (typeof a === 'bigint') { const q = a / b; return (a % b != 0n && ((a < 0n) !== (b < 0n))) ? q - 1n : q; }
   return Math.floor(a / b);
 }
@@ -197,7 +199,7 @@ function slowCmp(a, b, op) {
     switch (op) { case '<': return a < b; case '>': return a > b; case '<=': return a <= b; default: return a >= b; }
   }
   if (Array.isArray(a) && Array.isArray(b)) { const c = cmp(a, b); switch (op) { case '<': return c < 0; case '>': return c > 0; case '<=': return c <= 0; default: return c >= 0; } }
-  throw new AkError('cannot compare ' + tyOf(a) + ' and ' + tyOf(b));
+  throw new AkError('cannot compare ' + tyOf(a) + ' and ' + tyOf(b), 'type');
 }
 const lt = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a < b : slowCmp(a, b, '<');
 const gt = (a, b) => (typeof a === 'number' && typeof b === 'number') ? a > b : slowCmp(a, b, '>');
@@ -419,7 +421,9 @@ const B = {
   // types / errors
   ty: tyOf, is: (t, x) => tyOf(x) === t,
   err: (...a) => { throw new AkError(a.map(tostr).join(' ')); },
-  assert: (c, ...a) => { if (!tr(c)) throw new AkError(a.length ? a.map(tostr).join(' ') : 'assertion failed'); return null; },
+  raise: (k, m, d) => { throw new AkError(tostr(m), tostr(k), d); },
+  errkind: e => lastKind, errdata: e => lastData,
+  assert: (c, ...a) => { if (!tr(c)) throw new AkError(a.length ? a.map(tostr).join(' ') : 'assertion failed', 'assert'); return null; },
   // io / system
   p: (...a) => { out(a.map(tostr).join(' ') + '\n'); return a.length ? a[a.length - 1] : null; },
   pr: (...a) => { out(a.map(tostr).join(' ')); return a.length ? a[a.length - 1] : null; },
@@ -456,7 +460,7 @@ const B = {
   sh: cmd => {
     flush();
     try { return require('child_process').execSync(cmd, { encoding: 'utf8', stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 30 }); }
-    catch (e) { throw new AkError('sh failed (' + e.status + '): ' + cmd); }
+    catch (e) { throw new AkError('sh failed (' + e.status + '): ' + cmd, 'io'); }
   },
   selfexe: () => process.execPath, isatty: () => !!process.stdin.isTTY,
   now: () => Date.now(), clock: () => performance.now(),
