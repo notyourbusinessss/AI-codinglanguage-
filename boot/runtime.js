@@ -457,7 +457,7 @@ const B = {
     try { return require('child_process').execSync(cmd, { encoding: 'utf8', stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 30 }); }
     catch (e) { throw new AkError('sh failed (' + e.status + '): ' + cmd); }
   },
-  selfexe: () => process.execPath,
+  selfexe: () => process.execPath, isatty: () => !!process.stdin.isTTY,
   now: () => Date.now(), clock: () => performance.now(),
   sleep: ms => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); return null; },
   delay: ms => new Promise(r => setTimeout(r, ms)),
