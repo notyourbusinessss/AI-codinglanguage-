@@ -151,7 +151,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pu
 
 ## Known limits
 - Native target only runs on x86-64 Linux; strings are UTF-8 bytes (`#"é"` is 2; the JS target counts UTF-16 units).
-- Native target has no async/Promises, `req`, `js`, `new`, or Node modules; use the JS target (`node boot/ak.js`) for `fetch`, npm packages, async servers. Natively there are blocking TCP sockets plus `fdwait` (poll) — enough to write an HTTP server in Ak itself (`examples/httpd.aklang`) — but no TLS or DNS.
+- Native target has no `aw`/Promises, `req`, `js`, `new`, or Node modules; use the JS target (`node boot/ak.js`) for `fetch` and npm packages. Concurrency on the native target is coroutines plus `lib/async.aklang` (see [Coroutines and tasks](#coroutines-and-tasks)), not threads: one task runs at a time, and a task that blocks (a long computation, a blocking read) holds up the rest. Natively there are blocking TCP sockets plus `fdwait` (poll), which `lib/async.aklang` turns into one task per connection (`examples/httpd.aklang` polls by hand, `examples/httpd_async.aklang` uses tasks) — but no TLS or DNS.
 - `**`/`pow` with fractional exponents can differ from V8 in the last digit (~3% of random inputs); `sin cos tan` of arguments beyond ~1e6 (exact bignum reduction) can be off by one digit in ~1% of cases.
 - The GUI library targets Linux with X11 or XWayland: depth-24 displays, fixed-size windows, ASCII text, no clipboard or window resizing yet. The terminal library needs a Linux terminal (raw mode via `ioctl`).
 - No static types. Overflow-checked arithmetic is a few times slower than unchecked in arithmetic-bound loops.
