@@ -10,7 +10,7 @@ Lines (outside brackets): `head a b` = `(head a b)` · `f a b =` + indented line
 `(= x v)`=`x=v` · `(= (f a b=1 ..r) body..)` fn (last expr returned; patterns ok: `(= (f [x l r]) ..)`) · `[a [b ..c]]=v` destructure (`[a b]=[b a]` swaps; `_` ignores) · `(<- x v)` rebind an OUTER variable
 `(? c a)` `(? c a else)` `(? c1 a c2 b else)` · `(: a b c)` seq · `(&& ..)` `(|| ..)` `(?? ..)` return the deciding value · `(wh c body..)`
 `(for x coll body..)` · `(for [k v] map ..)` · `(for i 0..n ..)` · `(for 3 body)` · `(let (x 1 y 2) body..)` · `(sw v 1 a [2 3] b else)`
-`(try body e=>handler)` `(err "msg" ..)` `(assert cond "msg" ..)`(throws "assertion failed" or the message when cond is falsy) · `(use "file.aklang")`(include) `(embed "file")`(file contents as a string, at compile time) `(q x)`(quote: symbols are a type, `ty`="sym", `(sym "x")`)
+`(try body e=>handler)` `(err "msg" ..)` `(assert cond "msg" ..)`(throws "assertion failed" or the message when cond is falsy) · `(use "file.aklang")`(include; two files defining one function warn, later wins) `(use "file.aklang" as g)`(namespace: its top-level names are `g.name`, so libraries never clash; top level only) `(embed "file")`(file contents as a string, at compile time) `(q x)`(quote: symbols are a type, `ty`="sym", `(sym "x")`)
 ## Semantics
 - Truthiness is Python's: false nil 0 "" [] {} are falsy. `??` replaces only nil: use `m[k]??0` for defaults (`||` would also replace a real 0).
 - `=` is function-local like Python and never changes an outer variable. `x+=1` on an outer variable is a compile error → use `(<- x x+1)`. Only `let` makes a block scope. Closures capture variables; loop variables are per-iteration.
