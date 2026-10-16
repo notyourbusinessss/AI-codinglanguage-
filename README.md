@@ -68,6 +68,13 @@ The shared game logic (rules, alpha-beta computer player at three depths) is `ex
 
 How the window works: `lib/x11.aklang` speaks the X11 core protocol itself over the display's Unix socket (authorization cookie from `~/.Xauthority`, window, events, `PutImage`/`GetImage`; ~170 lines) and `lib/canvas.aklang` is a software renderer (BGRA canvas, anti-aliased discs/rings/rounded rectangles, alpha blending, masked blits, DejaVu text at 15/22/34 px; ~100 lines). API: [`SPEC-extra.md`](SPEC-extra.md) ("Windows and graphics").
 
+## Coroutines and tasks
+Native Ak has stackful coroutines: `(co f)`, `(resume c v)`, `(yield x)`, `(alive c)`, `(drain c)`, `(coclose c)`. A coroutine runs on its own stack, so it can pause from inside any call depth (a recursive tree walk that yields each value, a parser that asks for more input). `lib/async.aklang` turns them into cooperative tasks with timers, `poll`-based waiting on sockets and channels: a server is one task per connection written as straight-line code, and 100 clients plus the server run in one process in `tests/native_only/async.aklang`. API and limits: [`SPEC-extra.md`](SPEC-extra.md) ("Coroutines and tasks"). The JS target has no coroutines.
+```
+g=(co ()=>(for i 3 (yield i*10)))
+(p (drain g))                        ; [0 10 20]
+```
+
 ## How self-hosting works
 ```
 boot/ (JS) ──compiles──▶ src/main.aklang ──▶ ak1 ──compiles──▶ src/main.aklang ──▶ ak2 ──▶ ak3 …   ak1 == ak2 == ak3 (byte-identical)

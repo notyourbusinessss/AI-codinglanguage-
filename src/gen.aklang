@@ -606,6 +606,10 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
 (= (reload_consts) (mov_imm64 11 0xFFF90000 0) (mov_imm64 10 0xFFFA0000 0))
 
 ; ---- intrinsics ($name): inline low-level operations for the runtime written in Ak
+(= (link_ctx)       ; put the context record in rcx at the head of the list of all contexts (next at +56, previous at +48)
+  (a "mov rax, [268435688]") (a "mov [rcx+56], rax") (a "mov qword ptr [rcx+48], 0") (a "test rax, rax")
+  l=(nl) (a (++ "jz " l)) (a "mov [rax+48], rcx") (label l)
+  (a "mov [268435688], rcx"))
 (= (gen_intrinsic op args)
   ci=(? #args>=2 (constidx args[1]))
   (sw op
@@ -698,6 +702,18 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
     "$mapfind_n" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rbx") (untag "rbx") (a "call .mapfind_n") (int2num "rax"))
     "$streq" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (a "call .streqany") (a "lea rax, [r11+1]") (a "lea rcx, [r11+2]") (a "test rdx, rdx") (a "cmovnz rax, rcx"))
     "$label" (: (lea_l 0 args[0][1]) (int2num "rax"))
+    ; coroutines: a context record (outside the heap) = [rsp r14 r15 handler-chain value-stack-base machine-stack-top - next]; [268435680] = the running one, [268435688] = all of them (the collector scans their value stacks)
+    "$cmain" (: (gen args[0]) (num2int "rax" "rcx") (a "mov [268435680], rcx") (a "mov rax, [268435512]") (a "mov [rcx+32], rax") (a "mov rax, [268435576]") (a "mov [rcx+40], rax")
+                (link_ctx) (a "mov rax, r11"))
+    "$cadd" (: (gen args[0]) (push_rax) (gen args[1]) (push_rax) (gen args[2]) (push_rax) (gen args[3]) (popr "rdx") (num2int "rdx" "rdx") (popr "rsi") (num2int "rsi" "rsi") (popr "rcx") (num2int "rcx" "rcx")
+               (a "mov [rdx], rax") (a "lea rdi, [rdx+8]") (a "mov [rcx+16], rdi") (a "mov [rcx+8], rdx") (a "mov [rcx+32], rdx") (a "mov [rcx+40], rsi")
+               (a "lea rdi, [rsi-8]") (lea_l 0 ".costart") (a "mov [rdi], rax") (a "mov [rcx], rdi") (a "mov qword ptr [rcx+24], 0")
+               (link_ctx) (a "mov rax, r11"))
+    "$cdrop" (: l1=(nl) l2=(nl) l3=(nl) (gen args[0]) (num2int "rax" "rcx")             ; unlink the context record in rcx
+                (a "mov rdx, [rcx+48]") (a "mov rsi, [rcx+56]") (a "test rsi, rsi") (a (++ "jz " l1)) (a "mov [rsi+48], rdx") (label l1)
+                (a "test rdx, rdx") (a (++ "jz " l2)) (a "mov [rdx+56], rsi") (a (++ "jmp " l3)) (label l2) (a "mov [268435688], rsi") (label l3) (a "mov rax, r11"))
+    "$ccur" (: (a "mov rax, [268435680]") (int2num "rax"))
+    "$cswitch" (: (gen args[0]) (push_rax) (gen args[1]) (popr "rcx") (num2int "rcx" "rcx") (a "call .cswitch"))
     "$vtop" (: (a "mov rax, r14") (int2num "rax"))
     "$vbase" (: (a "mov rax, [268435512]") (int2num "rax"))
     "$hptr" (: (a "mov rax, r13") (int2num "rax"))
@@ -922,7 +938,12 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
   (a "mov r8, [268435504]") (a "mov r9, r13") (a "mov rbx, rdi") (a "mov r12, rdi")
   (a "mov rbp, [268435512]")
   (label ".gc_r1") (a "cmp rbp, [268435528]") (a "jae .gc_r1d") (a "call .fwdslot") (a "add rbp, 8") (a "jmp .gc_r1")
-  (label ".gc_r1d") (af "mov rbp, %d" GBASE)
+  (label ".gc_r1d")
+  (a "mov rax, [268435688]")                            ; the value stacks of the suspended coroutines (and of the main program while a coroutine runs)
+  (label ".gc_cx") (a "test rax, rax") (a "jz .gc_cxd") (a "cmp rax, [268435680]") (a "je .gc_cxn") (a "mov rbp, [rax+32]")
+  (label ".gc_cxl") (a "cmp rbp, [rax+16]") (a "jae .gc_cxn") (a "push rax") (a "call .fwdslot") (a "pop rax") (a "add rbp, 8") (a "jmp .gc_cxl")
+  (label ".gc_cxn") (a "mov rax, [rax+56]") (a "jmp .gc_cx")
+  (label ".gc_cxd") (af "mov rbp, %d" GBASE)
   (label ".gc_r2") (a "cmp rbp, [268435536]") (a "jae .gc_r2d") (a "call .fwdslot") (a "add rbp, 8") (a "jmp .gc_r2")
   (label ".gc_r2d")
   (a "mov rax, [268435584]") (a "mov [268435616], rax")
@@ -935,6 +956,14 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
   (label ".gc_sw") (a "test rcx, rcx") (a "jz .gc_swd") (a "push rcx") (a "call .fwdslot") (a "pop rcx") (a "add rbp, 8") (a "sub rcx, 1") (a "jmp .gc_sw")
   (label ".gc_swd") (a "pop rdi") (a "add r12, rdi") (a "jmp .gc_scan")
   (label ".gc_done") (a "cvtsi2sd xmm0, rbx") (a "movq rax, xmm0") (a "ret")
+  (label ".cswitch")                                    ; rcx = the context to run, rax = the value it receives; saves the running context (its return address is on its machine stack) and returns into the target
+  (a "mov rdx, [268435680]") (a "mov [rdx], rsp") (a "mov [rdx+8], r14") (a "mov [rdx+16], r15")
+  (a "mov rsi, [268435456]") (a "mov [rdx+24], rsi") (a "mov rsi, [268435512]") (a "mov [rdx+32], rsi") (a "mov rsi, [268435576]") (a "mov [rdx+40], rsi")
+  (a "mov [268435680], rcx") (a "mov rsp, [rcx]") (a "mov r14, [rcx+8]") (a "mov r15, [rcx+16]")
+  (a "mov rsi, [rcx+24]") (a "mov [268435456], rsi") (a "mov rsi, [rcx+32]") (a "mov [268435512], rsi") (a "mov rsi, [rcx+40]") (a "mov [268435576], rsi")
+  (a "ret")
+  (label ".costart")                                    ; first entry of a coroutine: the value stack holds its entry closure; rax = the first value
+  (a "mov [r15], rax") (a "add r15, 8") (a "mov rcx, 1") (a "call .callclosure") (a "mov rdi, 1") (a "mov rax, 231") (a "syscall")
   (label ".sigprof")                                   ; SIGPROF handler (profiling): bump the sample counter of the innermost traced function
   (a "mov rax, [268435480]") (a "mov rcx, [268435488]") (a "cmp rax, rcx") (a "jbe .sigdone")
   (a "mov rax, [rax-8]") (a "and rax, 65535") (a "mov rcx, [268435520]") (a "test rcx, rcx") (a "jz .sigdone")
