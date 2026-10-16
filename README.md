@@ -14,7 +14,7 @@ for [w n] sort(kv=>[-kv[1] kv[0]] c) p(w n)
 
 It also draws its own windows: a pure-Ak **X11 client** (`lib/x11.aklang`) and a software **canvas** with anti-aliased shapes and real fonts (`lib/canvas.aklang`) — no GUI library, no browser (see [Connect Four in its own window](#programs-written-in-ak)).
 
-Statements are S-expression forms, or *lines* (`p x`, `f a b =` + indented body); expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,800 tokens). `ak fmt` prints the cheapest layout. Source files use the extension **`.aklang`** (the old `.ak` still works, but other programs such as Avidemux use that one, so it is no longer the default).
+Statements are S-expression forms, or *lines* (`p x`, `f a b =` + indented body); expressions are *tight infix chunks* (`fib(n-1)+fib(n-2)`, `t[i j]`, `x+=1`, `x=>x*2`, `a[1..]`, `#xs`). The whole language reference is one page: [`SPEC.md`](SPEC.md) (~1,900 tokens). `ak fmt` prints the cheapest layout. Source files use the extension **`.aklang`** (the old `.ak` still works, but other programs such as Avidemux use that one, so it is no longer the default).
 
 ## Install
 Ak is one static executable (x86-64 Linux, no libc): there is nothing else to install to run programs.
@@ -97,7 +97,7 @@ boot/ (JS) ──compiles──▶ src/main.aklang ──▶ ak1 ──compiles�
 | Ak before the line forms (`(= (f a b) ..)` and `(p x)` everywhere) | 2567 (83.4%) | 2429 (82.4%) |
 | Ak v1 (my first design) | 3257 (106%) | 3354 (114%) |
 
-The language reference ([`SPEC.md`](SPEC.md)) is 1,824 tokens (1,871 before the line forms were added and the JS-target-only details moved to `SPEC-extra.md`). The same change on real code that was not tuned for tokens (the compiler, runtime, GUI library and games: 57 files, `src/ rt/ lib/ examples/ tests/native/`): printed with `ak fmt` they are 130,377 tokens against 137,710 in the previous canonical layout (-5.3%; GPT -5.6%); the hand-written originals with their comments are 151,671 and were not rewritten. Re-measure with `node tools/measure.js py aklang` (needs the tokenizer packages, see `tools/tok.js`).
+The language reference ([`SPEC.md`](SPEC.md)) is 1,905 tokens: it had grown to 2,245 as error kinds, `use ... as`, `ak test` and `ak repl` were added, so their details moved to `SPEC-extra.md` (the one-line summaries stay in SPEC.md). Every session that writes Ak pays for the whole spec once, so this is worth about 340 tokens per session, more than the syntax changes above save on a typical program. The same change on real code that was not tuned for tokens (the compiler, runtime, GUI library and games: 57 files, `src/ rt/ lib/ examples/ tests/native/`): printed with `ak fmt` they are 130,377 tokens against 137,710 in the previous canonical layout (-5.3%; GPT -5.6%); the hand-written originals with their comments are 151,671 and were not rewritten. Re-measure with `node tools/measure.js py aklang` (needs the tokenizer packages, see `tools/tok.js`).
 
 The *line forms* (`head a b` lines and `f a b =` function blocks, see SPEC.md) took the corpus from 2567 to 2421 tokens: a function header costs 4 tokens instead of 9, a statement call 2 fewer, and a newline plus its indentation is one token. They are plain layout: the same syntax trees as the parenthesised forms, which still work everywhere (`tests/fmt_tight.test.js` round-trips all 91 `.aklang` files in the repo, and the fuzzers print a third of their programs this way).
 
