@@ -1,4 +1,5 @@
 ; AST -> Core IR for the native backend. Semantics mirror ak.js (function-local `=`, <- rebinding, per-iteration loop vars, ...).
+; (S, issym and isform come from parse.aklang, which is always used first.)
 ; IR nodes are lists headed by a tag string:
 ;   ["nil"] ["true"] ["false"] ["num" x] ["str" s] ["sym" name]
 ;   ["ref" V] ["set" V e] ["init" V e]            V = variable record (map), resolved to slot/box/free/global at codegen
@@ -13,9 +14,6 @@ ISPRIM={"list" "$islist" "str" "$isstr" "map" "$ismap" "sym" "$issym" "fn" "$isf
 PREDS={"islist" ["$islist" 1] "isstr" ["$isstr" 1] "ismap" ["$ismap" 1] "issym" ["$issym" 1] "isfn" ["$isfn" 1] "isnum" ["$isnum" 1] "lget" ["$lget" 2] "lset" ["$lset" 3]}
 FAST={"max" [2 "max2"] "min" [2 "min2"] "+>" [2 "append1"] "~" [2 "map1"] "p" [1 "p1"]}      ; library functions with a rest parameter: fixed-arity twins for the common call shape (no rest list allocated)
 OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
-(= (S n) (sym n))
-(= (issym x) (is "sym" x))
-(= (isform x n) (&& (is "list" x) #x>0 (is "sym" x[0]) (== ($ x[0]) n)))
 (= (ispat x) (isform x "%list"))
 (= (isspread x) (isform x "%spread"))
 (= (islam x) (isform x "\\"))
@@ -414,16 +412,75 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 (= (dirname f) i=(lastidx f "/") (? i<0 "." f[..i]))
 (= (lastidx s c) r=-1 (for i #s (? s[i]==c r=i)) r)
 (= (joinpath d f) (? (starts f "/") f (++ d "/" f)))
+;   (use "f.aklang")          include: f's definitions join the global namespace (a function defined in two files prints a warning)
+;   (use "f.aklang" as g)    namespaced: f's top-level definitions become g.name (`g.f(x)`, `g.v`); only the alias g is visible, nothing clashes
+(= (usepath x dir)
+  f=(joinpath dir x[1]) (for e [".aklang" ".ak"] (? (&& !(ex f) (ex (++ f e))) f=(++ f e)))      ; (use "x") finds x.aklang, or a legacy x.ak
+  (? !(ex f) (err (++ "use: file not found: " x[1])))
+  f)
+(= (xerr msg at) (err (++ XFILE ":" (symline at) ":" (symcol at) ": " msg)))
+XFILE=""
+FDEFS={}                      ; function name -> file that defined it (plain `use` clash warning)
+(= (patnames t out)           ; names bound by a definition target
+  (? (is "sym" t) (? ($ t)!="_" out[($ t)]=true)
+     (&& (is "list" t) #t>0 (is "sym" t[0]))
+       (? (|| (isform t "%list") (isform t "%spread")) (for y t[1..] (patnames y out))
+          (! (starts ($ t[0]) "%")) out[($ t[0])]=true)))
+(= (defnames f out)           ; names a top-level form defines
+  (? (isform f "%file") (for y f[2..] (defnames y out))
+     (&& (isform f "=") #f>=3) (patnames f[1] out)))
+(= (regfn f file)             ; a function defined in two different files: the later one silently won; now it warns
+  (? (&& (isform f "=") #f>=3 (is "list" f[1]) #f[1]>0 (is "sym" f[1][0]) (! (starts ($ f[1][0]) "%")))
+     (: n=($ f[1][0]) o=FDEFS[n]
+        (? (&& o o!=file) (ep (++ "warning: " file ":" (symline f[1][0]) ":" (symcol f[1][0]) ": " n " is also defined in " o " (this one wins); use (use \"file\" as name) to keep them apart")))
+        FDEFS[n]=file)))
+(= (renamesyms x pre defs)    ; every occurrence of a defined name becomes pre.name (consistent, so locals and params stay consistent)
+  (? (is "sym" x) (? defs[($ x)] (mksym (++ pre "." ($ x)) (symline x) (symcol x)) x)
+     (|| !(is "list" x) (isform x "q")) x
+     (: r=(~ y=>(renamesyms y pre defs) x) (? POS[x] POS[r]=POS[x]) r)))
+(= (nsref at al name)         ; the symbol that g.name stands for
+  d=al[($ at)]
+  (? !d.defs[name] (xerr (++ ($ at) " has no definition named " name) at))
+  (mksym (++ ($ at) "." name) (symline at) (symcol at)))
+(= (aliasrw x al)             ; g.name / g.name(args) / g.name=v  ->  the renamed symbol
+  (? !(is "list" x) x
+     (isform x "q") x
+     (&& #x>=3 (|| (isform x ".@") (isform x ".") (isform x ".=")) (is "sym" x[1]) al[($ x[1])] (is "str" x[2]))
+       (: ref=(nsref x[1] al x[2]) rest=(~ y=>(aliasrw y al) x[3..])
+          r=(? (isform x ".@") ref (isform x ".=") [(S "=") ref ..rest] [ref ..rest])
+          (? POS[x] POS[r]=POS[x]) r)
+     (: r=(~ y=>(aliasrw y al) x) (? POS[x] POS[r]=POS[x]) r)))
+(= (isnsuse x) (&& (isform x "use") #x==4 (is "str" x[1]) (is "sym" x[2]) (== ($ x[2]) "as") (is "sym" x[3])))
+(= (loadns x dir seen al file)
+  f=(usepath x dir) g=($ x[3])
+  (? al[g] (xerr (++ "use: the alias " g " is already taken") x[3]))
+  old=FDEFS (<- FDEFS {})                ; a namespace has its own function table
+  forms=(expand_all (parse (rd f) f) (dirname f) {f true} f) (<- XFILE file) (<- FDEFS old)
+  defs={} (for y forms (defnames y defs))
+  al[g]={:defs defs}
+  r=[(S "%file") f ..(~ y=>(renamesyms y g defs) forms)]
+  (? POS[x] POS[r]=POS[x]) r)
+(= (expand_all forms dir seen file)    ; the top-level forms of one file
+  (<- XFILE file) al={} out=[]
+  (for f forms
+    (? (isnsuse f) (push out (loadns f dir seen al file))
+       (: g=(aliasrw f al) (<- XFILE file)
+          (push out (expand g dir seen))
+          (<- XFILE file) (regfn g file))))
+  out)
+(= (expand_program forms dir file)
+  (<- FDEFS {})
+  (expand_all forms dir {} file))
 (= (expand x dir seen)
   (? !(is "list" x) x
      (&& #x>=2 (isform x "embed") (is "str" x[1])) (: f=(joinpath dir x[1]) (? !(ex f) (err (++ "embed: file not found: " x[1]))) (rd f))
      (&& #x>=2 (isform x "use") (is "str" x[1]))
-       (: f=(joinpath dir x[1]) (for e [".aklang" ".ak"] (? (&& !(ex f) (ex (++ f e))) f=(++ f e)))      ; (use "x") finds x.aklang, or a legacy x.ak
-          (? !(ex f) (err (++ "use: file not found: " x[1])))
-          (? seen[f] ["nil"]
+       (: (? #x!=2 (xerr "use: expected (use \"file\") or, at the top level of a file, (use \"file\" as name)" x[0]))
+          f=(usepath x dir)
+          (? seen[f] nil
              (: seen[f]=true
-                forms=(parse (rd f) f)
-                r=[(S "%file") f ..(~ y=>(expand y (dirname f) seen) forms)]
+                forms=(expand_all (parse (rd f) f) (dirname f) seen f)
+                r=[(S "%file") f ..forms]
                 (? POS[x] POS[r]=POS[x]) r)))
      (: r=(~ y=>(expand y dir seen) x) (? POS[x] POS[r]=POS[x]) r)))
 
