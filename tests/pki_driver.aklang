@@ -1,0 +1,12 @@
+; Test driver for lib/pki.aklang. stdin lines: "sig spki-hex alg data-hex sig-hex" -> true/false; "chain host now roots.pem chain.pem" -> ok or the error; "roots" -> number of system roots whose own signature verifies.
+(use "../lib/pki.aklang" as k)
+(use "../lib/crypto.aklang" as c)
+(for l (split (inall) "\n")
+  f=(split l " ")
+  (? (&& #f>0 f[0]!="")
+     (sw f[0]
+       "sig" (: key=(k.spki_key (c.unhex f[1]) (k.der_at (c.unhex f[1]) 0)) (p (k.verify_sig key f[2] (c.unhex f[3]) (c.unhex f[4]))))
+       "chain" (: ders=(k.pem_certs (rd f[4])) roots=(~ d=>(k.cert_parse d) (k.pem_certs (rd f[3])))
+                  (p (try (: (k.check_chain ders f[1] roots (num f[2])) "ok") e=>e)))
+       "roots" (: n=0 (for r k.trust_roots() [alg s]=r.sigalg (? (&& (!= r.key.type "unsupported") (! (starts alg "unsupported")) (k.verify_sig r.key alg r.tbs r.sig)) n+=1)) (p (> n 90)))
+       (err (++ "bad command " f[0])))))
