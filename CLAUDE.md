@@ -16,6 +16,9 @@ Scale the checking to the change, but never skip it:
 
 A test that finds zero inputs must fail, not pass (the corpus test once reported "0/0 programs match" after a rename).
 
+## Token budget
+Ak exists to be cheap in tokens. `tests/tokens.test.js` (CI job `token budget`) fails when SPEC.md or the corpus programs go over the ceilings in `tools/token-budget.json`. A change that saves tokens lowers the ceilings in the same pull request; one that adds tokens needs a reason in the pull request. New spec text goes in SPEC-extra.md unless every program needs it. Measure with `node tools/measure.js py aklang` and `node tools/tok.js SPEC.md`.
+
 ## The pull request
 - Clear title. Body with: Summary, Why, What changed, Not changed, Testing, Notes for the merge. There is no template file.
 - Testing says exactly what ran and what did not. Report failures and skipped checks honestly, with the output.
