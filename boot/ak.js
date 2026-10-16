@@ -12,6 +12,70 @@ class CErr extends Error { constructor(m) { super(m); this.name = 'CompileError'
 const hasB = n => Object.prototype.hasOwnProperty.call(B, n);
 
 // ================================================================== `use` (compile-time include)
+//   (use "f")          include: f's definitions join the global namespace (a function defined in two files prints a warning)
+//   (use "f" as g)     namespaced: f's top-level definitions become g.name (`g.f(x)`, `g.v`); only the alias g is visible
+const pos = (r, x) => { r.line = x.line; r.col = x.col; return r; };
+const symAt = (n, at) => { const s = S(n); s.line = at.line; s.col = at.col; return s; };
+function usePath(x, dir, file) {
+  let f = path.resolve(dir, x[1]);
+  for (const e of ['.aklang', '.ak']) if (!fs.existsSync(f) && fs.existsSync(f + e)) f += e;     // `(use "x")` finds x.aklang, or a legacy x.ak
+  if (!fs.existsSync(f)) throw new CErr(`${file}:${x.line}:${x.col}: use: file not found: ${x[1]}`);
+  return f;
+}
+const tagFile = (y, f) => { if (Array.isArray(y)) { y.file = f; y.forEach(z => tagFile(z, f)); } return y; };   // forms remember which file they came from
+function patNames(t, out) {
+  if (t instanceof Sym) { if (t.n !== '_') out.add(t.n); }
+  else if (Array.isArray(t) && t[0] instanceof Sym) {
+    if (t[0].n === '%list' || t[0].n === '%spread') t.slice(1).forEach(y => patNames(y, out));
+    else if (!t[0].n.startsWith('%')) out.add(t[0].n);
+  }
+}
+function defNames(f, out) {            // names a top-level form defines
+  if (!Array.isArray(f)) return;
+  if (isForm(f, ':') && f.fromUse) f.slice(1).forEach(y => defNames(y, out));
+  else if (isForm(f, '=') && f.length >= 3) patNames(f[1], out);
+}
+function renameSyms(x, pre, defs) {    // every occurrence of a defined name becomes pre.name (consistent, so locals and params stay consistent)
+  if (x instanceof Sym) return defs.has(x.n) ? symAt(pre + '.' + x.n, x) : x;
+  if (!Array.isArray(x) || isForm(x, 'q')) return x;
+  const r = x.map(y => renameSyms(y, pre, defs)); if (x.file) r.file = x.file; if (x.fromUse) r.fromUse = true; return pos(r, x);
+}
+function aliasRw(x, al, file) {         // g.name / g.name(args) / g.name=v  ->  the renamed symbol
+  if (!Array.isArray(x) || isForm(x, 'q')) return x;
+  if (x.length >= 3 && (isForm(x, '.@') || isForm(x, '.') || isForm(x, '.=')) && x[1] instanceof Sym && al.has(x[1].n) && typeof x[2] === 'string') {
+    if (!al.get(x[1].n).has(x[2])) throw new CErr(`${file}:${x[1].line}:${x[1].col}: ${x[1].n} has no definition named ${x[2]}`);
+    const ref = symAt(x[1].n + '.' + x[2], x[1]), rest = x.slice(3).map(y => aliasRw(y, al, file));
+    return pos(isForm(x, '.@') ? ref : isForm(x, '.=') ? [S('='), ref, ...rest] : [ref, ...rest], x);
+  }
+  const r = x.map(y => aliasRw(y, al, file)); if (x.file) r.file = x.file; return pos(r, x);
+}
+const FDEFS = new Map();
+function regFn(f, file) {               // a function defined in two different files: the later one silently won; now it warns
+  if (!(isForm(f, '=') && f.length >= 3 && Array.isArray(f[1]) && f[1][0] instanceof Sym && !f[1][0].n.startsWith('%'))) return;
+  const n = f[1][0].n, o = FDEFS.get(n);
+  if (o && o !== file) process.stderr.write(`warning: ${file}:${f[1][0].line}:${f[1][0].col}: ${n} is also defined in ${o} (this one wins); use (use "file" as name) to keep them apart\n`);
+  FDEFS.set(n, file);
+}
+function expandAll(forms, dir, seen, file) {   // the top-level forms of one file
+  const al = new Map(), out = [];
+  for (const f0 of forms) {
+    if (isForm(f0, 'use') && f0.length === 4 && typeof f0[1] === 'string' && f0[2] instanceof Sym && f0[2].n === 'as' && f0[3] instanceof Sym) {
+      const f = usePath(f0, dir, file), g = f0[3].n;
+      if (al.has(g)) throw new CErr(`${file}:${f0[3].line}:${f0[3].col}: use: the alias ${g} is already taken`);
+      const old = new Map(FDEFS); FDEFS.clear();
+      const sub = expandAll(parse(fs.readFileSync(f, 'utf8'), f).map(y => tagFile(y, f)), path.dirname(f), new Set([f]), f);
+      FDEFS.clear(); old.forEach((v, k) => FDEFS.set(k, v));
+      const defs = new Set(); sub.forEach(y => defNames(y, defs));
+      al.set(g, defs);
+      const r = [S(':'), ...sub.map(y => renameSyms(y, g, defs))]; r.fromUse = true; out.push(pos(r, f0));
+      continue;
+    }
+    const g = aliasRw(f0, al, file);
+    out.push(expandUse(g, dir, seen, file));
+    regFn(g, file);
+  }
+  return out;
+}
 function expandUse(x, dir, seen, file) {
   if (!Array.isArray(x)) return x;
   if (x[0] instanceof Sym && x[0].n === 'embed' && typeof x[1] === 'string' && x.length === 2) {   // (embed "file"): file contents as a string, at compile time
@@ -20,16 +84,14 @@ function expandUse(x, dir, seen, file) {
     return fs.readFileSync(f, 'utf8');
   }
   if (x[0] instanceof Sym && x[0].n === 'use' && typeof x[1] === 'string') {
-    let f = path.resolve(dir, x[1]);
-    for (const e of ['.aklang', '.ak']) if (!fs.existsSync(f) && fs.existsSync(f + e)) f += e;     // `(use "x")` finds x.aklang, or a legacy x.ak
-    if (!fs.existsSync(f)) throw new CErr(`${file}:${x.line}:${x.col}: use: file not found: ${x[1]}`);
+    if (x.length !== 2) throw new CErr(`${file}:${x.line}:${x.col}: use: expected (use "file") or, at the top level of a file, (use "file" as name)`);
+    const f = usePath(x, dir, file);
     if (seen.has(f)) return null;
     seen.add(f);
-    const tagFile = (y) => { if (Array.isArray(y)) { y.file = f; y.forEach(tagFile); } return y; };   // forms remember which file they came from
-    const forms = parse(fs.readFileSync(f, 'utf8'), f).map(y => expandUse(tagFile(y), path.dirname(f), seen, f));
-    const r = [S(':'), ...forms]; r.line = x.line; r.col = x.col; return r;
+    const forms = expandAll(parse(fs.readFileSync(f, 'utf8'), f).map(y => tagFile(y, f)), path.dirname(f), seen, f);
+    const r = [S(':'), ...forms]; r.fromUse = true; return pos(r, x);
   }
-  const r = x.map(y => expandUse(y, dir, seen, file)); r.line = x.line; r.col = x.col; return r;
+  const r = x.map(y => expandUse(y, dir, seen, file)); return pos(r, x);
 }
 
 // ================================================================== compiler state
@@ -843,7 +905,8 @@ function compile(src, opts = {}) {
   const dir = opts.dir || (fs.existsSync(file) ? path.dirname(path.resolve(file)) : process.cwd());
   ST = { safe: opts.safe !== false, buf: [], usedB: new Set(), usedH: new Set(), usedMods: new Set(), uid: 0, fn: null, scope: null, line: 1, col: 1, file, lastMark: 0 };
   const seen = new Set([path.resolve(file)]);
-  const forms = parse(src, file).map(f => expandUse(f, dir, seen, file)).filter(f => f !== null);
+  FDEFS.clear();
+  const forms = expandAll(parse(src, file), dir, seen, file).filter(f => f !== null);
   ST.fn = { tmps: [], async: false, tryDepth: 0, tco: false, tcoUsed: false, label: 'L0', params: [], selfName: null, selfInfo: null, root: null };
   scoped(sc => { ST.fn.root = sc; ST.fn.numCand = numCandidates(forms, []); predeclare(decls(forms)); rootSeq(forms, opts.ret ? RET : DROP); });
   const head = [];

@@ -33,6 +33,29 @@ const nat = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [oldmain], { e
 t('legacy .ak (native): program and (use "oldlib")', nat.stdout === '27 16\n', nat);
 const nat2 = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [main], { encoding: 'utf8' });
 t('native: (use "lib") finds lib.aklang', nat2.stdout === '100\n', nat2);
+// namespaced use: (use "f" as g) keeps two libraries with the same names apart, on both targets
+const NAT = path.join(__dirname, '..', 'bin', 'ak');
+const nsA = w('nsa.aklang', 'count=0\n(= (inc) (<- count count+1) count)\n(= (hello n) (++ "a:" n))\n');
+const nsB = w('nsb.aklang', 'count=100\n(= (inc) (<- count count+1) count)\n(= (hello n) (++ "b:" n))\n');
+const nsMain = w('nsmain.aklang', '(use "nsa.aklang" as a)\n(use "nsb.aklang" as b)\n(= (hello n) "mine")\n(p a.hello(1) b.hello(2) hello(3) a.inc() a.inc() b.inc())\n(p a.count b.count (~ b.hello [1 2]))\n');
+const nsWant = 'a:1 b:2 mine 1 2 101\n2 101 ["b:1" "b:2"]\n';
+r = ak([nsMain]);                                             t('use as: two libraries with the same names (JS target)', r.stdout === nsWant && r.stderr === '', r);
+r = cp.spawnSync(NAT, [nsMain], { encoding: 'utf8' });        t('use as: two libraries with the same names (native)', r.stdout === nsWant && r.stderr === '', r);
+const nsBad = w('nsbad.aklang', '(use "nsa.aklang" as a)\n(p a.nope)\n');
+r = ak([nsBad]);                                              t('use as: unknown name (JS target)', r.status === 1 && r.stderr.startsWith(`error: ${nsBad}:2:4: a has no definition named nope`), r);
+r = cp.spawnSync(NAT, [nsBad], { encoding: 'utf8' });         t('use as: unknown name (native)', r.status === 1 && r.stderr.includes('nsbad.aklang:2:4: a has no definition named nope'), r);
+const nsTwice = w('nstwice.aklang', '(use "nsa.aklang" as a)\n(use "nsb.aklang" as a)\n');
+r = ak([nsTwice]);                                            t('use as: alias already taken (JS target)', r.status === 1 && /the alias a is already taken/.test(r.stderr), r);
+r = cp.spawnSync(NAT, [nsTwice], { encoding: 'utf8' });       t('use as: alias already taken (native)', r.status === 1 && /the alias a is already taken/.test(r.stderr), r);
+const nsNested = w('nsnested.aklang', '(? true (use "nsa.aklang" as a))\n');
+r = ak([nsNested]);                                           t('use as: only at the top level (JS target)', r.status === 1 && /top level/.test(r.stderr), r);
+r = cp.spawnSync(NAT, [nsNested], { encoding: 'utf8' });      t('use as: only at the top level (native)', r.status === 1 && /top level/.test(r.stderr), r);
+// plain use of two files defining the same function: still works (the later one wins) but warns
+const clash = w('clash.aklang', '(use "nsa.aklang")\n(use "nsb.aklang")\n(p hello(1))\n');
+r = ak([clash]);                                              t('plain use clash warns (JS target)', r.stdout === 'b:1\n' && /warning: .*nsb\.aklang:3:5: hello is also defined in .*nsa\.aklang/.test(r.stderr), r);
+r = cp.spawnSync(NAT, [clash], { encoding: 'utf8' });         t('plain use clash warns (native)', r.stdout === 'b:1\n' && /warning: .*nsb\.aklang:3:5: hello is also defined in .*nsa\.aklang/.test(r.stderr), r);
+r = cp.spawnSync(NAT, [main], { encoding: 'utf8' });          t('plain use twice of one file: no warning', r.stderr === '', r);
+r = ak(['check', nsMain]);                                    t('check accepts use as', r.stdout === 'ok\n', r);
 // check / fmt / js / build
 r = ak(['check', main]);                                      t('check ok', r.stdout === 'ok\n' && r.status === 0, r);
 r = ak(['check', f1.replace('e1', 'nope')]);                  t('check missing file', r.status === 1, r);
