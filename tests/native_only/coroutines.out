@@ -1,0 +1,21 @@
+0 10 20
+true
+done
+false
+cannot resume a finished coroutine
+1 6 16
+1
+error
+["a" "b"]
+[0 1 4 9 16]
+[1 2 3 4 5]
+4549000
+yield outside a coroutine
+["division by zero" "arith"]
+["custom" "mine" {"a" 1}]
+cannot resume a finished coroutine
+20000
+200010000
+6000 0
+false cannot resume a finished coroutine
+got hello
