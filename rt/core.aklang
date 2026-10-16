@@ -37,18 +37,21 @@ OBN=0
 (= (exit code) (flush) (? PROFH (profdump)) ($syscall 231 (? ($isnil code) 0 code)))
 INFATAL=false
 (= (hdrw addr) w=($peekw addr) (+ (* ($bitshi w) 4294967296) ($bitslo w)))
-(= (srcpos)         ; "file:line:col" of the innermost user call site on the machine stack, or nil
-  n=(hdrw 268435552)
-  (? n==0 nil
-     (: tab=(hdrw 268435544) cend=(hdrw 268435568) top=(hdrw 268435576) a=($sp) found=nil
-        (wh (&& ($isnil found) a<top)
+(= (callsites max)  ; up to max "file:line:col" user call sites found on the machine stack, innermost first (an immediate repeat, as in recursion, is listed once)
+  n=(hdrw 268435552) res=(mklist 8)
+  (? n>0
+     (: tab=(hdrw 268435544) cend=(hdrw 268435568) top=(hdrw 268435576) a=($sp) last=-1 cnt=0
+        files=(split ($peekstr (+ (hdrw 268435560) 8)) "\n")
+        (wh (&& cnt<max a<top)
           w=($peekw a)
           (? (&& (== ($bitshi w) 0) (>= ($bitslo w) 4198400) (< ($bitslo w) cend))
-             (: e=(posfind tab n ($bitslo w)-4198400) (? (&& e (> (lget e 3) 0)) found=e)))
-          a+=8)
-        (? found
-           (: files=(split ($peekstr (+ (hdrw 268435560) 8)) "\n")
-              (strcat2 (strcat2 (strcat2 (strcat2 (lget files (lget found 3)) ":") (fmtint (lget found 1))) ":") (fmtint (lget found 2))))))))
+             (: e=(posfind tab n ($bitslo w)-4198400)
+                (? (&& e (> (lget e 3) 0))
+                   (: s=(strcat2 (strcat2 (strcat2 (strcat2 (lget files (lget e 3)) ":") (fmtint (lget e 1))) ":") (fmtint (lget e 2)))
+                      (? (! (== s last)) (: (lpush res s) cnt+=1 (<- last s)))))))
+          a+=8)))
+  res)
+(= (srcpos) r=(callsites 1) (? (> ($ldw r 1) 0) (lget r 0)))
 (= ($peekstr p) n=0 (wh (> ($peek p+n) 0) n+=1) r=(strnew n) (for i n ($stb r i ($peek p+i))) r)
 (= (posfind tab n off)   ; binary search in the call-site table: [offset line col fid] or nil
   lo=0 hi=n-1 r=nil
@@ -59,7 +62,11 @@ INFATAL=false
        hi=m-1))
   r)
 (= (fatal msg) (? INFATAL ($syscall 231 1)) (<- INFATAL true) (flush) (eout "error: ") (eout (? (isstr msg) msg "runtime error"))
-  p=(srcpos) (? p (eout (strcat2 (strcat2 " (" p) ")"))) (eout "\n") (tracedump) ($syscall 231 1))
+  p=(srcpos) (? p (eout (strcat2 (strcat2 " (" p) ")"))) (eout "\n") (tracedump) (callers) ($syscall 231 1))
+(= (callers)        ; "  called from file:L:C" for the call sites after the first (at most 10; `...` when there are more)
+  cs=(callsites 12)
+  (for i 1..#cs
+    (? i<=10 (eout (strcat2 (strcat2 "  called from " (lget cs i)) "\n")) (eout "  ...\n"))))
 (= (tracedump)
   base=($tracebase) top=($tracetop)
   (? top>base
