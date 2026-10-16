@@ -1,0 +1,5 @@
+(p (json 10n) (json -5n) (json 2n**100n))
+(p (json {:a 1n :b 2n**100n}))
+(p (json [1n (x=>x) 2n]))
+(p (json {:f (x=>x) :n 3n}))
+(p (json {:a [7n]} 2))
