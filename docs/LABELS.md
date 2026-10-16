@@ -22,6 +22,7 @@ Lower number means more important.
 | `runtime` | The native runtime and what programs do when they run: syscalls, memory, networking, math. |
 | `parser` | The lexer and parser: literals, escapes, regex syntax, rejecting bad source. |
 | `tooling` | The `ak` command line: `fmt`, test runner, build, REPL. |
+| `network` | Sockets, DNS, TLS, HTTP and other networking, on either target. Combine with `runtime` or `tooling` (library code). |
 | `tests` | Missing or weak tests in the repository's own suite. Combine with the category of the code being tested when it applies. |
 
 ## Type (GitHub's standard labels)
