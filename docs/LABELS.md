@@ -1,6 +1,6 @@
 # Issue labels
 
-Every issue gets one priority label and one or more category labels.
+Every issue gets one priority label and one or more category labels. The issue body ends with a short "Priority" section (2-3 lines) saying why it has that level and why not higher or lower.
 
 ## Priority
 
@@ -22,6 +22,7 @@ Lower number means more important.
 | `runtime` | The native runtime and what programs do when they run: syscalls, memory, networking, math. |
 | `parser` | The lexer and parser: literals, escapes, regex syntax, rejecting bad source. |
 | `tooling` | The `ak` command line: `fmt`, test runner, build, REPL. |
+| `tests` | Missing or weak tests in the repository's own suite. Combine with the category of the code being tested when it applies. |
 
 ## Type (GitHub's standard labels)
 
