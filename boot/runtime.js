@@ -245,7 +245,8 @@ function toJ(x) {
   if (x === undefined) return null;
   if (x instanceof Map) { const o = {}; for (const [k, v] of x) o[String(k)] = toJ(v); return o; }
   if (Array.isArray(x) || ArrayBuffer.isView(x)) return Array.from(x, toJ);
-  if (typeof x === 'bigint') return Number(x);
+  if (typeof x === 'bigint') return JSON.rawJSON ? JSON.rawJSON(String(x)) : Number(x);   // exact digits, like the native target
+  if (typeof x === 'function') return null;                                              // native writes null for functions too
   if (x instanceof Sym) return x.n;
   return x;
 }

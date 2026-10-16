@@ -184,6 +184,7 @@ JN=0
 (= (jenc x ind lvl)
   (? ($isnil x) (jcat "null")
      ($isnum x) (jcat (? (|| (!= x x) (> (abs x) 1.7976931348623157e308)) "null" (fmtnum x)))
+     (isbig x) (jcat (bigstr x))
      (isbool x) (jcat (? x "true" "false"))
      (isstr x) (jqput x)
      (issym x) (jqput (symstr x))
