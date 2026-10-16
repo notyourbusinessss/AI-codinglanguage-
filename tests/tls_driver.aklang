@@ -1,0 +1,14 @@
+; Test driver for lib/tls.aklang: ak tls_driver.aklang host port roots.pem -> writes "hello", reads to the end of the stream, prints "OK <length> <sha256 of the data>" or "ERR <message>".
+(use "../lib/tls.aklang" as t)
+(use "../lib/pki.aklang" as k)
+(use "../lib/crypto.aklang" as c)
+[host port roots]=(args)
+(p (try
+  (: roots=(~ x=>(k.cert_parse x) (k.pem_certs (rd roots)))
+     cn=(t.connect host (num port) {:roots roots :ms 5000})
+     (t.write cn "hello")
+     data="" d=nil
+     (wh d!="" d=(t.read cn) data+=d)
+     (t.close cn)
+     (++ "OK " (tostr #data) " " (c.hex (c.sha256 data))))
+  e=>(++ "ERR " e)))
