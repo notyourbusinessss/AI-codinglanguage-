@@ -17,7 +17,7 @@ Lines (outside brackets): `head a b` = `(head a b)` · `f a b =` + indented line
 - Strict, no silent coercion: `nil+1` `"a"-1` `nil<1` throw. `+` also concatenates str+str, str+any, list+list; bools count as 0/1. `==` is deep structural. `/` true division, `//` floor, `%` floored, `x/0` throws.
 - Numbers are doubles: integers are exact to 2^53; beyond that `+ - * **` on integers throw `integer overflow` — use BigInt (`10n`, `2n**100n`). `ak --fast` skips these checks.
 - `for`: list → elements (length fixed at loop start); map → `[k v]`; number n → 0..n-1; string → chars. Out-of-range index / missing key → nil. Self tail calls become loops; recursion depth is large (512MB stack).
-- Arity of direct calls to known functions is checked at compile time. Errors print `error: msg (file:line:col)`, exit 1.
+- Arity of direct calls to known functions is checked at compile time. Errors print `error: msg (file:line:col)` (the innermost call site), then one `  called from file:line:col` per outer call (at most 10), exit 1.
 ## Builtins
 math `+ - * / % // ** < > <= >= == != !` `& | ^ << >> >>> bnot` `abs sqrt flr cel rnd int min max sum rand sin cos tan asin acos atan atan2 exp log log2 log10 pow cbrt hypot sinh cosh tanh sign` (min/max/sum take args or a list)
 list `# @ push pop enum set del +> .. ~ ~? ~~ ~/ sort rev zip uniq flat grp idx has any all keys vals prs sub take drop fst lst ap` — `(~ f xs)` map · `(~? f xs)` filter · `(~~ f xs)` flatmap · `(~/ f init xs)` reduce · `(sort xs)` `(sort keyfn xs)` (maps sort as `[k v]` entries) · `(+> l x)` pure append · `(set c k v)` pure update · `(has c x)` in

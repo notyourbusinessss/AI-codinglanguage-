@@ -24,7 +24,7 @@ let n = 0;
 function norm(r) {
   if (r.error || r.signal) return 'TIMEOUT';
   if (r.status === 0) return 'OK ' + r.stdout.replace(/\n$/, '');
-  const m = /^error: ([\s\S]*?) \(([^()]*:\d+:\d+)\)\s*$/.exec(r.stderr);
+  const m = /^error: ([\s\S]*?) \(([^()]*:\d+:\d+)\)\s*$/.exec(r.stderr.replace(/\n {2}(called from .*|\.\.\.)(?=\n|$)/g, ''));
   if (m) return 'ERR ' + m[1];
   return /^error: .*:\d+:\d+: /.test(r.stderr) ? 'INVALID' : 'CRASH ' + r.stderr.slice(0, 200);
 }

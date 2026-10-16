@@ -6,7 +6,7 @@
     "ak": "boot/ak.js"
   },
   "scripts": {
-    "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/spec.test.js && node tests/cli.test.js && node tests/aktest.test.js && node tests/repl.test.js && node tests/fmt_tight.test.js && node tests/parse_diff.js 800 && node tests/x86_diff.js 1 1500 && node tests/native_elf.test.js && node tests/examples.test.js && node tests/corpus.js && node tests/fuzz.js 3000 1 && node tests/selfhost.js && node tests/native_diff.js && node tests/fuzz_native.js 300 1 && node tests/tty.test.js && node tests/gui.test.js && node tests/install.test.js",
+    "test": "node tests/syntax.test.js && node tests/roundtrip.test.js && node tests/lang.test.js && node tests/spec.test.js && node tests/cli.test.js && node tests/aktest.test.js && node tests/repl.test.js && node tests/trace.test.js && node tests/fmt_tight.test.js && node tests/parse_diff.js 800 && node tests/x86_diff.js 1 1500 && node tests/native_elf.test.js && node tests/examples.test.js && node tests/corpus.js && node tests/fuzz.js 3000 1 && node tests/selfhost.js && node tests/native_diff.js && node tests/fuzz_native.js 300 1 && node tests/tty.test.js && node tests/gui.test.js && node tests/install.test.js",
     "fuzz": "node tests/fuzz.js 20000 7 -v",
     "bootstrap": "node boot/ak.js src/main.aklang build src/main.aklang bin/ak"
   },
