@@ -1,0 +1,8 @@
+(= (k thunk) (try (: (thunk) "none") e=>(errkind e)))
+(p (k (\ () (assert false))) (k (\ () (assert false "nope"))) (k (\ () (err "x"))) (k (\ () 1/0)) (k (\ () 1//0)) (k (\ () 5%0)))
+(p (k (\ () 2**60)) (k (\ () nil+1)) (k (\ () "a"<1)) (k (\ () #5)) (k (\ () (rd "/nonexistent/file"))) (k (\ () (sh "exit 3"))))
+(= f 3)
+(p (k (\ () [1 2][0.5])) (k (\ () (f))) (k (\ () 1)))
+(p (try (raise "notfound" "no user" {:id 7}) e=>[e (errkind e) (errdata e)]))
+(p (try (raise "plain" "m") e=>[(errkind e) (errdata e)]) (try (err "x") e=>(errdata e)))
+(p (try (try 1/0 e=>(err "inner")) e=>(errkind e)))

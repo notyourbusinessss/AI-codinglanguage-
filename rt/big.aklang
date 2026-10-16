@@ -27,7 +27,7 @@
 (= (bigsub a b) (bigadd a (bigneg b)))
 (= (bigmul a b) (bigwrap (? (== (bigsign a) (bigsign b)) 0 1) (bn_mul_big (bigunwrap a) (bigunwrap b))))
 (= (bigdivmod a b)             ; truncated division -> [q r]
-  (? (bigiszero b) ($throw "division by zero"))
+  (? (bigiszero b) ($throwk 2 "division by zero"))
   sa=(bigsign a) sb=(bigsign b)
   qr=(bn_divmod (bigunwrap a) (bigunwrap b))
   (list (bigwrap (? (== sa sb) 0 1) (lget qr 0)) (bigwrap sa (lget qr 1))))
@@ -41,13 +41,13 @@
      (isbig a) (? (== b ($ffloor b)) (bigcmp a (bigfromnum b)) (: c=(bigcmp a (bigfromnum ($ffloor b))) (? c>0 1 -1)))
      (? (== a ($ffloor a)) (bigcmp (bigfromnum a) b) (: c=(bigcmp (bigfromnum ($ffloor a)) b) (? c>=0 1 -1)))))
 (= (bigpow a n)
-  (? (! (isbig n)) ($throw "unsupported exponent"))
+  (? (! (isbig n)) ($throwk 3 "unsupported exponent"))
   (? (== (bigsign n) 1) ($throw "exponent must be non-negative"))
   e=(bigtonum n) r=(bigfromnum 1) base=a
   (wh e>0 (? (== (% e 2) 1) r=(bigmul r base)) (? e>1 base=(bigmul base base)) e=($ffloor ($fdiv e 2)))
   r)
 (= (bigop op a b)              ; op: + - * / // % **
-  (? (! (&& (isbig a) (isbig b))) ($throw "Cannot mix BigInt and other types, use explicit conversions"))
+  (? (! (&& (isbig a) (isbig b))) ($throwk 3 "Cannot mix BigInt and other types, use explicit conversions"))
   (sw op
     "+" (bigadd a b)
     "-" (bigsub a b)
