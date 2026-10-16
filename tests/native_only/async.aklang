@@ -1,0 +1,35 @@
+; Tasks on coroutines: timers, channels, and a TCP server with many clients in one process.
+(use "../../lib/async.aklang" as a)
+; timers wake in order of their deadline
+log=[]
+(for [n ms] [["c" 60] ["a" 20] ["b" 40]] (a.spawn (n ms)=>(: (a.sleep ms) (push log n)) n ms))
+; a producer and a consumer through a channel (the consumer waits for each value; close ends it)
+ch=a.chan()
+got=[]
+(a.spawn ()=>(: (for i 5 (a.send ch i*i) a.pause()) (a.close ch)))
+(a.spawn ()=>(: v=(a.recv ch) (wh v!=nil (push got v) v=(a.recv ch))))
+a.run()
+p log got
+; a server and 100 clients, all tasks of one process: no thread, no callback
+l=(tcpl 0 "127.0.0.1")
+port=(tcpp l)
+served=0
+handle fd =
+ (a.wait fd)
+ d=(fdr fd)
+ (fdw fd (up d))
+ (fdc fd)
+ (<- served served+1)
+(a.spawn ()=>(for 100 (a.wait l) (a.spawn handle (tcpa l))))
+replies=[]
+client i =
+ c=(tcpc "127.0.0.1" port)
+ (a.sleep i%7)
+ (fdw c (++ "hello " i))
+ (a.wait c)
+ (push replies (fdr c))
+ (fdc c)
+(for i 100 (a.spawn client i))
+a.run()
+p served #replies (== (sort replies) (sort (~ i=>(++ "HELLO " i) 0..100)))
+(fdc l)

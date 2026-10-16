@@ -1,0 +1,50 @@
+g=(co v=>(: (for i 3 (yield i*10)) "done"))
+p (resume g) (resume g) (resume g)
+p (alive g)
+p (resume g)
+p (alive g)
+p (try (resume g) e=>e)
+; passing values
+acc=(co x=>(: s=x (wh true s+=(yield s))))
+p (resume acc 1) (resume acc 5) (resume acc 10)
+; error inside
+bad=(co ()=>(: (yield 1) (err "boom")))
+p (resume bad)
+p (try (resume bad) e=>(errkind e))
+; nested
+inner=(co ()=>(: (yield "a") (yield "b")))
+outer=(co ()=>(: (yield (resume inner)) (yield (resume inner)) "x"))
+p (drain outer)
+p (drain (co ()=>(for i 5 (yield i*i))))
+; recursion generator
+walk t = (? t (: (walk t[0]) (yield t[1]) (walk t[2])))
+tree=[[[nil 1 nil] 2 [nil 3 nil]] 4 [nil 5 nil]]
+p (drain (co ()=>(walk tree)))
+; many coroutines, GC pressure
+cs=(~ i=>(co ()=>(: l=[] (for k 50 (push l [i k]) (yield #l)) i)) 0..2000)
+t=0
+(for r 51 (for c cs (? (alive c) t+=(resume c))))
+p t
+p (try (yield 1) e=>e)
+; errors cross the resume with their kind and data
+div0=(co ()=>(/ 1 0))
+p (try (resume div0) e=>[e (errkind e)])
+r=(co ()=>(raise "mine" "custom" {:a 1}))
+p (try (resume r) e=>[e (errkind e) (errdata e)])
+p (try (resume r) e=>e)
+; deep recursion inside a coroutine, a coroutine inside a coroutine's callee
+deep n = (? n==0 0 1+deep(n-1))
+p (resume (co ()=>deep(20000)))
+; contexts are reused: many sequential coroutines, and many alive at once
+n=0
+(for i 20000 c=(co x=>x+1) n+=(resume c i))
+p n
+cs=[]
+(for i 3000 c=(co ()=>(: (yield i) 2)) (resume c) (push cs c))
+p (sum (~ c=>(resume c) cs)) (sum (~ c=>(? (alive c) 1 0) cs))
+c=(co ()=>(: (yield 1) 9))
+(resume c)
+(coclose c)
+p (alive c) (try (resume c) e=>e)
+; a coroutine that is never finished does not keep the program from ending, and the first resume value is its argument
+(resume (co x=>(: (p "got" x) (yield 1) (p "never"))) "hello")
