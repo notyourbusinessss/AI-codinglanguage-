@@ -16,7 +16,7 @@ CHARS=nil
 (= (strcmp a b) na=($hlen a) nb=($hlen b) m=(? na<nb na nb) i=0
   (wh (&& (< i m) (== ($ldb a i) ($ldb b i))) i+=1)
   (? i<m (? (< ($ldb a i) ($ldb b i)) -1 1) (? na<nb -1 na>nb 1 0)))
-(= (needstr s) (? (! (isstr s)) ($throw (strcat2 "expected string, got " (ty s)))) s)
+(= (needstr s) (? (! (isstr s)) ($throwk 3 (strcat2 "expected string, got " (ty s)))) s)
 (= (strfind s p from)             ; index of p in s at or after from, or -1 (the search itself is the assembly stub .strfind)
   n=($hlen s) m=($hlen p)
   (? m==0 (? from<=n from -1) ($find s p (? from<0 0 from))))
@@ -126,7 +126,7 @@ SYMTAB=nil
 (= (lget l i) ($ldw ($ldw l 2) i+1))
 (= (lset l i x) ($stw ($ldw l 2) i+1 x))
 (= (lat l i) n=($ldw l 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lget l i) nil))
-(= (needlist l) (? (! (islist l)) ($throw (strcat2 "expected list, got " (ty l)))) l)
+(= (needlist l) (? (! (islist l)) ($throwk 3 (strcat2 "expected list, got " (ty l)))) l)
 (= (push l ..xs) (needlist l) (for x xs (lpush l x)) l)
 (= (push1 l x) (? (! (islist l)) (needlist l)) (lpush l x) l)         ; (push l x) with exactly one value: called directly, no rest list
 (= (max2 a b) a=(tonum a) b=(tonum b) (? b>a b a))
@@ -166,7 +166,7 @@ SYMTAB=nil
 (= (fnv f)
   (? (isfn f) f
      (|| (islist f) (ismap f) (isstr f)) (x=>(at f x))
-     ($throw (strcat2 "not callable: " (show f)))))
+     ($throwk 3 (strcat2 "not callable: " (show f)))))
 (= (~ f l ..more)
   f=(fnv f) l=(toarr l) n=#l
   (? #more==0 (: r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 (f (lget l i)))) ($stw r 1 n) r)
@@ -270,28 +270,28 @@ SYMTAB=nil
 
 ; ---- generic container access
 (= (len x)
-  (? ($isptr x) (: t=($type x) (? (|| t==1 t==7 t==8) ($hlen x) (|| t==2 t==4) ($ldw x 1) t==9 (tlen x) ($throw (strcat2 "len of " (ty x)))))
+  (? ($isptr x) (: t=($type x) (? (|| t==1 t==7 t==8) ($hlen x) (|| t==2 t==4) ($ldw x 1) t==9 (tlen x) ($throwk 3 (strcat2 "len of " (ty x)))))
      ($isnil x) 0
-     ($throw (strcat2 "len of " (ty x)))))
+     ($throwk 3 (strcat2 "len of " (ty x)))))
 (= (# x) (len x))
 (= (chkidx i)                       ; a list, string or typed-array index must be a whole number: a fractional one would be truncated by the raw load/store
-  (? (! (isint i)) ($throw (strcat2 "@: index must be an integer, got " (show i)))))
+  (? (! (isint i)) ($throwk 5 (strcat2 "@: index must be an integer, got " (show i)))))
 (= (at x i j=nil)
   (? (ismap x) (mapget x i)
-     (islist x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i))) (: (chkidx i) (lat x i)))
-     (isstr x) (? (! ($isnum i)) ($throw (strcat2 "@: index must be a number, got " (show i)))
+     (islist x) (? (! ($isnum i)) ($throwk 5 (strcat2 "@: index must be a number, got " (show i))) (: (chkidx i) (lat x i)))
+     (isstr x) (? (! ($isnum i)) ($throwk 5 (strcat2 "@: index must be a number, got " (show i)))
                     (: (chkidx i) n=($hlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (chr1 ($ldb x i)) nil)))
      (ismap x) (mapget x i)
      ($isnil x) nil
      (istyped x) (: (chkidx i) n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tget x i) nil))
-     ($throw (strcat2 "cannot index " (ty x)))))
+     ($throwk 5 (strcat2 "cannot index " (ty x)))))
 (= (slice x a b=nil)
   (? ($isnil x) nil
      (: n=(len x) a=(?? a 0) b=(?? b n)
         (? a<0 a=n+a) (? b<0 b=n+b) (? a<0 a=0) (? b>n b=n) (? b<a b=a)
         (? (isstr x) (strslice x a b)
            (islist x) (: m=b-a r=(mklist m) ($copy ($ldw r 2) 0 ($ldw x 2) a*8 m*8) ($stw r 1 m) r)
-           ($throw (strcat2 "cannot slice " (ty x)))))))
+           ($throwk 3 (strcat2 "cannot slice " (ty x)))))))
 (= (toarr x)
   (? (islist x) x
      ($isnil x) (mklist 0)
@@ -301,28 +301,28 @@ SYMTAB=nil
      (list x)))
 (= (iter x) (? ($isnum x) nil (toarr x)))
 (= (put x i v)
-  (? (islist x) (: (chkidx i) n=($ldw x 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lset x i v) (&& i>=0 i<134217728) (: (wh (< ($ldw x 1) i) (lpush x nil)) (lpush x v)) ($throw "index out of range")) v)
+  (? (islist x) (: (chkidx i) n=($ldw x 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lset x i v) (&& i>=0 i<134217728) (: (wh (< ($ldw x 1) i) (lpush x nil)) (lpush x v)) ($throwk 5 "index out of range")) v)
      (ismap x) (mapset x i v)
      (istyped x) (: (chkidx i) n=(tlen x) (? i<0 i=n+i) (? (&& i>=0 i<n) (tput x i v)) v)
-     ($throw (strcat2 "cannot assign into " (ty x)))))
+     ($throwk 3 (strcat2 "cannot assign into " (ty x)))))
 (= (dot o k)
   (? (ismap o) (mapget o k)
      ($isnil o) nil
      (&& (isstr k) (streq k "length") (|| (islist o) (isstr o))) (len o)
      nil))
 (= (setdot o k v)
-  (? (ismap o) (mapset o k v) ($throw (strcat2 "cannot set field on " (ty o)))))
+  (? (ismap o) (mapset o k v) ($throwk 3 (strcat2 "cannot set field on " (ty o)))))
 (= (set c k v)
   (? (ismap c) (: m=(mapcopy c) (mapset m k v) m)
      (islist c) (: l=(copylist c) (put l k v) l)
-     ($throw (strcat2 "cannot set on " (ty c)))))
+     ($throwk 3 (strcat2 "cannot set on " (ty c)))))
 (= (del c k)
   (? (ismap c) (: m=(mapcopy c) (mapdel m k) m)
      (islist c) (: l=(copylist c) n=#l (? k<0 k=n+k) r=(mklist n) (for i n (? i!=k (lpush r (lget l i)))) r)
-     ($throw (strcat2 "cannot delete from " (ty c)))))
-(= (keys m) (? (ismap m) (mapkeys m) ($isnil m) (mklist 0) ($throw (strcat2 "keys of " (ty m)))))
-(= (vals m) (? (ismap m) (mapvals m) ($isnil m) (mklist 0) ($throw (strcat2 "vals of " (ty m)))))
-(= (prs m) (? (ismap m) (mapentries m) ($isnil m) (mklist 0) ($throw (strcat2 "prs of " (ty m)))))
+     ($throwk 3 (strcat2 "cannot delete from " (ty c)))))
+(= (keys m) (? (ismap m) (mapkeys m) ($isnil m) (mklist 0) ($throwk 3 (strcat2 "keys of " (ty m)))))
+(= (vals m) (? (ismap m) (mapvals m) ($isnil m) (mklist 0) ($throwk 3 (strcat2 "vals of " (ty m)))))
+(= (prs m) (? (ismap m) (mapentries m) ($isnil m) (mklist 0) ($throwk 3 (strcat2 "prs of " (ty m)))))
 
 ; ---- math
 (= (abs x) x=(tonum x) (? (< x 0) ($fsub -0 x) x))
@@ -357,6 +357,11 @@ RNGI=nil
         r=(strnew total) off=0 (for i n s=(lget a i) ($copy r off s 0 ($hlen s)) off+=($hlen s)) r)))
 (= (cat2 a b) (? (isstr a) (strcat2 a (tostr b)) (islist a) (concat a b) (strcat2 (tostr a) (tostr b))))       ; (++ a b) without building the rest list
 (= ($ x) (tostr x))
-(= (err ..a) ($throw (join a " ")))
-(= (assert c ..a) (? c nil ($throw (? #a (join a " ") "assertion failed"))))
+(= (err ..a) ($throwk 0 (join a " ")))
+(= (assert c ..a) (? c nil ($throwk 1 (? #a (join a " ") "assertion failed"))))
+UKIND="error"
+UDATA=nil
+(= (raise k m d=nil) (<- UKIND k) (<- UDATA d) ($throwk 255 (join [m] " ")))
+(= (errkind e) k=($errkind) (? k==255 UKIND (@ ["error" "assert" "arith" "type" "io" "index"] k)))
+(= (errdata e) (? ($errkind)==255 UDATA nil))
 (= (f64bits x) (list ($bitshi x) ($bitslo x)))
