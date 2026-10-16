@@ -90,7 +90,7 @@ REPLHELP="enter an expression to see its value, or a definition (x=1, f n = .., 
 (= (noecho f) (&& (is "list" f) #f>0 (is "sym" f[0]) (has ["p" "pr" "ep" "err" "exit"] ($ f[0]))))      ; these print already (and p returns its argument)
 (= (replclean out)           ; what the entry itself printed; an error loses its file:line:col and source line (they point into the replayed program)
   parts=(split out REPLMARK)
-  body=(? #parts>1 (slice (join parts[1..] REPLMARK) 1) out)
+  body=(? #parts>1 (join parts[1..] REPLMARK)[1..] out)
   res=[] inerr=false
   (for l (split body "\n")
     (? (starts l "error: ") (: inerr=true m=(match "^error: (?:<stdin>:\\d+:\\d+: )?(.*?)(?: \\(<stdin>:\\d+:\\d+\\))?$" l) (push res (? m (++ "error: " m[1]) l)))
