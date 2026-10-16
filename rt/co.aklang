@@ -1,0 +1,49 @@
+; Native runtime part 8: coroutines (stackful and cooperative). Each one runs on its own machine stack and value stack (a context record
+; made by $cadd, see gen.aklang); $cswitch moves between them and the collector scans the value stacks of the suspended ones. Native target only.
+COMAIN=0                                       ; context record of the main program (made on first use)
+COCUR=nil                                      ; the coroutine running now (nil: the main program)
+COPOOL=[]                                      ; finished contexts, reused by the next coroutine
+COSZ=8388608                                   ; bytes of machine stack and of value stack of one coroutine (address space only, pages are touched when used)
+(= (co_ctx)                                    ; a context's memory: [value stack | guard page | machine stack], the record in the first 64 bytes
+  (? COMAIN==0 (: m=($syscall 9 0 4096 3 16418 -1 0) (<- COMAIN m) ($cmain m)))
+  (? #COPOOL>0 (pop COPOOL)
+     (: b=($syscall 9 0 COSZ*2+4096 3 16418 -1 0)
+        (? b<0 (err "cannot allocate a coroutine stack"))
+        ($syscall 10 b+COSZ 4096 0)
+        b)))
+(= (co f)                                      ; a coroutine that runs f(first resume value) when first resumed
+  (? (! ($isfn f)) ($throwk 3 "co: expected a function"))
+  r=(co_ctx)
+  ($cadd r r+COSZ*2+4096 r+64 co_entry)
+  {:ctx r :fn f :st 0 :out nil :back 0 :up nil :err nil})
+(= (co_entry v)                                ; the bottom of every coroutine stack
+  c=COCUR
+  r=(try [0 (c.fn v)] e=>(: k=(errkind e) d=(errdata e) [1 e k d]))
+  (? r[0]==0 c.out=r[1] c.err=r)
+  c.st=3
+  ($cswitch c.back nil))
+(= (co_check c who)
+  (? (! (&& (ismap c) (isnum c.ctx))) ($throwk 3 (strcat2 who ": expected a coroutine"))))
+(= (co_release c) c.st=3 ($cdrop c.ctx) (lpush COPOOL c.ctx) c.ctx=-1)
+(= (co_rethrow k m d)
+  (sw k "error" ($throwk 0 m) "assert" ($throwk 1 m) "arith" ($throwk 2 m) "type" ($throwk 3 m) "io" ($throwk 4 m) "index" ($throwk 5 m) (raise k m d)))
+(= (resume c v=nil)                            ; run c until it yields (that value) or finishes (its result); v is what yield returns inside, or the argument of the first run
+  (co_check c "resume")
+  (? c.st==3 ($throwk 0 "cannot resume a finished coroutine") c.st==1 ($throwk 0 "cannot resume a running coroutine"))
+  c.up=COCUR c.back=($ccur) c.st=1 (<- COCUR c)
+  ($cswitch c.ctx v)
+  (<- COCUR c.up)
+  (? c.st==3 (: e=c.err (co_release c) (? e (co_rethrow e[2] e[1] e[3]))))
+  c.out)
+(= (yield v=nil)                               ; suspend the running coroutine; resume returns v, and yield returns what the next resume passes
+  c=COCUR
+  (? c==nil ($throwk 0 "yield outside a coroutine"))
+  c.out=v c.st=2
+  ($cswitch c.back nil))
+(= (alive c) (co_check c "alive") (!= c.st 3))
+(= (coclose c)                                 ; drop a coroutine that is not running: its stacks are reused (nothing in it is unwound)
+  (co_check c "coclose")
+  (? c.st==1 ($throwk 0 "cannot close a running coroutine"))
+  (? c.st!=3 (co_release c)) nil)
+(= (drain c)                                   ; every value c yields, in a list (its final result is dropped)
+  r=[] (wh (alive c) v=(resume c) (? (alive c) (push r v))) r)
