@@ -1,0 +1,221 @@
+; X.509 certificates and public-key signatures in Ak (native target): DER and PEM, RSA (PKCS#1 v1.5 and PSS), ECDSA P-256/P-384, chain and host name checks.
+;   (use "lib/pki.aklang" as k)
+;   k.pem_certs text -> list of DER strings          k.cert_parse der -> map: raw tbs sigalg sig issuer subject nb na key san ips ca keyusage
+;   k.verify_sig key alg data sig -> true / false    alg: rsa_pkcs1_sha256 rsa_pkcs1_sha384 rsa_pss_sha256 rsa_pss_sha384 ecdsa_sha256 ecdsa_sha384
+;   k.trust_roots -> parsed CA certificates from the system bundle (SSL_CERT_FILE overrides)
+;   k.check_chain ders host roots now -> the parsed leaf, or raises "certificate: why"   (host: a name or a dotted IPv4; now: unix seconds)
+; Checked: signatures along the chain, validity dates, CA flag and keyCertSign, subjectAltName host match. Not checked: revocation, name constraints, path length, extended key usage.
+(use "crypto.aklang" as c)
+; ---- DER: an element is [tag content_start content_end element_start]
+(= (der_at s i)
+  tag=($ldb s i) l=($ldb s i+1) p=i+2
+  (? l>=128 (: nb=l-128 l=0 (for q nb l=l*256+($ldb s p+q)) p+=nb))
+  (? p+l>#s (err "certificate: bad DER length"))
+  [tag p p+l i])
+(= (der_kids s e) out=[] i=e[1] (wh i<e[2] x=(der_at s i) (push out x) i=x[2]) out)
+(= (der_int s e) (c.bn_be s[e[1]..e[2]]))
+(= (der_str s e) s[e[1]..e[2]])
+(= (der_full s e) s[e[3]..e[2]])
+; ---- PEM / base64
+(= (b64 t)
+  v=0 bits=0 out=[]
+  (for ch t
+    d=(idx "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" ch)
+    (? d>=0 (: v=v*64+d bits+=6 (? bits>=8 (: bits-=8 (push out (flr (/ v (** 2 bits)))) v=v%(** 2 bits))))))
+  (frombytes out))
+(= (pem_certs text)
+  out=[] parts=(split text "-----BEGIN CERTIFICATE-----")
+  (for p parts[1..] j=(idx p "-----END CERTIFICATE-----") (? j>0 (push out (b64 p[..j]))))
+  out)
+; ---- time
+(= (days y m d)                         ; days since 1970-01-01 (proleptic Gregorian)
+  y-=(? m<=2 1 0) era=(flr (/ y 400)) yoe=y-era*400
+  doy=(flr (/ (+ (* 153 (+ m (? m>2 -3 9))) 2) 5))+d-1
+  doe=yoe*365+(flr (/ yoe 4))-(flr (/ yoe 100))+doy
+  era*146097+doe-719468)
+(= (der_time s e)
+  t=(der_str s e) g=e[0]==24
+  y=(num t[..(? g 4 2)]) o=(? g 4 2) y=(? g y (? y>=50 1900+y 2000+y))
+  (+ (* 86400 (days y (num t[o..o+2]) (num t[o+2..o+4]))) (* 3600 (num t[o+4..o+6])) (* 60 (num t[o+6..o+8])) (num t[o+8..o+10])))
+; ---- object identifiers (hex of the content bytes)
+(= (oid s e) (c.hex (der_str s e)))
+(= (sigalg_name s e)                    ; AlgorithmIdentifier -> name used by verify_sig, plus PSS salt length
+  kids=(der_kids s e) o=(oid s kids[0])
+  (sw o
+    "2a864886f70d01010b" ["rsa_pkcs1_sha256" 0]
+    "2a864886f70d01010c" ["rsa_pkcs1_sha384" 0]
+    "2a8648ce3d040302" ["ecdsa_sha256" 0]
+    "2a8648ce3d040303" ["ecdsa_sha384" 0]
+    "2a864886f70d01010a"
+      (: h="sha1" salt=20 pk=(der_kids s kids[1])
+         (for x pk
+           (? x[0]==160 (: hk=(der_kids s (der_kids s x)[0]) h=(sw (oid s hk[0]) "608648016503040201" "sha256" "608648016503040202" "sha384" "sha-other")))
+           (? x[0]==162 salt=(num (tostr (c.bn_be (der_str s (der_kids s x)[0]))))))
+         [(++ "rsa_pss_" h) salt])
+    [(++ "unsupported:" o) 0]))
+; ---- elliptic curves (short Weierstrass, a = -3), Jacobian coordinates
+(= (hx h) (c.bn_be (c.unhex h)))
+CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
+          :p (hx "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff")
+          :b (hx "5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b")
+          :gx (hx "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+          :gy (hx "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5")
+          :n (hx "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551")}
+        "2b81040022" {:name "P-384" :bytes 48
+          :p (hx "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff")
+          :b (hx "b3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef")
+          :gx (hx "aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7")
+          :gy (hx "3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f")
+          :n (hx "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973")}}
+(= (ec_dbl cv pt)
+  p=cv.p [x y z]=pt
+  (? (|| (== z 0n) (== y 0n)) [1n 1n 0n]
+     (: dl=(% (* z z) p) gm=(% (* y y) p) be=(% (* x gm) p)
+        al=(% (* 3n (* (- x dl) (+ x dl))) p)
+        x3=(% (- (* al al) (* 8n be)) p)
+        z3=(% (- (* (+ y z) (+ y z)) (+ gm dl)) p)
+        y3=(% (- (* al (- (* 4n be) x3)) (* 8n (* gm gm))) p)
+        [x3 y3 z3])))
+(= (ec_add cv a b)
+  p=cv.p [x1 y1 z1]=a [x2 y2 z2]=b
+  (? (== z1 0n) b (== z2 0n) a
+     (: z1z1=(% (* z1 z1) p) z2z2=(% (* z2 z2) p)
+        u1=(% (* x1 z2z2) p) u2=(% (* x2 z1z1) p)
+        s1=(% (* y1 (* z2 z2z2)) p) s2=(% (* y2 (* z1 z1z1)) p)
+        h=(% (- u2 u1) p) r=(% (- s2 s1) p)
+        (? (== h 0n) (? (== r 0n) (ec_dbl cv a) [1n 1n 0n])
+           (: hh=(% (* h h) p) hhh=(% (* h hh) p) v=(% (* u1 hh) p)
+              x3=(% (- (* r r) (+ hhh (* 2n v))) p)
+              y3=(% (- (* r (- v x3)) (* s1 hhh)) p)
+              z3=(% (* (* z1 z2) h) p)
+              [x3 y3 z3])))))
+(= (bits_of x)                          ; most significant bit first
+  l=(bigunwrap x) out=[] i=#l-1
+  (wh i>=0 (for q 24 (push out (& (>>> l[i] 23-q) 1))) i-=1)
+  (wh (&& #out>0 out[0]==0) (: out=out[1..]))
+  out)
+(= (ec_mul cv pt kk) r=[1n 1n 0n] (for b (bits_of kk) r=(ec_dbl cv r) (? b==1 r=(ec_add cv r pt))) r)
+(= (ec_affine cv pt)
+  p=cv.p [x y z]=pt
+  zi=(c.mpow z (- p 2n) p) zi2=(% (* zi zi) p)
+  [(% (* x zi2) p) (% (* y (* zi2 zi)) p)])
+(= (ec_on_curve cv x y)
+  p=cv.p
+  (== (% (* y y) p) (% (+ (- (* x (* x x)) (* 3n x)) cv.b) p)))
+(= (inv_mod x m) (c.mpow x (- m 2n) m))
+(= (ecdsa_verify key hashname data sig)
+  cv=key.curve hf=(c.hashfn hashname) h=(hf data)
+  top=(der_at sig 0) kids=(der_kids sig top)
+  (? (|| (!= top[0] 48) (!= #kids 2)) false
+     (: r=(der_int sig kids[0]) s=(der_int sig kids[1]) n=cv.n
+        (? (|| (<= r 0n) (>= r n) (<= s 0n) (>= s n)) false
+           (: e=(c.bn_be h[..(min #h cv.bytes)])
+              w=(inv_mod s n) u1=(% (* e w) n) u2=(% (* r w) n)
+              pt=(ec_add cv (ec_mul cv [cv.gx cv.gy 1n] u1) (ec_mul cv [key.x key.y 1n] u2))
+              (? (== pt[2] 0n) false (: [ax ay]=(ec_affine cv pt) (== (% ax n) r))))))))
+; ---- RSA
+(= (hash_of alg) (? (ends alg "sha256") "sha256" "sha384"))
+(= (mgf1 hf seed n) out="" i=0 (wh #out<n out+=(hf (++ seed (frombytes [(>>> i 24)&255 (>>> i 16)&255 (>>> i 8)&255 i&255]))) i+=1) out[..n])
+(= (rsa_verify key alg data sig)
+  n=key.n k=key.len
+  (? (!= #sig k) false
+     (: m=(c.bn_be sig)
+        (? (>= m n) false
+           (: em=(c.bn_bytes_be (c.mpow m key.e n) k)
+              hname=(hash_of alg) hf=(c.hashfn hname) hl=(c.hashlen hname) mh=(hf data)
+              (? (starts alg "rsa_pkcs1") (rsa_pkcs1_ok em mh hname k)
+                 (rsa_pss_ok em mh hf hl key.bits)))))))
+(= (rsa_pkcs1_ok em mh hname k)
+  pre=(c.unhex (? (== hname "sha256") "3031300d060960864801650304020105000420" "3041300d060960864801650304020205000430"))
+  (== em (++ "\x00\x01" (frombytes (rpt [255] (- k 3 #pre #mh))) "\x00" pre mh)))
+(= (rsa_pss_ok em mh hf hl modbits)     ; EMSA-PSS-VERIFY with the salt length equal to the hash length
+  sl=hl embits=modbits-1 el=(cel (/ embits 8))
+  em=em[(- #em el)..]
+  (? (|| (< el hl+sl+2) (!= ($ldb em el-1) 188)) false
+     (: db0=em[..el-hl-1] h=em[el-hl-1..el-1]
+        mask=(mgf1 hf h #db0) db=(bytes (c.xor db0 mask))
+        db[0]=(& db[0] (>>> 255 (- (* 8 el) embits)))
+        pad=el-hl-sl-2
+        ok=true (for i pad (? db[i]!=0 ok=false))
+        (? (|| (! ok) db[pad]!=1) false
+           (== h (hf (++ (rpt "\0" 8) mh (frombytes db[pad+1..]))))))))
+(= (rsa_key s e)                        ; RSAPublicKey DER
+  kids=(der_kids s (der_at s 0)) n=(der_int s kids[0])
+  l=(der_str s kids[0]) (wh (&& #l>0 ($ldb l 0)==0) l=l[1..])
+  {:type "rsa" :n n :e (der_int s kids[1]) :len #l :bits (- (* 8 #l) (- 8 (bitlen ($ldb l 0))))})
+(= (bitlen b) r=0 (wh b>0 r+=1 b=(>>> b 1)) r)
+(= (verify_sig key alg data sig)
+  (? (== key.type "rsa") (rsa_verify key alg data sig)
+     (starts alg "ecdsa") (&& (== key.type "ec") (ecdsa_verify key (hash_of alg) data sig))
+     false))
+; ---- certificates
+(= (spki_key s e)                       ; SubjectPublicKeyInfo -> key map
+  kids=(der_kids s e) alg=(der_kids s kids[0]) o=(oid s alg[0]) bits=(der_str s kids[1])
+  (? (== o "2a864886f70d010101") (rsa_key bits[1..] nil)
+     (== o "2a8648ce3d0201")
+       (: cv=CURVES[(oid s alg[1])]
+          (? (|| (! cv) ($ldb bits 1)!=4 #bits!=2+2*cv.bytes) {:type "unsupported" :why "EC curve or point format"}
+             (: x=(c.bn_be bits[2..2+cv.bytes]) y=(c.bn_be bits[2+cv.bytes..])
+                (? (ec_on_curve cv x y) {:type "ec" :curve cv :x x :y y} {:type "unsupported" :why "point not on the curve"}))))
+     {:type "unsupported" :why o}))
+(= (cert_parse der)
+  top=(der_at der 0) parts=(der_kids der top) tbs=(der_kids der parts[0])
+  i=0 (? tbs[0][0]==160 i=1)           ; skip [0] version
+  [sg is va su sp]=tbs[i+1..i+6]
+  exts=[]
+  (for x tbs[i+6..] (? x[0]==163 exts=(der_kids der (der_kids der x)[0])))
+  r={:raw der :tbs (der_full der parts[0]) :sigalg (sigalg_name der parts[1]) :sig (der_str der parts[2])[1..]
+     :issuer (der_full der is) :subject (der_full der su)
+     :nb (der_time der (der_kids der va)[0]) :na (der_time der (der_kids der va)[1])
+     :key (spki_key der sp) :san [] :ips [] :ca false :keyusage nil}
+  (for x exts
+    k=(der_kids der x) o=(oid der k[0]) v=k[#k-1]
+    inner=(der_at der v[1])
+    (sw o
+      "551d11" (for g (der_kids der inner)
+                 (? g[0]==130 r.san=(+> r.san (lo (der_str der g)))
+                    g[0]==135 r.ips=(+> r.ips (join (~ b=>(tostr b) (bytes (der_str der g))) "."))))
+      "551d13" (: bc=(der_kids der inner) (? (&& #bc>0 bc[0][0]==1) r.ca=(!= ($ldb der bc[0][1]) 0)))
+      "551d0f" (: bs=(der_str der inner) r.keyusage=(? #bs>1 ($ldb bs 1) 0))
+      nil))
+  r)
+(= (cert_valid cert now) (&& cert.nb<=now now<=cert.na))
+(= (host_match cert host)
+  h=(lo host) v4=(dotted host)
+  (? v4 (has cert.ips host)
+     (any p=>(name_match p h) cert.san)))
+(= (name_match pat h)
+  (? (starts pat "*.")
+     (: j=(idx h ".") (&& j>0 (== pat[1..] h[j..]) (! (has (split pat[2..] ".") "*"))))
+     (== pat h)))
+(= (can_sign cert) (&& cert.ca (|| ($isnil cert.keyusage) (!= (& cert.keyusage 4) 0))))
+(= (cert_sig_ok cert issuer)
+  [alg salt]=cert.sigalg
+  (? (starts alg "unsupported") (err (++ "certificate: unsupported signature algorithm " alg))
+     (verify_sig issuer.key alg cert.tbs cert.sig)))
+(= (trust_roots)
+  files=[(env "SSL_CERT_FILE") "/etc/ssl/certs/ca-certificates.crt" "/etc/pki/tls/certs/ca-bundle.crt" "/etc/ssl/cert.pem" "/etc/ssl/ca-bundle.pem"]
+  out=[] done=false
+  (for f files
+    (? (&& (! done) f (ex f))
+       (: done=true
+          (for d (pem_certs (rd f))
+            (try (push out (cert_parse d)) e=>nil)))))
+  (? (! #out) (err "certificate: no CA bundle found (set SSL_CERT_FILE)"))
+  out)
+(= (check_chain ders host roots now)
+  certs=(~ d=>(cert_parse d) ders) leaf=certs[0]
+  (? (! (cert_valid leaf now)) (err "certificate: leaf is expired or not yet valid"))
+  (? (! (host_match leaf host)) (err (++ "certificate: host name " host " does not match the certificate")))
+  cur=leaf depth=0 result=nil
+  (wh (&& ($isnil result) depth<10)
+    anchor=(first (~? r=>(&& (== r.subject cur.issuer) (cert_valid r now) (can_sign r) (cert_sig_ok cur r)) roots))
+    (? anchor result=true
+       (== cur.subject cur.issuer) (err "certificate: self-signed certificate is not trusted")
+       (: nxt=(first (~? x=>(&& (== x.subject cur.issuer) (can_sign x) (cert_valid x now) (cert_sig_ok cur x)) certs))
+          (? ($isnil nxt) (err "certificate: unable to find a trusted issuer")
+             (: cur=nxt depth+=1))))
+    )
+  (? ($isnil result) (err "certificate: chain is too long"))
+  leaf)
+(= (first xs) (? #xs xs[0] nil))
