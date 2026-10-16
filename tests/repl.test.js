@@ -1,0 +1,30 @@
+'use strict';
+// ak repl: values are echoed, definitions persist, errors lose their location, multi-line input, meta commands
+const cp = require('child_process'), path = require('path');
+const AK = path.join(__dirname, '..', 'bin', 'ak');
+let bad = 0, n = 0;
+const t = (name, ok, info) => { n++; if (!ok) { bad++; console.log('FAIL', name, info === undefined ? '' : '\n   ' + JSON.stringify(info)); } };
+const repl = input => cp.spawnSync(AK, ['repl'], { encoding: 'utf8', input, timeout: 60000 });
+const out = input => repl(input).stdout;
+
+t('expression value is echoed', out('1+2\n') === '3\n');
+t('strings and lists use show', out('"hi"\n[1 "a" nil]\n{:a 1}\n') === '"hi"\n[1 "a" nil]\n{"a" 1}\n');
+t('nil is not echoed', out('nil\n') === '');
+t('statements that print are not echoed twice', out('p(5)\n(for i 2 (p i))\n') === '5\n0\n1\n');
+t('variables persist', out('x=5\nx*2\n') === '10\n');
+t('functions persist (block ends at an empty line)', out('f n =\n n*n\n\nf(7)\n') === '49\n');
+t('functions defined with (= ..) persist', out('(= (g a b) a+b)\ng(2 3)\n') === '5\n');
+t('a redefinition replaces the old value', out('x=1\nx=2\nx\n') === '2\n');
+t('an open bracket continues on the next line', out('(p 1\n  2)\n') === '1 2\n');
+t('runtime error: message only, then the session goes on', out('(+ 1 nil)\n7\n').split('\n').length === 3 && /^error: [^\n(]*\n7\n$/.test(out('(+ 1 nil)\n7\n')), out('(+ 1 nil)\n7\n'));
+t('undefined name', out('nothere\n') === 'error: undefined: nothere\n');
+t('a failing definition is not kept', out('y=(1 2)\ny\n') === 'error: not callable\nerror: undefined: y\n', out('y=(1 2)\ny\n'));
+t('syntax error has no location', /^error: missing '\)'/.test(out('(\n')) && !/stdin/.test(out('(\n')));
+t('replayed definitions print nothing again: only the new entry output shows', out('x=(p "once")\nx\n') === 'once\n"once"\n', out('x=(p "once")\nx\n'));
+t(':defs lists them, :reset forgets them', out('x=5\n:defs\n:reset\nx\n') === 'x=5\nerror: undefined: x\n', out('x=5\n:defs\n:reset\nx\n'));
+t(':q stops reading', out('1\n:q\n2\n') === '1\n');
+t('empty input and EOF exit 0', repl('').status === 0 && repl('\n\n').stdout === '');
+t('no prompt when stdin is not a terminal', !/ak>/.test(out('1\n')));
+t('--help mentions repl', /ak repl/.test(cp.spawnSync(AK, ['--help'], { encoding: 'utf8' }).stdout));
+console.log(bad ? bad + ' of ' + n + ' repl checks failed' : n + ' repl checks passed');
+process.exit(bad ? 1 : 0);
