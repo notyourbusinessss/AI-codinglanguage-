@@ -60,7 +60,7 @@ SRCS={}                       ; source text by name, so a compile error can show
         (tm "generated") bytes)
      (: bytes=(gen_program (front src file (? bake img))) (tm "generated") bytes)))
 
-USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak fmt file.aklang | ak test [paths] | ak --version | ak --help"
+USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.aklang out | ak -e 'code' | ak check file.aklang | ak fmt file.aklang | ak test [paths] | ak repl | ak --version | ak --help"
 (= (usage) (ep USAGE) (exit 2))
 ;---- ak test: run *.test.aklang files (or the given files/directories), each in its own process; a test passes when it exits 0
 (= (shq s) (++ "'" (rep s "'" "'\\''") "'"))
@@ -82,6 +82,61 @@ USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.ak
        (: fail+=1 (p (++ "FAIL " f " (exit " ($ code) ")")) (? out (p (++ "  " (rep out "\n" "\n  ")))))))
   (p (++ ($ pass) " passed, " ($ fail) " failed, " ($ pass+fail) " files"))
   (? fail>0 (exit 1)))
+;---- ak repl: definitions (name=expr, f x = .., (use ..)) are kept and replayed in front of every entry (so their side effects run again);
+;     each entry is its own program in a fresh process, and a lone expression has its value printed
+REPLMARK="@@ak-repl@@"
+REPLHELP="enter an expression to see its value, or a definition (x=1, f n = .., (use ..)) to keep it. :defs lists the definitions, :reset forgets them, :q quits"
+(= (isdef f) (&& (is "list" f) #f>0 (is "sym" f[0]) (|| (== ($ f[0]) "use") (&& (== ($ f[0]) "=") #f>=3))))
+(= (noecho f) (&& (is "list" f) #f>0 (is "sym" f[0]) (has ["p" "pr" "ep" "err" "exit"] ($ f[0]))))      ; these print already (and p returns its argument)
+(= (replclean out)           ; what the entry itself printed; an error loses its file:line:col and source line (they point into the replayed program)
+  parts=(split out REPLMARK)
+  body=(? #parts>1 (slice (join parts[1..] REPLMARK) 1) out)
+  res=[] inerr=false
+  (for l (split body "\n")
+    (? (starts l "error: ") (: inerr=true m=(match "^error: (?:<stdin>:\\d+:\\d+: )?(.*?)(?: \\(<stdin>:\\d+:\\d+\\))?$" l) (push res (? m (++ "error: " m[1]) l)))
+       (&& inerr (starts l "  ")) nil
+       (: inerr=false (push res l))))
+  (? (&& #res>0 res[#res-1]=="") (pop res))
+  (join res "\n"))
+(= (unloc e) m=(match "^<stdin>:\\d+:\\d+: (.*)$" e) (? m m[1] e))
+(= (iserr out) (> #(~? l=>(starts l "error: ") (split out "\n")) 0))
+(= (replrun tmp defs new)
+  (wr tmp (fmtforms (++ defs [[(S "p") REPLMARK]] new)))
+  (replclean (sh (++ (shq (selfexe)) " - <" shq(tmp) " 2>&1; true"))))
+(= (more src)                ; read on while the parser says a bracket is still open
+  r=(try [true (parse src "<stdin>")] e=>[false e])
+  (? (&& (! r[0]) (match "missing" r[1]))
+     (: l=(in) (? (== l nil) [src r] (more (++ src "\n" l))))
+     [src r]))
+(= (readblock src)           ; `f x =` and its indented body end at an empty line
+  l=(in) (? (|| (== l nil) (== (trim l) "")) src (readblock (++ src "\n" l))))
+(= (replentry tmp defs sr)   ; -> the definitions after this entry
+  r=sr[1]
+  (? (! r[0]) (: (p (++ "error: " (unloc r[1]))) defs)
+     (: forms=r[1]
+        (? (&& #forms>0 (all isdef forms))
+           (: out=(replrun tmp defs forms) (? out (p out)) (? (iserr out) defs (++ defs forms)))
+           (: new=(? (&& #forms==1 (! (noecho forms[0])))
+                     (++ [[(S "=") (S "__r") forms[0]]] (parse "(? (!= __r nil) (p (show __r)))" "<repl>"))
+                     forms)
+              out=(replrun tmp defs new) (? out (p out)) defs)))))
+(= (replloop tty tmp defs)
+  (? tty (pr "ak> "))
+  line=(in)
+  (? (== line nil) nil
+     (: c=(trim line)
+        (? c==":q" nil
+           c=="" (replloop tty tmp defs)
+           c==":help" (: (p REPLHELP) (replloop tty tmp defs))
+           c==":defs" (: (? #defs (pr (fmtforms defs))) (replloop tty tmp defs))
+           c==":reset" (replloop tty tmp [])
+           (: r=(more (? (ends c "=") (readblock line) line))
+              (replloop tty tmp (replentry tmp defs r)))))))
+(= (cmd_repl)
+  tty=(isatty) tmp=(++ "/tmp/ak-repl-" ($ (now)) ".aklang")
+  (? tty (p (++ "ak " VERSION " repl: " REPLHELP)))
+  (replloop tty tmp [])
+  (rm tmp))
 (= (srcname f) (? f=="-" "<stdin>" f))      ; `-` means the program is read from stdin
 (= (rdsrc f) (? f=="-" (inall) (rd f)))
 (= (withline e)               ; "f:L:C: msg" -> the same plus the source line and a caret under column C
@@ -102,6 +157,7 @@ USAGE="usage: ak file.aklang [args] | ak - (program on stdin) | ak build file.ak
        "check" (? #a!=2 (usage) (: (front (rdsrc a[1]) (srcname a[1])) (p "ok")))
        "fmt" (? #a!=2 (usage) (pr (fmtforms (parse (rdsrc a[1]) (srcname a[1])))))
        "test" (cmd_test a[1..])
+       "repl" (cmd_repl)
        "run" (? #a<2 (usage) (runx (compile_src (rd a[1]) a[1]) a[2..]))
        "compile" (? #a!=3 (usage) (wrx a[2] (compile_src (rd a[1]) a[1])))
        (runx (compile_src (rdsrc a[0]) (srcname a[0])) a[1..]))))
