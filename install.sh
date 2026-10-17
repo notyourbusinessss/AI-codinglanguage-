@@ -71,13 +71,18 @@ case "$MODE" in
     echo "installed $DEST ($("$DEST" --version 2>/dev/null || echo unknown version))"
     if on_path; then echo "try it: ak -e '(p 1+2)'"
     else
-      LINE="export PATH=\"$PREFIX/bin:\$PATH\""; PROFILE="${HOME:-/tmp}/.profile"; DO=0
+      LINE="export PATH=\"$PREFIX/bin:\$PATH\""; H="${HOME:-/tmp}"; DO=0
+      # a login shell reads ~/.profile, a new terminal tab usually starts a non-login shell that reads only ~/.bashrc (bash) or ~/.zshrc (zsh)
+      FILES="$H/.profile"; case "${SHELL:-}" in */zsh) FILES="$FILES $H/.zshrc" ;; */bash) FILES="$FILES $H/.bashrc" ;; esac
       if [ "$YES" = 1 ]; then DO=1
-      elif [ -t 0 ] && [ -t 1 ]; then printf "%s is not on your PATH. Add it to %s? [y/N] " "$PREFIX/bin" "$PROFILE"; read -r ANS || ANS=n; case "$ANS" in y|Y|yes) DO=1 ;; esac; fi
+      elif [ -t 0 ] && [ -t 1 ]; then printf "%s is not on your PATH. Add it to %s? [y/N] " "$PREFIX/bin" "$FILES"; read -r ANS || ANS=n; case "$ANS" in y|Y|yes) DO=1 ;; esac; fi
       if [ "$DO" = 1 ]; then
-        if grep -qxF "$LINE" "$PROFILE" 2>/dev/null; then echo "$PROFILE already has the PATH line"
-        else printf '\n# added by the Ak installer\n%s\n' "$LINE" >> "$PROFILE" && echo "added to $PROFILE; open a new shell"; fi
-      else echo "add it to your PATH (bash/zsh):  echo '$LINE' >> ~/.profile   then open a new shell"; fi
+        for PROFILE in $FILES; do
+          if grep -qxF "$LINE" "$PROFILE" 2>/dev/null; then echo "$PROFILE already has the PATH line"
+          else printf '\n# added by the Ak installer\n%s\n' "$LINE" >> "$PROFILE" && echo "added to $PROFILE"; fi
+        done
+        echo "restart your terminal, or run now:  $LINE"
+      else echo "add it to your PATH (bash/zsh):  echo '$LINE' >> ~/.profile  (and ~/.bashrc or ~/.zshrc)   then restart your terminal, or run:  $LINE"; fi
     fi
     ;;
 esac
