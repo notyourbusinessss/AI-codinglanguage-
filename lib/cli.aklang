@@ -1,0 +1,42 @@
+; Command-line options: flags, options with values, positional arguments, a generated --help. Native and JS target.
+;   (use "lib/cli.aklang" as cli)
+;   spec=[["v" "verbose" "flag" "print more"] ["o" "out" "value" "output file" "a.out"]]     ; [short long kind help default]; short may be nil; kind is "flag" or "value"
+;   r=(cli.parse spec (args))      -> {:opts {"verbose" false "out" "a.out"} :args ["in.txt"]}
+;   (? r.opts.help (p (cli.help "tool" spec)))                       ; -h and --help are implicit unless the spec defines them
+; Accepted: --long  --long=value  --long value  -s  -svalue  -s value  -abc (flags bundled, the last may take a value)  -- (everything after it is positional)  - (positional).
+; Unknown options, a missing value and a value for a flag raise an error of kind "usage" (errkind e), so a program can print the message and the help.
+; A negative number is an option; write it after --.
+(= (usage msg) (raise "usage" msg nil))
+(= (parse spec args)
+  longs={} shorts={} opts={}
+  (for e spec (: longs[e[1]]=e (? e[0] shorts[e[0]]=e) opts[e[1]]=(? e[2]=="flag" false e[4])))
+  rest=[] i=0 done=false
+  (wh i<#args
+    a=args[i] i+=1
+    (? done (push rest a)
+       a=="--" done=true
+       (starts a "--")
+         (: eq=(idx a "=") name=(? eq>=0 a[2..eq] a[2..]) e=longs[name]
+            (? !e (? (&& name=="help" eq<0) opts["help"]=true (usage (++ "unknown option --" name)))
+               e[2]=="flag" (? eq>=0 (usage (++ "option --" name " takes no value")) opts[name]=true)
+               eq>=0 opts[name]=a[eq+1..]
+               i<#args (: opts[name]=args[i] i+=1)
+               (usage (++ "option --" name " needs a value"))))
+       (&& (starts a "-") #a>1)
+         (: k=1
+            (wh k<#a
+              c=a[k] k+=1 e=shorts[c]
+              (? !e (? c=="h" opts["help"]=true (usage (++ "unknown option -" c)))
+                 e[2]=="flag" opts[e[1]]=true
+                 k<#a (: opts[e[1]]=a[k..] k=#a)
+                 i<#args (: opts[e[1]]=args[i] i+=1)
+                 (usage (++ "option -" c " needs a value")))))
+       (push rest a)))
+  {:opts opts :args rest})
+(= (help prog spec)
+  all=(? (any e=>e[1]=="help" spec) spec (+> spec ["h" "help" "flag" "show this help"]))
+  out=(++ "usage: " prog " [options] [args]\n")
+  (for e all
+    left=(++ "  " (? e[0] (++ "-" e[0] ", ") "    ") "--" e[1] (? e[2]=="value" " VALUE" ""))
+    out+=(++ (padr left 26) e[3] (? (&& e[2]=="value" e[4]!=nil) (++ " (default " e[4] ")") "") "\n"))
+  out)

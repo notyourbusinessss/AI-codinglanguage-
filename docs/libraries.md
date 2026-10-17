@@ -1,6 +1,6 @@
 # Libraries and native features
 
-Everything here is native-only (Linux x86-64) and written in Ak itself: the runtime in `rt/` is always available, the libraries in `lib/` are included with `(use ..)`. Programs that `use` a library with `as name` get its functions as `name.fn`; two libraries can never clash. Paths in `use` are relative to the file that contains them; the examples below are written for a file in the repository root.
+Everything here is native-only (Linux x86-64) unless it says "both targets", and written in Ak itself: the runtime in `rt/` is always available, the libraries in `lib/` are included with `(use ..)`. Programs that `use` a library with `as name` get its functions as `name.fn`; two libraries can never clash. Paths in `use` are relative to the file that contains them; the examples below are written for a file in the repository root.
 
 | you want | use |
 |---|---|
@@ -13,6 +13,9 @@ Everything here is native-only (Linux x86-64) and written in Ak itself: the runt
 | a TLS connection | [`lib/tls.aklang`](#tls-libtlsaklang) |
 | a window, drawing, mouse and keyboard | [`lib/x11.aklang` + `lib/canvas.aklang`](#windows-and-drawing) |
 | a terminal UI | [terminal](#terminal) (built in) |
+| file names: join, split, extension | [`lib/path.aklang`](#file-paths-libpathaklang) (both targets) |
+| dates and times, ISO 8601, durations | [`lib/time.aklang`](#dates-and-times-libtimeaklang) (both targets) |
+| `--flags` and `--option value` | [`lib/cli.aklang`](#command-line-options-libcliaklang) (both targets) |
 
 ## Coroutines
 A coroutine is a function with its own stack, so it can stop from any depth (inside loops and calls, not just at the top) and be continued later. `(co f)` makes one, `(resume c v)` runs it until it `yield`s, `(alive c)` says whether it has finished, `(drain c)` collects everything it yields.
@@ -192,3 +195,56 @@ ev=(gui_event w)
 
 ## Terminal
 `(isatty)`, `(termsize)` → `[rows cols]`, `(rawmode f)` runs `f` with the terminal in raw mode and always restores it, `(getkey ms)` returns `"up" "down" "left" "right" "enter" "esc" "tab" "backspace" "ctrl-c"` or the typed character. Draw with ANSI escape sequences written by `(fdw 1 s)`, one write per frame. `examples/connect4.aklang` is a complete terminal game with colour and animation.
+
+## File paths: `lib/path.aklang`
+POSIX path helpers that give the same results as Node's `path.posix` (both targets). They only work on strings and never touch the disk, except `abs`, which asks for the current directory.
+```ak
+(use "lib/path.aklang" as path)
+p path.join("a" "b/../c") path.norm("/a//b/./c/..") path.dir("/a/b.txt") path.base("/a/b.txt") path.base("/a/b.txt" ".txt")
+p path.ext("archive.tar.gz") path.ext(".bashrc") path.isabs("/x") path.rel("/a/b" "/a/c") path.abs("/x/./y/../z/")
+p path.join()
+```
+```output
+a/c /a/b /a b.txt b
+.gz  true ../c /x/z
+.
+```
+`(path.join)` without parentheses around the call is the function itself; call it with no arguments as `path.join()`.
+
+## Dates and times: `lib/time.aklang`
+UTC only, seconds since 1970 (what `now` gives), proleptic Gregorian calendar (both targets). `civil` splits a time into `{:y :mo :d :h :mi :s :ms :wd :yd}` (`wd` 0 is Sunday, `yd` is the day of the year), `epoch` goes back, `iso` and `parse` read and write ISO 8601 (`2023-11-14T22:13:20Z`, also a date alone, a space instead of `T`, fractions, `Z`, `+hh:mm`), `fmtdur` and `pardur` convert durations like `1h2m3s`. Bad input raises `bad time: ...`. Local time zones are not supported.
+```ak
+(use "lib/time.aklang" as t)
+c=(t.civil 1700000000)
+p c.y c.mo c.d c.h c.wd c.yd
+p (t.iso 1700000000) (t.iso 1700000000.25)
+p (t.parse "2023-11-14T23:13:20+01:00") (t.epoch 2023 11 14 22 13 20)
+p (t.fmtdur 90061) (t.pardur "1d2h") (try (t.parse "yesterday") e=>e)
+```
+```output
+2023 11 14 22 2 318
+2023-11-14T22:13:20Z 2023-11-14T22:13:20.250Z
+1700000000 1700000000
+1d1h1m1s 93600 bad time: "yesterday"
+```
+
+## Command-line options: `lib/cli.aklang`
+Flags, options with values, positional arguments and a generated `--help` (both targets). A spec is a list of `[short long kind help default]` (`kind` is `"flag"` or `"value"`; `short` may be `nil`). `(cli.parse spec (args))` returns `{:opts .. :args ..}`. Accepted forms: `--long`, `--long=value`, `--long value`, `-s`, `-svalue`, `-s value`, bundled flags `-vq`, `--` to end the options, `-` as a positional. A mistake raises an error of kind `"usage"`, so a program can print the message and the help.
+```ak
+(use "lib/cli.aklang" as cli)
+spec=[["v" "verbose" "flag" "print more"] ["o" "out" "value" "output file" "a.out"]]
+r=(cli.parse spec ["-v" "in.txt" "--out=x.bin" "more"])
+p r.opts.verbose r.opts.out r.args
+r=(try (cli.parse spec ["--nope"]) e=>(++ (errkind e) ": " e))
+p r
+pr (cli.help "tool" spec)
+```
+```output
+true x.bin ["in.txt" "more"]
+usage: unknown option --nope
+usage: tool [options] [args]
+  -v, --verbose           print more
+  -o, --out VALUE         output file (default a.out)
+  -h, --help              show this help
+```
+`-h` and `--help` are implicit: `r.opts.help` is true. A negative number looks like an option; write it after `--`.
