@@ -27,6 +27,6 @@ io `p pr ep in inall rd wr wrx app ls ex rm mkdir mv isdir runx args env exit sh
 ## CLI
 `ak f.aklang [args]` compile+run · `ak -e 'code' [args]` · `ak build f.aklang out` native executable · `ak fmt f.aklang` (canonical layout) · `ak test [paths]` · `ak repl` · `ak --version`.
 ## Targets
-Native: strings are UTF-8 bytes (`#s` counts bytes); `o.f(x)` calls the function under key `f` of map `o`. JS-only (`aw req js new`, Node modules and globals) and native-only (sockets, DNS, coroutines, terminal, GUI, crypto, TLS, GC knobs): SPEC-extra.md.
+Native: strings are UTF-8 bytes, JS: UTF-16 units (`#s`; see SPEC-extra.md); `o.f(x)` calls the function under key `f` of map `o`. JS-only (`aw req js new`, Node modules and globals) and native-only (sockets, DNS, coroutines, terminal, GUI, crypto, TLS, GC knobs): SPEC-extra.md.
 ## Cheap style (fewer tokens)
 Write what `ak fmt` prints. Use truthiness (`(wh q ..)`), destructuring, `..xs` spread (`(p ..xs)`), ranges, `x+=1`, `??`, `fmt`. Prefer short common words as names (1 token).
