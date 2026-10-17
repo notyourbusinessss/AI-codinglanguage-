@@ -47,6 +47,10 @@ const lines = (label, r, want, src, min = 40) => {
   for (const tg of TARGETS) { const r = run(tg, 'time2', lib('time') + '\n' + fixed.map(f => `(p ${f[0]})`).join('\n') + '\n'); lines('time fixed ' + tg[0], r, fixed.map(f => f[1]), fixed.map(f => f[0]), 20); }
 }
 
+// now is in milliseconds: dividing by 1000 gives a time that civil/iso turn into today's year
+for (const tg of TARGETS) { const r = run(tg, 'now', lib('time') + '\n(p (time.iso (now)/1000))\n'); const y = new Date().getUTCFullYear();
+  t('time ' + tg[0] + ': (iso (now)/1000) is in this year', r.status === 0 && (r.stdout.startsWith(y + '-') || r.stdout.startsWith((y + 1) + '-')), r.stdout); }
+
 // ---- cli
 {
   const spec = '[["v" "verbose" "flag" "print more"] ["o" "out" "value" "output file" "a.out"] [nil "level" "value" "how much"] ["q" "quiet" "flag" "less"]]';
