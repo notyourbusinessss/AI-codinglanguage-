@@ -1,5 +1,5 @@
 ; Native runtime part 5: files, process, time. Linux x86-64 syscalls via $syscall.
-(= (cstr s) n=($hlen s) r=(strnew n+1) ($copy r 0 s 0 n) r)
+(= (cstr s) (? (! (isstr s)) ($throwk 3 (strcat2 "path must be a string, got " (ty s)))) n=($hlen s) r=(strnew n+1) ($copy r 0 s 0 n) r)
 (= (cpeek addr) n=0 (wh (> ($peek addr+n) 0) n+=1)
   r=(strnew n) (for i n ($stb r i ($peek addr+i))) r)
 (= (readfd2 fd)                     ; the whole input as a string, or the negative errno of a failed read (EINTR is retried; only 0 is end of file)
@@ -25,7 +25,7 @@
 (= (app f s) (wrfile f s 1089 420))
 (= (wrx f s) (wrfile f s 577 493) ($syscall 90 ($addr (cstr f)) 493) s)
 (= (ex f) (== ($syscall 21 ($addr (cstr f)) 0) 0))
-(= (ls d)
+(= (ls d=nil)
   d=(?? d ".") fd=($syscall 2 ($addr (cstr d)) 65536 0)
   (? fd<0 ($throwk 4 (strcat2 "cannot list " d)))
   buf=($newb 8 32768 32768) r=(mklist 16) done=false
@@ -44,7 +44,7 @@
 (= (env k)
   (? ($isnil k)
      (: m=(map) i=(+ ($argc) 1) (wh (> ($argv i) 0) kv=(cpeek ($argv i)) j=(strfind kv "=" 0) (? j>0 (mapset m (strslice kv 0 j) (strslice kv j+1 #kv))) i+=1) m)
-     (: i=(+ ($argc) 1) pre=(strcat2 k "=") n=#pre r=nil
+     (: k=(tostr k) i=(+ ($argc) 1) pre=(strcat2 k "=") n=#pre r=nil
         (wh (&& ($isnil r) (> ($argv i) 0))
           a=($argv i) (? (envmatch a pre n) (: kv=(cpeek a) r=(strslice kv n #kv))) i+=1)         ; compare in place; only the matching entry is copied
         r)))

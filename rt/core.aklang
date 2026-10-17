@@ -14,7 +14,7 @@ UNDEF=($frombits 4294508544 3)
 (= (isbool x) (|| ($eqp x true) ($eqp x false)))
 (= (ty x) t=(typeof x)
   (? (|| t==100 t==10) "num" t==101 "nil" t==102 "bool" t==1 "str" t==2 "list" t==4 "map" t==5 "fn" t==7 "sym" (|| t==8 t==9) "arr" "obj"))
-(= (is t x) (streq t (ty x)))
+(= (is t x) (&& (isstr t) (streq t (ty x))))
 (= (isnum x) ($isnum x))
 
 ; ---- output buffer (flushed when full, at exit, before stderr writes and reads)
@@ -102,7 +102,21 @@ INFATAL=false
 (= (le2 a b) (? (&& ($isnum a) ($isnum b)) (<= a b) (<= (cmp2 a b) 0)))
 (= (ge2 a b) (? (&& ($isnum a) ($isnum b)) (>= a b) (>= (cmp2 a b) 0)))
 (= (fdiv2 a b) (? (|| (isbig a) (isbig b)) (bigop "//" a b) (: a=(tonum a) b=(tonum b) (? (== b 0) ($throwk 2 "division by zero") ($ffloor ($fdiv a b))))))
-(= (mod2 a b) (? (|| (isbig a) (isbig b)) (bigop "%" a b) (: a=(tonum a) b=(tonum b) (? (== b 0) ($throwk 2 "division by zero") (: q=($ffloor ($fdiv a b)) ($fsub a ($fmul b q)))))))
+(= (fmodpos x y)      ; exact x mod y for finite x >= 0 and finite y > 0: long division by doubled copies of y; every subtraction is exact (t <= r < 2t)
+  (? x<y x
+     (: t=y (wh (<= ($fmul t 2) x) t=($fmul t 2))
+        r=x
+        (wh t>=y (? r>=t r=($fsub r t)) t=(? t==y 0 ($fmul t 0.5)))
+        r)))
+(= (fmod a b)         ; a % b as in JS: exact, with the sign of a
+  inf=($fdiv 1 0)
+  (? (|| (!= a a) (!= b b) (== (abs a) inf)) ($fsub inf inf)
+     (|| (== (abs b) inf) (== a 0)) a
+     (: r=(fmodpos (abs a) (abs b)) (? a<0 ($fsub -0 r) r))))
+(= (mod2 a b) (? (|| (isbig a) (isbig b)) (bigop "%" a b)
+                 (: a=(tonum a) b=(tonum b)
+                    (? (== b 0) ($throwk 2 "division by zero")
+                       (: r=(fmod a b) (? (&& (!= r 0) (!= (< r 0) (< b 0))) ($fadd r b) r))))))
 (= (pow2 a b) (? (|| (isbig a) (isbig b)) (bigop "**" a b) (pow2n a b)))
 (= (pow2n a b) a=(tonum a) b=(tonum b)
   (? (&& (isint b) (>= b 0) b<9007199254740992) (: r=1 (wh (> b 0) (? (== (mod2 b 2) 1) r=(mul2 r a)) (? b>1 a=(mul2 a a)) b=($ffloor ($fdiv b 2))) r)
