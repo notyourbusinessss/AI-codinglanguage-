@@ -265,6 +265,7 @@ function fromJ(x) {
 
 // ---------------------------------------------------------------- builtins
 let ARGV = [];
+const pth = f => { if (typeof f !== 'string') throw new AkError('path must be a string, got ' + tyOf(f), 'type'); return f; };
 const tyOf = x => {
   if (x == null) return 'nil';
   switch (typeof x) {
@@ -400,7 +401,7 @@ const B = {
   },
   '$': tostr, show,
   split: (s, d) => d === undefined ? (s.trim() === '' ? [] : s.trim().split(/\s+/)) : s.split(d),
-  join: (l, d) => arr(l).map(tostr).join(d === undefined ? '' : d),
+  join: (l, d) => arr(l).map(tostr).join(d == null ? '' : tostr(d)),
   trim: s => s.trim(), up: s => s.toUpperCase(), lo: s => s.toLowerCase(),
   rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
@@ -420,7 +421,7 @@ const B = {
   padl: (s, n, c) => tostr(s).padStart(n, c === undefined ? ' ' : c), padr: (s, n, c) => tostr(s).padEnd(n, c === undefined ? ' ' : c),
   chr: n => { if (!Number.isInteger(n) || n < 0 || n > 0x10FFFF) throw new AkError('chr: invalid code point ' + show(n)); return String.fromCodePoint(n); }, ord: s => s.codePointAt(0),
   num,
-  re: (p, f) => new RegExp(p, f), match: (r, s) => { const m = (r instanceof RegExp ? r : new RegExp(r)).exec(s); return m ? Array.from(m, x => x === undefined ? null : x) : null; },
+  re: (p, f) => new RegExp(p, f == null ? undefined : f), match: (r, s) => { const m = (r instanceof RegExp ? r : new RegExp(r)).exec(s); return m ? Array.from(m, x => x === undefined ? null : x) : null; },
   // types / errors
   ty: tyOf, is: (t, x) => tyOf(x) === t,
   err: (...a) => { throw new AkError(a.map(tostr).join(' ')); },
@@ -436,11 +437,11 @@ const B = {
   mksym: (n, l, c) => { const s = new Sym(String(n)); s.line = l; s.col = c; return s; },   // fresh (non-interned) symbol that remembers its source position
   symline: s => s.line ?? 0, symcol: s => s.col ?? 0,
   bytes: s => Array.from(Buffer.from(s, 'utf8')),
-  rd: f => fs.readFileSync(f, 'utf8'),
+  rd: f => fs.readFileSync(pth(f), 'utf8'),
   // wr/app/wrx take a string or a list of byte values; wrx also marks the file executable
-  wr: (f, s) => { fs.writeFileSync(f, Array.isArray(s) ? Buffer.from(s) : s); return s; },
-  app: (f, s) => { fs.appendFileSync(f, Array.isArray(s) ? Buffer.from(s) : s); return s; },
-  wrx: (f, s) => { fs.writeFileSync(f, Array.isArray(s) ? Buffer.from(s) : s, { mode: 0o755 }); fs.chmodSync(f, 0o755); return s; },
+  wr: (f, s) => { fs.writeFileSync(pth(f), Array.isArray(s) ? Buffer.from(s) : s); return s; },
+  app: (f, s) => { fs.appendFileSync(pth(f), Array.isArray(s) ? Buffer.from(s) : s); return s; },
+  wrx: (f, s) => { fs.writeFileSync(pth(f), Array.isArray(s) ? Buffer.from(s) : s, { mode: 0o755 }); fs.chmodSync(f, 0o755); return s; },
   // run an executable image (string or byte list) with arguments; never returns (exits with the program's status)
   runx: (img, args) => {
     flush();
@@ -451,12 +452,12 @@ const B = {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
     process.exit(r.status === null ? 1 : r.status);
   },
-  rm: f => { fs.rmSync(f, { recursive: true, force: true }); return null; },
-  mkdir: d => { fs.mkdirSync(d, { recursive: true }); return null; },
-  mv: (a, b) => { fs.renameSync(a, b); return null; },
-  isdir: p => { try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } },
+  rm: f => { fs.rmSync(pth(f), { recursive: true, force: true }); return null; },
+  mkdir: d => { fs.mkdirSync(pth(d), { recursive: true }); return null; },
+  mv: (a, b) => { fs.renameSync(pth(a), pth(b)); return null; },
+  isdir: p => { pth(p); try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } },
   bcat: (...parts) => { let n = 0; for (const p of parts) n += p.length; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; },
-  ls: d => fs.readdirSync(d === undefined ? '.' : d), ex: f => fs.existsSync(f),
+  ls: d => fs.readdirSync(d == null ? '.' : pth(d)), ex: f => fs.existsSync(pth(f)),
   in: inLine, inall: inAll, args: () => ARGV.slice(),
   env: k => k === undefined ? new Map(Object.entries(process.env)) : (process.env[k] ?? null),
   exit: c => { flush(); process.exit(c || 0); },
