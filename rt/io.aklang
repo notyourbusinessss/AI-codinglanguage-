@@ -101,18 +101,19 @@ IEOF=false
   ($throwk 4 "exec failed"))
 
 ; ---- file system helpers (rm mkdir mv isdir) and subprocesses (sh)
-(= (statmode path)                     ; st_mode of path, or -1
+(= (statmode path follow=true)         ; st_mode of path (of the link itself when follow is false), or -1
   buf=(scratch)
-  (? (< ($syscall 4 ($addr (cstr path)) buf) 0) -1
+  (? (< ($syscall (? follow 4 6) ($addr (cstr path)) buf) 0) -1
      (+ ($peek buf+24) (* 256 ($peek buf+25)) (* 65536 ($peek buf+26)))))
 (= (isdir p) m=(statmode p) (&& (>= m 0) (== ($band m 61440) 16384)))
-(= (rm p)
-  m=(statmode p)
+(= (rm p)                              ; a symbolic link is removed itself, never followed into its target
+  m=(statmode p false)
   (? (< m 0) nil
-     (: (? (== ($band m 61440) 16384)
-           (: (for f (ls p) (rm (strcat2 (strcat2 p "/") f)))
-              ($syscall 84 ($addr (cstr p))))
-           ($syscall 87 ($addr (cstr p))))
+     (: r=(? (== ($band m 61440) 16384)
+             (: (for f (ls p) (rm (strcat2 (strcat2 p "/") f)))
+                ($syscall 84 ($addr (cstr p))))
+             ($syscall 87 ($addr (cstr p))))
+        (? r<0 ($throwk 4 (strcat2 "cannot remove " p)))
         nil)))
 (= (mkdir p)
   (? (isdir p) nil
