@@ -24,5 +24,10 @@ for (const f of files) {
     else if (want !== undefined && r.stdout !== want) { bad++; console.log(`FAIL ${label}: output differs\n--- expected\n${want}--- got\n${r.stdout}`); }
   }
 }
+// the docs must not claim that no release exists (releases are published; the README once said otherwise after v0.5.0)
+for (const f of ['README.md', ...files.map(f => path.join('docs', f))]) {
+  const m = /none exists yet|no release (exists|has been|is published)|not (yet )?released|for now use a clone/i.exec(fs.readFileSync(path.join(root, f), 'utf8'));
+  if (m) { bad++; console.log(`FAIL ${f}: says "${m[0]}", but releases are published`); }
+}
 if (ran === 0) { console.log('FAIL docs: found no ak blocks to run'); process.exit(1); }
 console.log(`docs: ${bad ? 'FAILED' : 'ok'} (${ran} blocks run, ${skipped} skipped, ${files.length} pages)`); process.exit(bad ? 1 : 0);
