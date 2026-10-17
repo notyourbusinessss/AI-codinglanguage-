@@ -27,6 +27,10 @@ for (const [curve, h] of [['prime256v1', 'sha256'], ['secp384r1', 'sha384'], ['p
     add(`sig ${spki(kp.publicKey)} ecdsa_${h} ${hx(data)} ${hx(sg)}`, 'true');
     add(`sig ${spki(kp.publicKey)} ecdsa_${h} ${hx(flip(data))} ${hx(sg)}`, 'false');
     add(`sig ${spki(kp.publicKey)} ecdsa_${h} ${hx(data)} ${hx(flip(sg))}`, 'false');
+    const tg = Buffer.from(sg), st = 4 + tg[3]; tg[st] = 3;   // the tag of the second INTEGER changed: an otherwise valid signature must be refused
+    add(`sig ${spki(kp.publicKey)} ecdsa_${h} ${hx(data)} ${hx(tg)}`, 'false');
+    const rg = Buffer.from(sg); rg[2] = 3;
+    add(`sig ${spki(kp.publicKey)} ecdsa_${h} ${hx(data)} ${hx(rg)}`, 'false');
   }
 }
 // chains from the openssl CLI
