@@ -10,5 +10,5 @@
     "fuzz": "node tests/fuzz.js 20000 7 -v",
     "bootstrap": "node boot/ak.js src/main.aklang build src/main.aklang bin/ak"
   },
-  "license": "MIT"
+  "license": "Apache-2.0"
 }
