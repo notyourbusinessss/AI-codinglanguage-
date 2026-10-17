@@ -1,0 +1,5 @@
+; patterns JS rejects are rejected natively too (the messages differ per target, so only the outcome is printed); odd but valid ones still match
+(= (m pat s) (try (match (re pat) s) e=>"E"))
+(p (m "[b-a]" "a") (m "a{2,1}" "aa") (m "\\" "a") (m "^*" "a") (m "$+" "a") (m "\\b?" "a") (m "^{2}" "a") (m "a\\B*" "a"))
+(p (m "[a-b]" "b") (m "a{2}" "aa") (m "a{1,2}" "aa") (m "a{2,}" "aaa") (m "a{,2}" "a{,2}") (m "^a$" "a") (m "\\ba" "a") (m "[\\b-\\n]" "\t") (m "x{0}" "x"))
+(p (m "[a-\\d]" "-") (m "[a-\\d]" "5") (m "[a-\\d]" "a") (m "[a-\\d]" "b") (m "[\\d-z]" "-") (m "[a-c\\d]+" "ab1"))
