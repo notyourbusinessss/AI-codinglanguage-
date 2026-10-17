@@ -1,0 +1,6 @@
+use "lib/json.aklang"
+use "lib/http.aklang" as web
+main =
+ r=(web.get "http://example.com")
+ p #r
+? env("RUN") (main)

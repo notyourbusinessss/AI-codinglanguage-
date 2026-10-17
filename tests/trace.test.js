@@ -19,5 +19,16 @@ const lines = r.stderr.trim().split('\n');
 t('at most 10 callers, then ...', lines.length === 12 && lines[10].startsWith('  called from ') && lines[11] === '  ...', r);
 ({ f, r } = run('e.aklang', '(p (try (err "x") e=>"caught"))\n'));
 t('a caught error prints nothing', r.status === 0 && r.stderr === '' && r.stdout === 'caught\n', r);
+// through (use "f" as g): the trace shows the library's own file and positions, never the renamed symbol (g.name), and crosses the boundary both ways
+const lib = path.join(tmp, 'lib.aklang');
+fs.writeFileSync(lib, '(= (boom x)\n  (err "boom" x))\n(= (mid x)\n  1+(boom x))\n');
+fs.writeFileSync(path.join(tmp, 'lib2.aklang'), '(use "lib.aklang" as inner)\n(= (outer x)\n  1+(inner.mid x))\n');
+({ f, r } = run('as1.aklang', '(use "lib.aklang" as g)\n(g.mid 5)\n'));
+t('error inside a namespaced library function', r.status === 1 && r.stderr === `error: boom 5 (${tmp}/lib.aklang:4:5)\n  called from ${f}:2:1\n`, r);
+({ f, r } = run('as2.aklang', '(use "lib.aklang" as g)\n(= (run n)\n  1+(g.mid n))\n(run 3)\n'));
+t('main -> g.mid -> lib: the chain crosses into the library and back', r.status === 1 && r.stderr === `error: boom 3 (${tmp}/lib.aklang:4:5)\n  called from ${f}:3:5\n  called from ${f}:4:1\n`, r);
+({ f, r } = run('as3.aklang', '(use "lib2.aklang" as h)\n(h.outer 2)\n'));
+t('a library loaded with as, through a library loaded with as', r.status === 1 && r.stderr === `error: boom 2 (${tmp}/lib.aklang:4:5)\n  called from ${tmp}/lib2.aklang:3:5\n  called from ${f}:2:1\n`, r);
+t('no renamed symbol in any trace', !/\b(g|h|inner)\.(mid|boom|outer)\b/.test(r.stderr), r);
 console.log(bad ? bad + ' of ' + n + ' trace checks failed' : n + ' trace checks passed');
 process.exit(bad ? 1 : 0);

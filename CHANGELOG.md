@@ -1,0 +1,68 @@
+# Changelog
+
+All notable changes, newest first. The rules for what may change between versions are in [docs/stability.md](docs/stability.md).
+Each release PR adds its section here; `tests/version.test.js` fails when the current version has no section.
+
+## Unreleased
+
+### Added
+- `lib/path.aklang` (as Node's `path.posix`), `lib/time.aklang` (UTC dates, ISO 8601, durations) and `lib/cli.aklang` (flags, options, generated help); all work on both targets
+- On the JS target the socket functions (`tcpc`, `fdr`, `dns`, ...) raise `name: sockets are native only` instead of `undefined: tcpc`
+
+### Fixed
+- Number literals `0x`, `0b` and the escapes `\xNN`, `\uNNNN`, `\u{...}` are checked: a missing digit, a non-hex digit or a missing `}` is a syntax error on both targets (before: the native parser produced a wrong value, the JS parser a NUL character)
+- `unjson` rejects unpaired and mismatched `\uD800`..`\uDFFF` escapes on both targets
+- `(exit x)` accepts nil or an integer only; anything else raises (before: native exited 0)
+- Huge sizes raise `invalid length: N` at once instead of hanging or being killed: `rpt`, `padl`, `padr`, ranges with a step, the indent of `json`, and the byte count of `fdr` and `udpfrom`; `fdr`, `udpfrom` and `fdwait` check their other arguments
+- `up` and `lo` map Latin-1, Latin Extended-A, Greek and Cyrillic letters natively (before: ASCII only); special casing such as `ß` or a final sigma stays JS-only
+- Native `(abs -0.0)` is `+0` and `(pow 0 -1)` is `Infinity` instead of raising `division by zero`, as on the JS target
+- `ak --version` works on the JS target (it printed an `ENOENT` error)
+
+### Docs and tests
+- README no longer says that no release exists
+- `CHANGELOG.md` and `docs/stability.md`; `tests/version.test.js` keeps `package.json`, `ak --version` and the changelog in step
+- `tests/math_accuracy.test.js` measures `pow`, `sin`, `cos` and `tan` against V8: within 1 ulp, special values exact; the README limits are updated to the measured rates
+- New tests: input validation on both targets, golden files for `ak fmt`, stack traces through `use ... as`, the REPL with `use` and `embed`, `ak test` with `use ... as` and stdin, a floor on the program directories
+
+## 0.6.0 (2026-10-17)
+
+### Language
+- Errors carry a kind and data (`errkind`, `errdata`, `raise`)
+- Coroutines (`co`, `resume`, `yield`) and cooperative tasks in `lib/async`
+- Namespaced includes: `(use "lib" as g)`, with a warning when two files define the same function
+- Compact printing: one-line function bodies stay on the header line, inclusive `a..=b` ranges
+
+### Tooling
+- `ak test` runs `*.test.aklang` files and adds `assert`
+- `ak repl` is an interactive session with persistent definitions
+- `ak -` reads a program from stdin
+- Compile and syntax errors show the source line with a caret
+- Uncaught errors list the outer call sites (`called from file:line:col`)
+
+### Libraries
+- Native DNS, UDP sockets, connect timeouts, a plain HTTP client, and an HTTP server example
+- `lib/crypto`: SHA-2, HMAC, HKDF, ChaCha20-Poly1305, AES-GCM, X25519
+- `lib/pki`: X.509, RSA and ECDSA verification, chain and host name checks
+- `lib/tls`: TLS 1.3 client, and `https://` in `lib/http`
+
+### Fixes
+- JSON writes BigInt values as exact digits
+- `chr` validates its argument
+- Fractional indexes and typed-array lengths are rejected on both targets
+- Failed native reads and writes now raise
+- The release workflow attaches to an existing release
+
+### Project
+- User guide in `docs/` with tested code samples
+- Token budget check in CI; SPEC.md cut from 2245 to 1794 tokens
+- Apache 2.0 license
+- Issue labels and priorities documented
+
+## 0.5.0 (2026-10-14)
+
+- Source files use the extension `.aklang` (the old `.ak` still works)
+- Line forms: `head a b` statement lines and `f a b =` function blocks
+- Ak's own GUI: a pure-Ak X11 client, software canvas and a native-window Connect Four
+- `ak --help`, and `ak -` to read a program from stdin
+- `install.sh`: installs `bin/ak`, or downloads a release and checks its SHA-256
+- Release workflow: pushing a `vX.Y.Z` tag publishes `bin/ak` with its checksum

@@ -8,6 +8,7 @@ Ak is a small programming language that is cheap to read and write (few tokens),
 | [Language tour](language-tour.md) | values, syntax, functions, lists and maps, errors, strings, files, processes |
 | [Errors and tests](errors-and-tests.md) | `try`, error kinds, `raise`, stack traces, `ak test`, `ak repl` |
 | [Libraries](libraries.md) | coroutines and `async`, sockets, DNS, `http`, `crypto`, `pki`, `tls`, windows and `canvas`, the terminal |
+| [Stability](stability.md) | what a release promises, deprecation rules, version numbers (and the [changelog](../CHANGELOG.md)) |
 | [Examples](../examples) | complete programs: a game, a web server, a GUI |
 
 Every code block marked `ak` in these pages is run by `npm test` (`tests/docs.test.js`), and when an `output` block follows it, the program's output must match it exactly. A block marked `ak no-run` needs a network or a display and is not run.

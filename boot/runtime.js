@@ -257,10 +257,12 @@ function toJ(x) {
   if (x instanceof Sym) return x.n;
   return x;
 }
+const LONE_SURR = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+const jstr = x => { if (LONE_SURR.test(x)) throw new SyntaxError('unpaired surrogate escape'); return x; };
 function fromJ(x) {
   if (Array.isArray(x)) return x.map(fromJ);
-  if (x && typeof x === 'object') { const m = new Map(); for (const k of Object.keys(x)) m.set(k, fromJ(x[k])); return m; }
-  return x;
+  if (x && typeof x === 'object') { const m = new Map(); for (const k of Object.keys(x)) m.set(jstr(k), fromJ(x[k])); return m; }
+  return typeof x === 'string' ? jstr(x) : x;
 }
 
 // ---------------------------------------------------------------- builtins
@@ -405,7 +407,7 @@ const B = {
   trim: s => s.trim(), up: s => s.toUpperCase(), lo: s => s.toLowerCase(),
   rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
-  rpt: (s, k) => { k = Math.max(0, Math.trunc(n(k))); if (typeof s === 'string') return s.repeat(k); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
+  rpt: (s, k) => { k = Math.max(0, Math.trunc(n(k))); if (typeof s === 'string') return s.repeat(k); if (!s.length) return []; if (s.length * k > 134217728) throw new AkError('invalid length: ' + show(s.length * k), 'arith'); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
   fmt: (f, ...a) => { let i = 0; return f.replace(/%(-?)(0?)(\d*)(?:\.(\d+))?([sdfxXbo%])/g, (m, left, zero, w, prec, t) => {
       if (t === '%') return '%';
       const v = a[i++]; let s;
@@ -460,7 +462,7 @@ const B = {
   ls: d => fs.readdirSync(d == null ? '.' : pth(d)), ex: f => fs.existsSync(pth(f)),
   in: inLine, inall: inAll, args: () => ARGV.slice(),
   env: k => k === undefined ? new Map(Object.entries(process.env)) : (process.env[k] ?? null),
-  exit: c => { flush(); process.exit(c || 0); },
+  exit: c => { if (c != null && !Number.isInteger(c)) throw new AkError('exit: expected an integer, got ' + tyOf(c), 'type'); flush(); process.exit(c || 0); },
   sh: cmd => {
     flush();
     try { return require('child_process').execSync(cmd, { encoding: 'utf8', stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 30 }); }
@@ -471,7 +473,7 @@ const B = {
   sleep: ms => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); return null; },
   delay: ms => new Promise(r => setTimeout(r, ms)),
   imp: m => import(m),
-  json: (x, ind) => JSON.stringify(toJ(x), null, ind), unjson: s => fromJ(JSON.parse(s)),
+  json: (x, ind) => { if (typeof ind === 'number' && ind > 100) throw new AkError('invalid length: ' + show(ind), 'arith'); return JSON.stringify(toJ(x), null, ind); }, unjson: s => fromJ(JSON.parse(s)),
   ev: src => {
     const { compile } = require('./ak.js');
     const code = compile(src, { file: '<ev>', ret: true });
@@ -559,6 +561,9 @@ function standalone(file, body, name) {
     } else spawn(file, { standalone: true, argv, dir: process.cwd(), name });
   } else exec(body, WT.workerData.argv, WT.workerData.dir, WT.workerData.name);
 }
+// sockets exist only natively: say so, instead of `undefined: tcpc`
+for (const nm of ['tcpl', 'tcpp', 'tcpa', 'tcpc', 'fdr', 'fdw', 'fdc', 'fdwait', 'udp', 'udpto', 'udpfrom', 'unixc', 'dns'])
+  if (!(nm in B)) Object.defineProperty(B, nm, { value: () => { throw new AkError(nm + ': sockets are native only; on the JS target use Node modules, e.g. (req "net"), or fetch', 'error'); }, enumerable: false, writable: true, configurable: true });   // not enumerable: spec.test.js lists the real JS builtins
 // for tests/embedding: compile+run in-process, return value
 function evalCode(code) { return new Function('R', 'require', code)(api, require); }
 

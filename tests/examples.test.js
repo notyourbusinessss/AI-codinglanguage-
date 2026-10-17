@@ -8,4 +8,5 @@ for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.aklang') && fs.exis
   const want = fs.readFileSync(path.join(dir, f.replace(/\.aklang$/, '.out')), 'utf8');
   if (r.stdout !== want || r.status !== 0) { bad++; console.log('FAIL example', f, '\n--got--\n' + r.stdout + r.stderr + '\n--want--\n' + want); }
 }
+if (n === 0) { bad++; console.log('FAIL: no examples with an .out file found'); }
 console.log(`examples: ${n - bad}/${n} passed`); process.exit(bad ? 1 : 0);

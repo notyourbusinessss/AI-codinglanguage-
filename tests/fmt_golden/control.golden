@@ -1,0 +1,8 @@
+fizz n = ? n%15==0 "FizzBuzz" n%3==0 "Fizz" n%5==0 "Buzz" n
+for i 1..=15 p(fizz(i))
+collatz n =
+ steps=0
+ wh n!=1 (? n%2==0 n=n//2 n=3*n+1) steps+=1
+ steps
+p (sw collatz(27) 111 "known" 0 "zero" "other")
+p (try err("boom" 1) e=>(++ "caught " e))

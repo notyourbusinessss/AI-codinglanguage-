@@ -1,0 +1,4 @@
+; the sign of zero and division by zero in pow and abs agree with the JS target (found by tests/math_accuracy.test.js)
+(for [f a b] [[pow 0 -1] [pow -0.0 -1] [pow 0 -2] [pow -0.0 -3] [pow 0 -0.5] [pow -0.0 0.5] [pow -0.0 3] [pow 0 3] [pow 2 -1] [pow -4 -1]]
+  (p (f64bits (f a b))))
+(p (f64bits (abs -0.0)) (f64bits (abs 0)) (f64bits (abs -2)) (abs -3.5))
