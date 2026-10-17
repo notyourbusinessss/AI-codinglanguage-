@@ -56,11 +56,24 @@ JI=0
   (wh (&& ok i<n) (? (!= ($ldb JS JI+i) ($ldb w i)) ok=false) i+=1)
   ok)
 (= (jnumchar c) (|| (&& c>=48 c<=57) c==43 c==45 c==46 c==101 c==69))
+(= (jdigs i b)                    ; index after the digits starting at i
+  (wh (&& i<b (isdig ($ldb JS i))) i+=1) i)
+(= (jnumok a b)                   ; is JS[a..b) -?(0|[1-9]d*)(.d+)?([eE][+-]?d+)?
+  i=a
+  (? (&& i<b (== ($ldb JS i) 45)) i+=1)
+  j=(? (&& i<b (== ($ldb JS i) 48)) i+1 (jdigs i b))
+  ok=(&& j>i j<=b) i=j
+  (? (&& ok i<b (== ($ldb JS i) 46)) (: j=(jdigs i+1 b) ok=(> j i+1) i=j))
+  (? (&& ok i<b (|| (== ($ldb JS i) 101) (== ($ldb JS i) 69)))
+     (: i+=1 (? (&& i<b (|| (== ($ldb JS i) 43) (== ($ldb JS i) 45))) i+=1)
+        j=(jdigs i b) ok=(> j i) i=j))
+  (&& ok i==b))
 (= (jscalar)                      ; number / true / false / null at JI
   n=($hlen JS) j=JI
   (wh (&& j<n (jnumchar ($ldb JS j))) j+=1)
   (? j>JI
-     (: v=(jfastnum JI j)
+     (: (? (! (jnumok JI j)) (jerr "bad number"))
+        v=(jfastnum JI j)
         (? ($isnil v) (: v=(num (strslice JS JI j)) (? ($isnil v) (jerr "bad number"))))
         (<- JI j) v)
      (jlit "true") (: (<- JI JI+4) true)
