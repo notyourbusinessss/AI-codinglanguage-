@@ -66,8 +66,9 @@
      r<0 why=(errwhy 0-r))
   (? ms ($syscall 72 fd 4 0))           ; back to blocking mode
   (? why (: ($syscall 3 fd) why) fd))
+(= (needfd fd) (? (|| (! ($isnum fd)) (! (isint fd)) fd<0) ($throwk 3 (strcat2 "expected a file descriptor, got " (ty fd)))) fd)
 (= (fdr fd n=nil)                           ; read up to n (default 65536) bytes; "" at end of stream
-  n=(?? n 65536) b=(strnew n) r=-4
+  n=(needlen (?? n 65536) 2147483647) (needfd fd) b=(strnew n) r=-4
   (wh r==-4 r=($syscall 0 fd ($addr b) n))
   (? r<0 (netfail "read failed") r==n b (strslice b 0 r)))
 (= (fdwn fd s off n)                    ; write n bytes of s (string, byte list or typed array) starting at byte offset off
@@ -91,7 +92,7 @@
   fd)
 (= (fdc fd) ($syscall 3 fd) nil)
 (= (fdwait fds ms=nil)                      ; the fds that are readable (or hung up) within ms milliseconds (ms<0: wait forever)
-  n=#fds b=($newb 1 8*n 8*n)
+  (needlist fds) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) n=#fds b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// fds[i] (** 256 k)) 256))) ($stb b 8*i+4 1))
   r=($syscall 7 ($addr b) n (?? ms -1))
   (? r<0 (? r==-4 [] (netfail "poll failed"))
@@ -104,7 +105,7 @@
   r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) 16)
   (? r<0 (netfail "send failed")) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
-  n=(?? n 65536)
+  n=(needlen (?? n 65536) 2147483647) (needfd fd)
   (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
      (: b=(strnew n) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
