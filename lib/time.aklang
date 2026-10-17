@@ -1,4 +1,4 @@
-; Dates and times (UTC, proleptic Gregorian calendar). Pure arithmetic: native and JS target. Time is seconds since 1970-01-01 (what `now` gives).
+; Dates and times (UTC, proleptic Gregorian calendar). Pure arithmetic: native and JS target. Time is seconds since 1970-01-01; `now` is in milliseconds, so use (t.iso (now)/1000).
 ;   (use "lib/time.aklang" as t)
 ;   (t.civil 1700000000)         -> {:y 2023 :mo 11 :d 14 :h 22 :mi 13 :s 20 :ms 0 :wd 2 :yd 318}     (wd: 0 = Sunday, yd: day of the year from 1)
 ;   (t.epoch 2023 11 14 22 13 20) -> 1700000000                                                         (h mi s default to 0; d may overflow the month)

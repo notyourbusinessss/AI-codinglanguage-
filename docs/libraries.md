@@ -212,7 +212,7 @@ a/c /a/b /a b.txt b
 `(path.join)` without parentheses around the call is the function itself; call it with no arguments as `path.join()`.
 
 ## Dates and times: `lib/time.aklang`
-UTC only, seconds since 1970 (what `now` gives), proleptic Gregorian calendar (both targets). `civil` splits a time into `{:y :mo :d :h :mi :s :ms :wd :yd}` (`wd` 0 is Sunday, `yd` is the day of the year), `epoch` goes back, `iso` and `parse` read and write ISO 8601 (`2023-11-14T22:13:20Z`, also a date alone, a space instead of `T`, fractions, `Z`, `+hh:mm`), `fmtdur` and `pardur` convert durations like `1h2m3s`. Bad input raises `bad time: ...`. Local time zones are not supported.
+UTC only, seconds since 1970 (`now` is in milliseconds: `(t.iso (now)/1000)`), proleptic Gregorian calendar (both targets). `civil` splits a time into `{:y :mo :d :h :mi :s :ms :wd :yd}` (`wd` 0 is Sunday, `yd` is the day of the year), `epoch` goes back, `iso` and `parse` read and write ISO 8601 (`2023-11-14T22:13:20Z`, also a date alone, a space instead of `T`, fractions, `Z`, `+hh:mm`), `fmtdur` and `pardur` convert durations like `1h2m3s`. Bad input raises `bad time: ...`. Local time zones are not supported.
 ```ak
 (use "lib/time.aklang" as t)
 c=(t.civil 1700000000)
