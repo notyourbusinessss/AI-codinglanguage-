@@ -120,7 +120,7 @@ IEOF=false
      (: i=1 n=#p
         (wh i<=n
           (? (|| i==n (== ($ldb p i) 47))
-             (: q=(strslice p 0 i) (? (&& (> #q 0) (! (isdir q))) ($syscall 83 ($addr (cstr q)) 493))))
+             (: q=(strslice p 0 i) (? (&& (> #q 0) (! (isdir q)) (< ($syscall 83 ($addr (cstr q)) 493) 0) (! (isdir q))) ($throwk 4 (strcat2 "cannot create " p)))))
           i+=1)
         nil)))
 (= (mv a b) (? (< ($syscall 82 ($addr (cstr a)) ($addr (cstr b))) 0) ($throwk 4 (strcat2 (strcat2 (strcat2 "cannot rename " a) " to ") b))) nil)
