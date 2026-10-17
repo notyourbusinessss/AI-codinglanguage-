@@ -1,0 +1,11 @@
+; string and path builtins given something else raise a type error instead of crashing (the messages differ per target, so only the outcome is printed)
+bad=[nil 0 -1 1.5 true [1] {} 10n]
+(= (t f) (~ v=>(try (: (f v) "ok") e=>"E") bad))
+(p "rd" (t rd) "ex" (t ex) "isdir" (t isdir) "ls" (t v=>(? v (ls v) (ls))))
+(p "wr" (t v=>(wr v "x")) "app" (t v=>(app v "x")) "wrx" (t v=>(wrx v "x")) "mkdir" (t mkdir) "rm" (t rm) "mv" (t v=>(mv v "x")) "mv2" (t v=>(mv "x" v)))
+(p "up" (t up) "lo" (t lo) "trim" (t trim) "ord" (t ord) "bytes" (~ v=>(try (: (bytes v) "ok") e=>"E") [nil 0 -1 1.5 true {} 10n]))
+(p "starts" (t v=>(starts v "x")) "ends" (t v=>(ends v "x")))
+(p (is "num" 5) (is 5 5) (is nil nil) (is "str" "s"))
+(p (join [1 2] 0) (join ["a" "b"] nil) (join ["a" "b"] "-"))
+(p (try (re "a" 1) e=>"E") (re "a" nil) (match (re "A" "i") "a"))
+(p (env 5) (env true) (env "AK_NO_SUCH_VARIABLE"))
