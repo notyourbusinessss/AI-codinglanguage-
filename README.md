@@ -158,5 +158,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pu
 - The GUI library targets Linux with X11 or XWayland: depth-24 displays, fixed-size windows, ASCII text, no clipboard or window resizing yet. The terminal library needs a Linux terminal (raw mode via `ioctl`).
 - No static types. Overflow-checked arithmetic is a few times slower than unchecked in arithmetic-bound loops.
 
+## Roadmap
+What is left before 1.0, by milestone: [ROADMAP.md](ROADMAP.md).
+
 ## License
 Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Copyright 2026 notyourbusinessss. The embedded DejaVu font data keeps its own license, see `lib/FONT-LICENSE.txt`.
