@@ -33,18 +33,18 @@ CHARS=nil
      (isstr c) (>= (strfind c (needstr x) 0) 0)
      (ismap c) (maphas c x)
      (>= (idx c x) 0)))
-(= (starts s p) n=($hlen p)
+(= (starts s p) (needstr s) (needstr p) n=($hlen p)
   (? n>($hlen s) false (: i=0 (wh (&& (< i n) (== ($ldb s i) ($ldb p i))) i+=1) (== i n))))
-(= (ends s p) n=($hlen p) m=($hlen s)
+(= (ends s p) (needstr s) (needstr p) n=($hlen p) m=($hlen s)
   (? n>m false (: i=0 (wh (&& (< i n) (== ($ldb s m-n+i) ($ldb p i))) i+=1) (== i n))))
 (= (isspace b) (|| b==32 (&& b>=9 b<=13)))
-(= (trim s) n=($hlen s) a=0 b=n
+(= (trim s) (needstr s) n=($hlen s) a=0 b=n
   (wh (&& (< a b) (isspace ($ldb s a))) a+=1)
   (wh (&& (> b a) (isspace ($ldb s b-1))) b-=1)
   (? (&& a==0 b==n) s (strslice s a b)))
-(= (up s) n=($hlen s) r=(strnew n)
+(= (up s) (needstr s) n=($hlen s) r=(strnew n)
   (for i n b=($ldb s i) ($stb r i (? (&& b>=97 b<=122) b-32 b))) r)
-(= (lo s) n=($hlen s) r=(strnew n)
+(= (lo s) (needstr s) n=($hlen s) r=(strnew n)
   (for i n b=($ldb s i) ($stb r i (? (&& b>=65 b<=90) b+32 b))) r)
 (= (split s d=nil)
   (needstr s) r=(mklist 8) n=($hlen s)
@@ -63,7 +63,7 @@ CHARS=nil
                 (? b<0 (: (lpush r (strslice s a n)) a=-1) (: (lpush r (strslice s a b)) a=b+dl)))
               r)))))
 (= (join l d=nil)
-  l=(toarr l) d=(?? d "") n=#l parts=(mklist n) pa=($ldw parts 2) total=0
+  l=(toarr l) d=(tostr (?? d "")) n=#l parts=(mklist n) pa=($ldw parts 2) total=0
   (for i n x=(lget l i) s=(? (isstr x) x (tostr x)) ($stw pa ($fadd i 1) s) total=($fadd total ($hlen s)))
   ($stw parts 1 n)
   total+=($hlen d)*(? n>0 n-1 0)
@@ -91,14 +91,14 @@ CHARS=nil
      n<2048 (: r=(strnew 2) ($stb r 0 192+(n>>6)) ($stb r 1 128+(n&63)) r)
      n<65536 (: r=(strnew 3) ($stb r 0 224+(n>>12)) ($stb r 1 128+((n>>6)&63)) ($stb r 2 128+(n&63)) r)
      (: r=(strnew 4) ($stb r 0 240+(n>>18)) ($stb r 1 128+((n>>12)&63)) ($stb r 2 128+((n>>6)&63)) ($stb r 3 128+(n&63)) r)))
-(= (ord s) n=($hlen s)
+(= (ord s) (needstr s) n=($hlen s)
   (? n==0 nil
      (: b=($ldb s 0)
         (? (|| b<128 n<2) b
            b<224 ((b&31)<<6)+(($ldb s 1)&63)
            b<240 ((b&15)<<12)+((($ldb s 1)&63)<<6)+(($ldb s 2)&63)
            ((b&7)<<18)+((($ldb s 1)&63)<<12)+((($ldb s 2)&63)<<6)+(($ldb s 3)&63)))))
-(= (bytes s) n=($hlen s) r=(mklist n) (for i n (lpush r ($ldb s i))) r)
+(= (bytes s) (needstr s) n=($hlen s) r=(mklist n) (for i n (lpush r ($ldb s i))) r)
 ; list of byte values -> string (used by wr)
 (= (frombytes l) n=#l r=(strnew n) (for i n ($stb r i (lget l i))) r)
 
