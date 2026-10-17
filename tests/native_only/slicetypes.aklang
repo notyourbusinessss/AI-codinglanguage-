@@ -1,0 +1,4 @@
+; slice bounds that are not numbers raise an index error (a BigInt bound used to be treated as a machine address and crash)
+(p (try (sub "%d" 10n 1) e=>e) (try (sub [1 2 3] "a" 2) e=>e))
+(p (try [1 2 3][1..10n] e=>e) (try (take "a" [1 2 3]) e=>e))
+(p (take 2 [1 2 3]) (sub "abcd" 1 3) (sub [1 2 3] nil 2))
