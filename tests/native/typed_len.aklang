@@ -1,0 +1,5 @@
+; typed array lengths are validated: same error on both targets
+(for k [u8 i8 u16 i16 u32 i32 f32 f64]
+  (for n [-1 1.5 1e30 2147483648]
+    (p (try (k n) e=>e))))
+(p (# (u8 0)) (# (f64 3)) (# (i16 [1 2 3])))
