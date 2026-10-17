@@ -24,7 +24,7 @@
   (sw k
     [0 1] ($stb x i v)
     [2 3] ($st16 x 2*i v)
-    [4 5] (: ($st16 x 4*i v) ($st16 x 4*i+2 ($ffloor ($fdiv v 65536))))
+    [4 5] (: t=($ftrunc v) ($st16 x 4*i t) ($st16 x 4*i+2 ($ffloor ($fdiv t 65536))))
     6 ($stf32 x 4*i v)
     ($stw x i+1 v))
   v)
