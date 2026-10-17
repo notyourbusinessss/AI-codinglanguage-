@@ -180,7 +180,7 @@ p sieve(100)
 ```output
 25
 ```
-Integer arithmetic is overflow-checked (a few times slower than unchecked in tight loops); `ak --fast` skips the checks.
+Integer arithmetic is overflow-checked (a few times slower than unchecked in tight loops); the JS target has `node boot/ak.js --fast` to skip them (the native `ak` has no such flag).
 
 ## Where next
 Errors, tests and the REPL: [errors-and-tests.md](errors-and-tests.md). Networking, TLS, windows: [libraries.md](libraries.md).
