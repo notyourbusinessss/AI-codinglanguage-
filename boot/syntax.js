@@ -293,8 +293,8 @@ class Parser {
 
   number() {
     const s = this.s, st = this.i;
-    if (s[this.i] === '0' && (s[this.i + 1] === 'x' || s[this.i + 1] === 'X')) { this.i += 2; while (/[0-9a-fA-F_]/.test(s[this.i] || '')) this.i++; return Number(s.slice(st, this.i).replace(/_/g, '')); }
-    if (s[this.i] === '0' && (s[this.i + 1] === 'b' || s[this.i + 1] === 'B')) { this.i += 2; while (/[01_]/.test(s[this.i] || '')) this.i++; return parseInt(s.slice(st + 2, this.i).replace(/_/g, ''), 2); }
+    if (s[this.i] === '0' && (s[this.i + 1] === 'x' || s[this.i + 1] === 'X')) { this.i += 2; while (/[0-9a-fA-F_]/.test(s[this.i] || '')) this.i++; if (!/[^_]/.test(s.slice(st + 2, this.i))) this.err('0x needs at least one digit', st); return Number(s.slice(st, this.i).replace(/_/g, '')); }
+    if (s[this.i] === '0' && (s[this.i + 1] === 'b' || s[this.i + 1] === 'B')) { this.i += 2; while (/[01_]/.test(s[this.i] || '')) this.i++; if (!/[^_]/.test(s.slice(st + 2, this.i))) this.err('0b needs at least one digit', st); return parseInt(s.slice(st + 2, this.i).replace(/_/g, ''), 2); }
     while (/[0-9_]/.test(s[this.i] || '')) this.i++;
     if (s[this.i] === 'n') { this.i++; return BigInt(s.slice(st, this.i - 1).replace(/_/g, '')); }
     if (s[this.i] === '.' && DIG.test(s[this.i + 1] || '')) { this.i++; while (/[0-9_]/.test(s[this.i] || '')) this.i++; }
@@ -304,6 +304,14 @@ class Parser {
       if (m) this.i += m[0].length;
     }
     return Number(s.slice(st, this.i).replace(/_/g, ''));
+  }
+
+  hex(a, b, n, at) {
+    const h = this.s.slice(a, b);
+    if (!/^[0-9a-fA-F]+$/.test(h) || (n && h.length !== n)) this.err('bad hex digits in escape', at);
+    const v = parseInt(h, 16);
+    if (v > 0x10ffff) this.err('bad hex digits in escape', at);
+    return v;
   }
 
   string() {
@@ -319,11 +327,11 @@ class Parser {
         case 'n': out += '\n'; break; case 't': out += '\t'; break; case 'r': out += '\r'; break; case '0': out += '\0'; break;
         case 'e': out += '\x1b'; break; case '\\': out += '\\'; break; case '"': out += '"'; break; case "'": out += "'"; break; case '$': out += '$'; break;
         case 'u': {
-          if (s[this.i] === '{') { const j = s.indexOf('}', this.i); out += String.fromCodePoint(parseInt(s.slice(this.i + 1, j), 16)); this.i = j + 1; }
-          else { out += String.fromCharCode(parseInt(s.slice(this.i, this.i + 4), 16)); this.i += 4; }
+          if (s[this.i] === '{') { const j = s.indexOf('}', this.i); if (j < 0) this.err('missing } in \\u{...}', this.i - 2); out += String.fromCodePoint(this.hex(this.i + 1, j, 0, this.i - 2)); this.i = j + 1; }
+          else { out += String.fromCharCode(this.hex(this.i, this.i + 4, 4, this.i - 2)); this.i += 4; }
           break;
         }
-        case 'x': out += String.fromCharCode(parseInt(s.slice(this.i, this.i + 2), 16)); this.i += 2; break;
+        case 'x': out += String.fromCharCode(this.hex(this.i, this.i + 2, 2, this.i - 2)); this.i += 2; break;
         default: this.err(`bad escape \\${e}`, this.i - 2);
       }
     }

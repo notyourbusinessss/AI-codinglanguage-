@@ -42,10 +42,47 @@ CHARS=nil
   (wh (&& (< a b) (isspace ($ldb s a))) a+=1)
   (wh (&& (> b a) (isspace ($ldb s b-1))) b-=1)
   (? (&& a==0 b==n) s (strslice s a b)))
-(= (up s) (needstr s) n=($hlen s) r=(strnew n)
-  (for i n b=($ldb s i) ($stb r i (? (&& b>=97 b<=122) b-32 b))) r)
-(= (lo s) (needstr s) n=($hlen s) r=(strnew n)
-  (for i n b=($ldb s i) ($stb r i (? (&& b>=65 b<=90) b+32 b))) r)
+(= (cuc c)                              ; simple upper-case mapping of one code point: ASCII, Latin-1, Latin Extended-A, Greek, Cyrillic
+  (? c<128 (? (&& c>=97 c<=122) c-32 c)
+     (&& c>=224 c<=254 c!=247) c-32
+     c==255 376 c==181 924
+     (&& c>=256 c<=303) (? (== (c&1) 1) c-1 c)
+     (&& c>=306 c<=311) (? (== (c&1) 1) c-1 c)
+     (&& c>=314 c<=328) (? (== (c&1) 0) c-1 c)
+     (&& c>=330 c<=375) (? (== (c&1) 1) c-1 c)
+     (&& c>=378 c<=382) (? (== (c&1) 0) c-1 c)
+     c==383 83
+     c==940 902 (&& c>=941 c<=943) c-37 c==972 908 (&& c>=973 c<=974) c-63 c==962 931
+     (&& c>=945 c<=971) c-32
+     (&& c>=1072 c<=1103) c-32
+     (&& c>=1104 c<=1119) c-80
+     c))
+(= (clo c)                              ; simple lower-case mapping of one code point
+  (? c<128 (? (&& c>=65 c<=90) c+32 c)
+     (&& c>=192 c<=222 c!=215) c+32
+     c==376 255
+     (&& c>=256 c<=303) (? (== (c&1) 0) c+1 c)
+     (&& c>=306 c<=311) (? (== (c&1) 0) c+1 c)
+     (&& c>=313 c<=327) (? (== (c&1) 1) c+1 c)
+     (&& c>=330 c<=375) (? (== (c&1) 0) c+1 c)
+     (&& c>=377 c<=381) (? (== (c&1) 1) c+1 c)
+     c==902 940 (&& c>=904 c<=906) c+37 c==908 972 (&& c>=910 c<=911) c+63
+     (&& c>=913 c<=939 c!=930) c+32
+     (&& c>=1040 c<=1071) c+32
+     (&& c>=1024 c<=1039) c+80
+     c))
+(= (recase s f) n=($hlen s) parts=(mklist 16) i=0
+  (wh i<n b=($ldb s i) k=(? b<192 1 b<224 2 b<240 3 4) (? i+k>n k=n-i)
+    (lpush parts (? b<128 (chr (f b)) b<192 (strslice s i i+k) (chr (f (ord (strslice s i i+k))))))
+    i+=k)
+  (join parts ""))
+(= (hasnonascii s) n=($hlen s) i=0 (wh (&& i<n (< ($ldb s i) 128)) i+=1) i<n)
+(= (up s) (needstr s) n=($hlen s)
+  (? (hasnonascii s) (recase s cuc)
+     (: r=(strnew n) (for i n b=($ldb s i) ($stb r i (? (&& b>=97 b<=122) b-32 b))) r)))
+(= (lo s) (needstr s) n=($hlen s)
+  (? (hasnonascii s) (recase s clo)
+     (: r=(strnew n) (for i n b=($ldb s i) ($stb r i (? (&& b>=65 b<=90) b+32 b))) r)))
 (= (split s d=nil)
   (needstr s) r=(mklist 8) n=($hlen s)
   (? (isre d) (rxsplit s d)
@@ -74,8 +111,8 @@ CHARS=nil
 (= (toint x) (? ($isnum x) (? (== x x) ($ftrunc x) 0) x))          ; counts and slice bounds drop their fraction like the JS target (NaN is 0); anything else is left for the caller to reject
 (= (rpt x k)
   k=(toint (tonum k)) k=(? k<0 0 k)
-  (? (isstr x) (: n=($hlen x) r=(strnew n*k) (for i k ($copy r i*n x 0 n)) r)
-     (: r=(mklist 8) l=(toarr x) (for i k (for y l (lpush r y))) r)))
+  (? (isstr x) (: n=($hlen x) (? n==0 k=0) (needlen n*k 2147483647) r=(strnew n*k) (for i k ($copy r i*n x 0 n)) r)
+     (: r=(mklist 8) l=(toarr x) (? #l==0 k=0) (needlen #l*k 134217728) (for i k (for y l (lpush r y))) r)))
 (= (rep s a b)
   (needstr s)
   (? (isre a) (rxreplace s a b)
@@ -147,7 +184,8 @@ SYMTAB=nil
   (? s==0 ($throw "..: zero step"))
   (? (&& s==1 ($isnum a) ($isnum b) (isint a) a<4503599627370496 a>-4503599627370496 b-a<134217728)
      (: n=(? b>a ($fceil ($fsub b a)) 0) r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 a+i)) ($stw r 1 n) r)
-     (: r=(mklist 8)
+     (: (? (&& ($isnum a) ($isnum b) ($isnum s) (> (/ (- b a) s) 134217728)) ($throwk 2 (strcat2 "invalid length: " (tostr (/ (- b a) s)))))
+        r=(mklist 8)
         (? s>0 (: i=a (wh i<b (lpush r i) i+=s)) (: i=a (wh i>b (lpush r i) i+=s)))
         r)))
 (= (rev l)
@@ -328,7 +366,7 @@ SYMTAB=nil
 (= (prs m) (? (ismap m) (mapentries m) ($isnil m) (mklist 0) ($throwk 3 (strcat2 "prs of " (ty m)))))
 
 ; ---- math
-(= (abs x) x=(tonum x) (? (< x 0) ($fsub -0 x) x))
+(= (abs x) x=(tonum x) (? (< x 0) ($fsub -0 x) (== x 0) 0 x))      ; abs(-0) is +0 like Math.abs
 (= (sqrt x) ($fsqrt (tonum x)))
 (= (flr x) ($ffloor (tonum x)))
 (= (cel x) ($fceil (tonum x)))

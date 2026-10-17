@@ -1,0 +1,11 @@
+f a b =
+  c=a+b
+  (p c)
+  c*2
+g x =
+  (? x>0
+    (: y=x*2 (p y) y)
+    (: (p "neg") 0))
+(p f(1 2) g(3) g(-1))
+(= (h) (= (inner z) z+1) (inner 2))
+(p (h))

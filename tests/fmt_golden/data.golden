@@ -1,0 +1,7 @@
+nested = [[1 2 [3 4]] {:a [1 {:b 2}] :c "x"} (~ x=>x*2 [1 2 3])]
+m={:name "ak" :tags ["a" "b"] :deep {:x {:y {:z [1 2 3]}}}}
+p m.deep.x.y.z[1] m[:tags 0] #m keys(m)
+xs=[5 3 9 1]
+p sort(xs) xs[1..3] xs[2..] xs[..2] rev(xs) (~/ (a b)=>a+b 0 xs)
+s="tab\t newline\n quote\" back\\ unié hexA"
+p s #s s[1..4]

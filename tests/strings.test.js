@@ -25,8 +25,9 @@ const CASES = [
   ['(padl "é" 3)', ' é', '  é'], ['(fmt "%4s|" "é")', '  é|', '   é|'],
   // --- regex: `.` is one code point natively; on JS pass the u flag to get the same
   ['(match "^.$" "😀")', '["😀"]', 'nil'], ['(match (re "^.$" "u") "😀")', '["😀"]'],
-  // --- case mapping: ASCII only natively (#46)
-  ['(up "éa")', 'éA', 'ÉA'],
+  // --- case mapping: one-to-one mappings agree (#46); special casing (ß -> SS, final sigma) is JS only
+  ['(up "éa")', 'ÉA'], ['(lo "ÀÉÎ")', 'àéî'], ['(up "жзяёў")', 'ЖЗЯЁЎ'], ['(lo "ΩΑΒΆ")', 'ωαβά'], ['(up "ĀāŁł")', 'ĀĀŁŁ'],
+  ['(up "ß")', 'ß', 'SS'], ['(lo "ΑΣ")', 'ασ', 'ας'],
 ];
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'str-'));
 const file = path.join(tmp, 's.aklang');

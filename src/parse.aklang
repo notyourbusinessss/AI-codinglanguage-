@@ -185,9 +185,9 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
 (= (radix s base) v=0 (for c s (? c!="_" v=v*base+(idx "0123456789abcdef" (lo c)))) v)
 (= (number) s=P.s st=P.i
   (? (&& s[P.i]=="0" (has "xX" (?? s[P.i+1] "-")))
-       (: P.i+=2 (digits hexdig) (radix s[st+2..P.i] 16))
+       (: P.i+=2 (digits hexdig) (? (stripu s[st+2..P.i])=="" (perr "0x needs at least one digit" st)) (radix s[st+2..P.i] 16))
      (&& s[P.i]=="0" (has "bB" (?? s[P.i+1] "-")))
-       (: P.i+=2 (digits (c=>(&& c (has "01_" c) true))) (radix s[st+2..P.i] 2))
+       (: P.i+=2 (digits (c=>(&& c (has "01_" c) true))) (? (stripu s[st+2..P.i])=="" (perr "0b needs at least one digit" st)) (radix s[st+2..P.i] 2))
      (: (digits (c=>(|| (isdig c) c=="_")))
         (? s[P.i]=="n" (: P.i+=1 (mk [(S "%bigint") (stripu s[st..P.i-1])] (pos st)))
            (: (? (&& s[P.i]=="." (isdig s[P.i+1])) (: P.i+=1 (digits (c=>(|| (isdig c) c=="_")))))
@@ -195,7 +195,10 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
                  (: j=P.i+1 (? (has "+-" (?? s[j] "x")) j+=1) k=j (wh (isdig s[k]) k+=1) (? k>j P.i=k)))
               (num (stripu s[st..P.i])))))))
 
-(= (hexval s) (radix s 16))
+(= (hexval a b n at) h=P.s[a..b] bad=(|| #h==0 (? n #h!=n))
+  (for c h (? !(has "0123456789abcdefABCDEF" c) bad=true))
+  (? bad (perr "bad hex digits in escape" at))
+  (radix h 16))
 (= (string) s=P.s open=P.i out="" done=false P.i+=1
   (wh !done
     (? P.i>=#s (perr "unterminated string" open))
@@ -204,9 +207,9 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
        c!="\\" out+=c
        (: e=s[P.i] P.i+=1
           (sw e "n" out+="\n" "t" out+="\t" "r" out+="\r" "0" out+="\0" "e" out+="\e" "\\" out+="\\" "\"" out+="\"" "'" out+="'" "$" out+="$"
-              "u" (? s[P.i]=="{" (: j=(idx s[P.i..] "}") out+=(chr (hexval s[P.i+1..P.i+j])) P.i+=j+1)
-                     (: out+=(chr (hexval s[P.i..P.i+4])) P.i+=4))
-              "x" (: out+=(chr (hexval s[P.i..P.i+2])) P.i+=2)
+              "u" (? s[P.i]=="{" (: j=(idx s[P.i..] "}") (? j<0 (perr "missing } in \\u{...}" P.i-2)) out+=(chr (hexval P.i+1 P.i+j nil P.i-2)) P.i+=j+1)
+                     (: out+=(chr (hexval P.i P.i+4 4 P.i-2)) P.i+=4))
+              "x" (: out+=(chr (hexval P.i P.i+2 2 P.i-2)) P.i+=2)
               (perr (++ "bad escape \\" e) P.i-2)))))
   out)
 

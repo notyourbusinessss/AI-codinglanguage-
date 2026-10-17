@@ -1,0 +1,44 @@
+; POSIX file path helpers, the same results as Node's path.posix. Pure string work: native and JS target.
+;   (use "lib/path.aklang" as path)
+;   (path.join "a" "b/../c")  (path.norm "a//b/./c/..")  (path.dir "/a/b.txt")  (path.base "/a/b.txt")  (path.base "/a/b.txt" ".txt")
+;   (path.ext "a/b.tar.gz")  (path.isabs p)  (path.abs "x")  (path.rel "/a/b" "/a/c")  (path.cwd)
+(= (isabs p) (starts p "/"))
+(= (cat xs) r="" (for i #xs (? i>0 r+="/") r+=xs[i]) r)     ; xs joined with /; not `join`, which this file redefines
+(= (norm p)                             ; collapse //, . and .. ; a trailing / is kept; "" is "."
+  (? p=="" "."
+     (: abs=(isabs p) segs=[]
+        (for s (split p "/")
+          (? (|| s=="" s==".") nil
+             s==".." (? (&& #segs>0 segs[#segs-1]!="..") (pop segs) (! abs) (push segs ".."))
+             (push segs s)))
+        r=(cat segs) trail=(ends p "/")
+        (? r=="" (? abs "/" trail "./" ".")
+           (++ (? abs "/" "") r (? trail "/" ""))))))
+(= (join ..parts)                       ; join with /, then normalise; no part at all is "."
+  ps=(~? s=>s!="" parts)
+  (? #ps==0 "." (norm (cat ps))))
+(= (cwd) (?? (env "PWD") (trim (sh "pwd"))))
+(= (abs p)                              ; absolute and normalised, no trailing /
+  r=(norm (? (isabs p) p (++ (cwd) "/" p)))
+  (? (&& #r>1 (ends r "/")) r[..#r-1] r))
+(= (dir p)                              ; everything before the last component: "/a/b.txt" -> "/a", "a" -> "."
+  n=#p root=(starts p "/") end=-1 gap=true i=n-1
+  (wh (&& i>=1 end<0)
+    (? p[i]=="/" (? !gap end=i) gap=false)
+    i-=1)
+  (? n==0 "." end<0 (? root "/" ".") (&& root end==1) "//" p[..end]))
+(= (base p suffix=nil)                  ; the last component; a suffix that ends it is removed: ("a/b.txt" ".txt") -> "b"
+  n=#p
+  (? (&& suffix suffix==p) ""
+     (: e=n (wh (&& e>0 p[e-1]=="/") e-=1)
+        s=e (wh (&& s>0 p[s-1]!="/") s-=1)
+        b=p[s..e]
+        (? (&& suffix #suffix>0 #suffix<#b (ends b suffix)) b[..#b-#suffix] b))))
+(= (ext p)                              ; ".gz" for "a/b.tar.gz"; "" for "a", ".bashrc" and ".."
+  b=(base p) i=#b-1
+  (wh (&& i>=0 b[i]!=".") i-=1)
+  (? (|| i<=0 b=="..") "" b[i..]))
+(= (rel from to)                        ; the path that leads from `from` to `to` (both made absolute first)
+  a=(~? s=>s!="" (split (abs from) "/")) b=(~? s=>s!="" (split (abs to) "/")) k=0
+  (wh (&& k<#a k<#b a[k]==b[k]) k+=1)
+  (cat (+ (~ s=>".." a[k..]) b[k..])))

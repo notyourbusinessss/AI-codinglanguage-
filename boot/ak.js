@@ -976,6 +976,7 @@ function main(argv) {
   const copts = { safe: !fast };
   if (!a.length) usage();
   if (['-h', '--help', 'help'].includes(a[0])) usage(true);
+  if (['-v', '--version', 'version'].includes(a[0])) { console.log('ak ' + require('../package.json').version); return; }
   try {
     if (a[0] === 'check') {
       if (!a[1]) usage();

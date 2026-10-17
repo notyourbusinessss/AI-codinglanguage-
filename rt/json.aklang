@@ -18,8 +18,11 @@ JI=0
        c==92 (: (lpush parts (strslice JS start JI)) (<- JI JI+1) e=($ldb JS JI) (<- JI JI+1)
                 (lpush parts (sw e 110 "\n" 116 "\t" 114 "\r" 98 (chr 8) 102 (chr 12) 34 "\"" 92 "\\" 47 "/"
                                   117 (: cp=(jhex4)
-                                         (? (&& cp>=55296 cp<56320 JI+1<($hlen JS) (== ($ldb JS JI) 92) (== ($ldb JS JI+1) 117))
-                                            (: (<- JI JI+2) lo=(jhex4) (chr (+ 65536 (* (- cp 55296) 1024) (- lo 56320))))
+                                         (? (&& cp>=55296 cp<56320)
+                                            (: (? (! (&& JI+1<($hlen JS) (== ($ldb JS JI) 92) (== ($ldb JS JI+1) 117))) (jerr "unpaired surrogate escape"))
+                                               (<- JI JI+2) lo=(jhex4) (? (|| lo<56320 lo>=57344) (jerr "unpaired surrogate escape"))
+                                               (chr (+ 65536 (* (- cp 55296) 1024) (- lo 56320))))
+                                            (&& cp>=56320 cp<57344) (jerr "unpaired surrogate escape")
                                             (chr cp)))
                                   (jerr "bad escape")))
                 start=JI)
