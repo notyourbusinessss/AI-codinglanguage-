@@ -5,6 +5,8 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.22 (2026-10-17)
+
 ### Added
 - `lib/path.aklang` (as Node's `path.posix`), `lib/time.aklang` (UTC dates, ISO 8601, durations) and `lib/cli.aklang` (flags, options, generated help); all work on both targets
 - On the JS target the socket functions (`tcpc`, `fdr`, `dns`, ...) raise `name: sockets are native only` instead of `undefined: tcpc`
@@ -17,9 +19,21 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 - `up` and `lo` map Latin-1, Latin Extended-A, Greek and Cyrillic letters natively (before: ASCII only); special casing such as `ß` or a final sigma stays JS-only
 - Native `(abs -0.0)` is `+0` and `(pow 0 -1)` is `Infinity` instead of raising `division by zero`, as on the JS target
 - `ak --version` works on the JS target (it printed an `ENOENT` error)
+- String semantics are defined and tested the same on both targets
+- `rm` removes a symbolic link itself instead of following it, and reports failures
+- Fractional counts, slice bounds and delete positions are truncated the same way on both targets; slice bounds that are not numbers raise an index error
+- `%` on fractions is exact, and `rnd` and `exp(1)` match the JS target
+- String and path builtins raise a type error when given another type (before: the native target could segfault)
+- The native parser accepts non-ASCII identifiers and skips a byte order mark
+- Regex rejects out-of-order ranges and counts, repeated assertions and a trailing backslash
+- `http` resolves relative redirects, keeps credentials on their own host, and has no body on HEAD, 204, 304 and 1xx replies
+- `pki` refuses an ECDSA signature whose INTEGER tags are wrong
+- Native `unjson` rejects numbers outside the JSON grammar
+- `mkdir` raises on failure; `install.sh` also writes the shell rc file so `ak` is found; the 32-bit wrap of bit operators is documented
 
 ### Docs and tests
 - README no longer says that no release exists
+- SPEC.md is now a core spec: 1806 to 1291 tokens, the rarer details moved to SPEC-extra.md
 - `CHANGELOG.md` and `docs/stability.md`; `tests/version.test.js` keeps `package.json`, `ak --version` and the changelog in step
 - `tests/math_accuracy.test.js` measures `pow`, `sin`, `cos` and `tan` against V8: within 1 ulp, special values exact; the README limits are updated to the measured rates
 - New tests: input validation on both targets, golden files for `ak fmt`, stack traces through `use ... as`, the REPL with `use` and `embed`, `ak test` with `use ... as` and stdin, a floor on the program directories
