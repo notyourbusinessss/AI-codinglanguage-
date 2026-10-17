@@ -34,6 +34,13 @@
     (? (! (&& (isnum n) n>=0)) (netfail "bad chunk size"))
     (? n>0 (: (wh #have<n+2 d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d) out+=have[..n] have=have[n+2..])))
   out)
+(= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path
+  origin=(++ (? sec "https://" "http://") host (? port==(? sec 443 80) "" (++ ":" port)))
+  dir=(join (split (split path "?")[0] "/")[..-1] "/")
+  (? (|| (starts loc "http://") (starts loc "https://")) loc
+     (starts loc "//") (++ (? sec "https:" "http:") loc)
+     (starts loc "/") (++ origin loc)
+     (++ origin dir "/" loc)))
 (= (req method url body=nil headers=nil opts=nil hops=0)
   [sec host port path]=(parseurl url) opts=(?? opts {})
   c=(open sec host port opts)
@@ -45,12 +52,16 @@
   [rh rest]=(readhead c)
   lines=(split rh "\r\n") st=(num (split lines[0] " ")[1])
   hd={} (for l lines[1..] k=(idx l ":") (? k>0 hd[(lo l[..k])]=(trim l[k+1..])))
-  out=(? (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest)
+  out=(? (|| (== (up method) "HEAD") st==204 st==304 (&& st>=100 st<200)) ""        ; these replies have no body, whatever Content-Length says
+        (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest)
         hd["content-length"] (readn c rest (num hd["content-length"]))
         (readall c rest))
   c.c()
   (? (&& (has [301 302 303 307 308] st) hd.location hops<5)
-     (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) (? (starts hd.location "http") hd.location (++ (? sec "https://" "http://") host (? port==(? sec 443 80) "" (++ ":" port)) hd.location)) (? st>=307 body) headers opts hops+1)
+     (: next=(resolve sec host port path hd.location) [nsec nhost nport npath]=(parseurl next)
+        ; credentials stay with the host they were meant for
+        hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))
+        (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) next (? st>=307 body) hs opts hops+1))
      {:status st :headers hd :body out}))
 (= (get url headers=nil opts=nil) (req "GET" url nil headers opts))
 (= (post url body headers=nil opts=nil) (req "POST" url body headers opts))
