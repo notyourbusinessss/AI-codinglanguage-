@@ -10,5 +10,12 @@ d="/tmp/akfs_test"
 (p (sh "echo hi; echo there"))
 (p (trim (sh "printf 'a b c' | tr a-z A-Z")))
 (p (try (sh "exit 3") e=>e))
+; rm removes a symbolic link itself and never follows it into its target
+(mkdir (++ d "/real/sub"))
+(wr (++ d "/real/sub/keep.txt") "keep")
+(sh (++ "cd " d " && ln -s real link && ln -s nowhere dangling && ln -s real/sub/keep.txt flink"))
+(rm (++ d "/link")) (rm (++ d "/dangling")) (rm (++ d "/flink"))
+(p (ls d) (rd (++ d "/real/sub/keep.txt")))
+(p (try (rm "/proc/version") e=>"rm failed"))
 (rm d)
 (p (ex d))
