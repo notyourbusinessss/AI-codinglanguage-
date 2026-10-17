@@ -334,6 +334,7 @@ const SPECIAL_HEADS = new Set(['?', ':', '=', '\\', '&&', '||', '??', 'wh', 'for
 function isSpecialHead(n) { return SPECIAL_HEADS.has(n); }
 
 function parse(src, file) {
+  if (src.charCodeAt(0) === 0xFEFF) src = src.slice(1);
   if (src.startsWith('#!')) src = src.replace(/^#!.*/, '');
   return new Parser(src, file).program();
 }

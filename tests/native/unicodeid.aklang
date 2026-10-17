@@ -1,0 +1,5 @@
+﻿; this file starts with a byte order mark; identifiers may contain non-ASCII letters (the native parser used to reject them)
+é=1 prénom="x" 名前=3
+(p é prénom 名前 (+ é 名前))
+(= (größe x) x*2)
+(p (größe 4) (größe 名前))
