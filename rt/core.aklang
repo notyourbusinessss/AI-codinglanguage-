@@ -34,7 +34,7 @@ OBN=0
      (: ($copy OBUF OBN s 0 n) (<- OBN OBN+n))))
 (= (eout s) (flush) (rawwrite 2 s ($hlen s)))
 (= (finish) (flush) (? PROFH (profdump)) (? (env "AK_GCSTATS") (eout (strcat2 (strcat2 "gc: " (fmtint GCCOUNT)) " collections\n"))))
-(= (exit code) (flush) (? PROFH (profdump)) ($syscall 231 (? ($isnil code) 0 code)))
+(= (exit code=nil) (? (! (|| ($isnil code) (&& ($isnum code) (isint code)))) ($throwk 3 (strcat2 "exit: expected an integer, got " (ty code)))) (flush) (? PROFH (profdump)) ($syscall 231 (? ($isnil code) 0 code)))
 INFATAL=false
 (= (hdrw addr) w=($peekw addr) (+ (* ($bitshi w) 4294967296) ($bitslo w)))
 (= (callsites max)  ; up to max "file:line:col" user call sites found on the machine stack, innermost first (an immediate repeat, as in recursion, is listed once)
@@ -79,6 +79,7 @@ INFATAL=false
           a-=8))))
 (= (or2 a b) (? ($isnil a) b a))
 (= (bad x) ($throwk 3 (strcat2 "expected number, got " (ty x))))
+(= (needlen n lim) (? (|| (! ($isnum n)) (! (isint n)) n<0 n>lim) ($throwk 2 (strcat2 "invalid length: " (tostr n)))) n)
 
 ; ---- strict arithmetic slow paths (called by compiled code when an operand is not a double or the result leaves 2^53)
 (= (isint x) (== ($ffloor x) x))

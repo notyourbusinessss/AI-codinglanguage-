@@ -203,6 +203,7 @@ JN=0
                      (jnl ind lvl) (jbyte 125)))
      (jcat "null")))
 (= (json x ind=nil)
+  (? (&& ($isnum ind) (> ind 100)) ($throwk 2 (strcat2 "invalid length: " (tostr ind))))
   (<- JB (strnew 256)) (<- JN 0)
   (jenc x ind 0)
   r=(strslice JB 0 JN) (<- JB "") r)
