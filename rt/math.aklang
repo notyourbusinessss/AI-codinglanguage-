@@ -11,7 +11,8 @@ NANV=($fsub INF INF)
 ; ---- exp
 (= (exp x)
   x=(tonum x) hx=(hw x) xsb=(isneg hx) hx=(iabs hx)
-  (? hx>=2146435072 (? (|| (> hx 2146435072) (!= (lw x) 0)) (+ x x) (? xsb 0 x))
+  (? x==1 2.718281828459045                                   ; V8 special-cases exp(1) too: the algorithm below is one bit off there
+     hx>=2146435072 (? (|| (> hx 2146435072) (!= (lw x) 0)) (+ x x) (? xsb 0 x))
      x>709.782712893383973096 INF
      x<-745.13321910194110842 0
      (: k=0 hi=0 lo=0 small=false
