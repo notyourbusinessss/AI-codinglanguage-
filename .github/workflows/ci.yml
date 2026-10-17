@@ -31,6 +31,19 @@ jobs:
       # JS-target fuzz, self-hosting fixpoint, native-vs-JS comparison, native fuzz (about a minute)
       - run: npm test
 
+  tokens:
+    name: token budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # SPEC.md and the corpus must stay under the ceilings in tools/token-budget.json (needs the tokenizer packages)
+      - run: npm install --prefix /tmp/tok @anthropic-ai/tokenizer@0.0.4 gpt-tokenizer@4.0.0
+      - run: AK_REQUIRE_TOKENIZER=1 node tests/tokens.test.js
+
   seed:
     name: bin/ak is up to date
     runs-on: ubuntu-latest
