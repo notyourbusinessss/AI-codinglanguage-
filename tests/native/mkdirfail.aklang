@@ -1,0 +1,8 @@
+; mkdir raises an io error when the directory cannot be created, the same on both targets; existing and nested directories still return nil
+(= (kind f) (try (: (f) "no error") e=>(errkind e)))
+(p (kind ()=>(mkdir "/etc/passwd/x")))
+(p (try (mkdir "/etc/passwd/x") e=>e))
+d=(++ "/tmp" "/mkdirfail-" (now))
+(p (mkdir d) (mkdir (++ d "/a/b/c")) (mkdir (++ d "/a/b/c")) (isdir (++ d "/a/b/c")))
+(p (kind ()=>(mkdir (++ d "/a/b/c/x/y"))) (isdir (++ d "/a/b/c/x/y")))
+(rm d)
