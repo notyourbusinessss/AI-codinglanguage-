@@ -83,7 +83,7 @@ RXNAMES=nil
   (? #alts==1 alts[0] ["alt" alts]))
 (= (re p f=nil)
   (? (ismap p) p
-     (: (<- RXP (tostr p)) (<- RXI 0) (<- RXN 0) (<- RXNAMES {})
+     (: (? f (needstr f)) (<- RXP (tostr p)) (<- RXI 0) (<- RXN 0) (<- RXNAMES {})
         prog=(rxalt)
         (? (< RXI ($hlen RXP)) (rxerr "Unmatched ')'"))
         {"%re" true "src" RXP "flags" (?? f "") "prog" prog "ngroups" RXN "names" RXNAMES "first" (rxfilter prog (?? f ""))})))

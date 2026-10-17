@@ -106,7 +106,7 @@ CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
 (= (ecdsa_verify key hashname data sig)
   cv=key.curve hf=(c.hashfn hashname) h=(hf data)
   top=(der_at sig 0) kids=(der_kids sig top)
-  (? (|| (!= top[0] 48) (!= #kids 2)) false
+  (? (|| (!= top[0] 48) (!= #kids 2) (!= kids[0][0] 2) (!= kids[1][0] 2)) false
      (: r=(der_int sig kids[0]) s=(der_int sig kids[1]) n=cv.n
         (? (|| (<= r 0n) (>= r n) (<= s 0n) (>= s n)) false
            (: e=(c.bn_be h[..(min #h cv.bytes)])
