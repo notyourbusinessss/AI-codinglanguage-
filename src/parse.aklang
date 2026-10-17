@@ -22,7 +22,8 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
 (= (issym x) (is "sym" x))
 (= (isws c) (&& c (has " \t\n\r," c) true))
 (= (isdig c) (&& c "0"<=c<="9"))
-(= (ids c) (&& c (|| ("a"<=c<="z") ("A"<=c<="Z") c=="_" c=="$" c>="\u0080") true))
+(= (hibyte c) (&& c (>= (ord c) 128)))       ; c is one byte of the UTF-8 source: any byte of a non-ASCII character
+(= (ids c) (&& c (|| ("a"<=c<="z") ("A"<=c<="Z") c=="_" c=="$" (hibyte c)) true))
 (= (idc c) (&& c (|| (ids c) (isdig c)) true))
 (= (isopch c) (&& c (has OPCH c) true))
 (= (closer c) (&& c (has ")]}" c) true))
@@ -210,9 +211,10 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
   out)
 
 (= (parse src file)
+  src=(? (starts src "\ufeff") src[#"\ufeff"..] src)        ; a byte order mark (3 bytes natively, 1 unit on JS)
   src=(? (starts src "#!") (: j=(idx src "\n") (? j<0 "" src[j..])) src)
   P.s=src P.i=0 P.file=file P.idx=false
-  st=[0] na={} (for i #src c=src[i] (? c=="\n" (push st i+1) (>= c "\u0080") na[#st-1]=true))
+  st=[0] na={} (for i #src c=src[i] (? c=="\n" (push st i+1) (hibyte c) na[#st-1]=true))
   P.starts=st P.na=na
   (program))
 
