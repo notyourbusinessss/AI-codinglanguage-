@@ -67,6 +67,11 @@ function show(x) {
   return require('util').inspect(x, { depth: 4, breakLength: Infinity });
 }
 const tostr = x => typeof x === 'string' ? x : typeof x === 'bigint' ? String(x) : show(x);   // symbols print as their name
+const tarr = T => n => {
+  if (Array.isArray(n)) return T.from(n);
+  if (typeof n === 'number' && !(Number.isInteger(n) && n >= 0 && n <= 2147483647)) throw new AkError('Invalid typed array length: ' + show(n), 'range');
+  return new T(n);
+};
 
 let lastKind = 'error', lastData = null;       // kind and data of the error a handler is running for (errkind / errdata)
 function msg(e) {
@@ -386,10 +391,8 @@ const B = {
   take: (n, l) => l.slice(0, n), drop: (n, l) => l.slice(n),
   fst: l => l == null || !len(l) ? null : l[0], lst: l => l == null || !len(l) ? null : l[l.length - 1],
   ap: (f, l) => fn(f)(...arr(l)),
-  f64: n => Array.isArray(n) ? Float64Array.from(n) : new Float64Array(n), f32: n => Array.isArray(n) ? Float32Array.from(n) : new Float32Array(n),
-  i32: n => Array.isArray(n) ? Int32Array.from(n) : new Int32Array(n), u32: n => Array.isArray(n) ? Uint32Array.from(n) : new Uint32Array(n),
-  i16: n => Array.isArray(n) ? Int16Array.from(n) : new Int16Array(n), u16: n => Array.isArray(n) ? Uint16Array.from(n) : new Uint16Array(n),
-  i8: n => Array.isArray(n) ? Int8Array.from(n) : new Int8Array(n), u8: n => Array.isArray(n) ? Uint8Array.from(n) : new Uint8Array(n),
+  f64: tarr(Float64Array), f32: tarr(Float32Array), i32: tarr(Int32Array), u32: tarr(Uint32Array),
+  i16: tarr(Int16Array), u16: tarr(Uint16Array), i8: tarr(Int8Array), u8: tarr(Uint8Array),
   // strings
   '++': (...a) => {
     if (a.length && Array.isArray(a[0])) { const o = []; for (const x of a) for (const y of x) o.push(y); return o; }
