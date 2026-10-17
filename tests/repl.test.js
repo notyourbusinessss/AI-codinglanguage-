@@ -1,11 +1,19 @@
 'use strict';
 // ak repl: values are echoed, definitions persist, errors lose their location, multi-line input, meta commands
-const cp = require('child_process'), path = require('path');
+const cp = require('child_process'), fs = require('fs'), os = require('os'), path = require('path');
 const AK = path.join(__dirname, '..', 'bin', 'ak');
 let bad = 0, n = 0;
 const t = (name, ok, info) => { n++; if (!ok) { bad++; console.log('FAIL', name, info === undefined ? '' : '\n   ' + JSON.stringify(info)); } };
 const repl = input => cp.spawnSync(AK, ['repl'], { encoding: 'utf8', input, timeout: 60000 });
 const out = input => repl(input).stdout;
+// files for use / embed: the REPL replays earlier entries on every line, so these must not print twice, fail on a replay or lose the folder
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'akrepl-'));
+const w = (n, s) => { const f = path.join(tmp, n); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, s); };
+w('sub/lib.aklang', '(= (sq x) x*x)\nk=10\n(p "lib loaded")\n');
+w('sub/lib2.aklang', '(= (sq x) 1)\n');
+w('sub/data.txt', 'hello embedded');
+w('sub/e.aklang', '(= (bad x) (err "oops" x))\n(= (caller x) 1+(bad x))\n');
+const at = (input, cwd) => cp.spawnSync(AK, ['repl'], { encoding: 'utf8', input, timeout: 60000, cwd: cwd || tmp });
 
 t('expression value is echoed', out('1+2\n') === '3\n');
 t('strings and lists use show', out('"hi"\n[1 "a" nil]\n{:a 1}\n') === '"hi"\n[1 "a" nil]\n{"a" 1}\n');
@@ -25,6 +33,16 @@ t(':defs lists them, :reset forgets them', out('x=5\n:defs\n:reset\nx\n') === 'x
 t(':q stops reading', out('1\n:q\n2\n') === '1\n');
 t('empty input and EOF exit 0', repl('').status === 0 && repl('\n\n').stdout === '');
 t('no prompt when stdin is not a terminal', !/ak>/.test(out('1\n')));
+t('use of a file: loaded once, definitions persist over later entries', at('(use "sub/lib.aklang")\nsq(4)\nk\nsq(5)\n').stdout === 'lib loaded\n16\n10\n25\n', at('(use "sub/lib.aklang")\nsq(4)\nk\nsq(5)\n'));
+t('use ... as: namespaced, loaded once', at('(use "sub/lib.aklang" as g)\ng.sq(5)\ng.k\n1+1\n').stdout === 'lib loaded\n25\n10\n2\n', at('(use "sub/lib.aklang" as g)\ng.sq(5)\ng.k\n1+1\n'));
+t('use ... as does not collide with a definition of the same name', at('(use "sub/lib.aklang" as g)\n(= (sq x) 0)\nsq(3)\ng.sq(3)\n').stdout === 'lib loaded\n0\n9\n');
+t('embed gives the file text and can be replayed', at('x=(embed "sub/data.txt")\nx\n(# x)\n').stdout === '"hello embedded"\n14\n', at('x=(embed "sub/data.txt")\nx\n(# x)\n'));
+t('a clash between two plain use files: no warning is repeated by later entries', (r => r.stdout === 'lib loaded\n1\n2\n4\n' && r.stderr === '')(at('(use "sub/lib.aklang")\n(use "sub/lib2.aklang")\nsq(3)\n1+1\n2+2\n')), at('(use "sub/lib.aklang")\n(use "sub/lib2.aklang")\nsq(3)\n1+1\n2+2\n'));
+t('an error inside a used function: one message line, no trace lines, the session goes on', at('(use "sub/e.aklang" as e)\n(e.caller 1)\n2+2\n').stdout === 'error: oops 1 (./sub/e.aklang:2:17)\n4\n', at('(use "sub/e.aklang" as e)\n(e.caller 1)\n2+2\n'));
+t('an error inside a function defined in the session: no trace lines', out('(= (f x) (err "inside" x))\n(f 1)\n3\n') === 'error: inside 1\n3\n', out('(= (f x) (err "inside" x))\n(f 1)\n3\n'));
+t('a missing file is an error, the session goes on', at('(use "sub/nothere.aklang")\n1\n').stdout === 'error: use: file not found: sub/nothere.aklang\n1\n', at('(use "sub/nothere.aklang")\n1\n'));
+t('relative paths resolve against the folder the REPL runs in', at('(use "lib.aklang")\nsq(2)\n', path.join(tmp, 'sub')).stdout === 'lib loaded\n4\n', at('(use "lib.aklang")\nsq(2)\n', path.join(tmp, 'sub')));
+fs.rmSync(tmp, { recursive: true, force: true });
 t('--help mentions repl', /ak repl/.test(cp.spawnSync(AK, ['--help'], { encoding: 'utf8' }).stdout));
 console.log(bad ? bad + ' of ' + n + ' repl checks failed' : n + ' repl checks passed');
 process.exit(bad ? 1 : 0);
