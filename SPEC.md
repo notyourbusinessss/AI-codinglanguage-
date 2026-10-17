@@ -15,7 +15,7 @@ Lines (outside brackets): `head a b` = `(head a b)` · `f a b =` + indented line
 - Truthiness is Python's: false nil 0 "" [] {} are falsy. `??` replaces only nil: use `m[k]??0` for defaults (`||` would also replace a real 0).
 - `=` is function-local like Python and never changes an outer variable. `x+=1` on an outer variable is a compile error → use `(<- x x+1)`. Only `let` makes a block scope. Closures capture variables; loop variables are per-iteration.
 - Strict, no silent coercion: `nil+1` `"a"-1` `nil<1` throw. `+` also concatenates str+str, str+any, list+list; bools count as 0/1. `==` is deep structural. `/` true division, `//` floor, `%` floored, `x/0` throws.
-- Numbers are doubles: integers are exact to 2^53; beyond that `+ - * **` on integers throw `integer overflow` — use BigInt (`10n`, `2n**100n`). `ak --fast` skips these checks.
+- Numbers are doubles: integers are exact to 2^53; beyond that `+ - * **` on integers throw `integer overflow` — use BigInt (`10n`, `2n**100n`). JS target `--fast` skips them.
 - `for`: list → elements (length fixed at loop start); map → `[k v]`; number n → 0..n-1; string → chars. Out-of-range index / missing key → nil. Self tail calls become loops; recursion depth is large (512MB stack).
 - Arity of direct calls to known functions is checked at compile time. Errors print `error: msg (file:line:col)`, exit 1. The `try` handler gets the message string; error kinds (`errkind`): SPEC-extra.md.
 ## Builtins
