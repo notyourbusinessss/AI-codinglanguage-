@@ -45,7 +45,8 @@
   [rh rest]=(readhead c)
   lines=(split rh "\r\n") st=(num (split lines[0] " ")[1])
   hd={} (for l lines[1..] k=(idx l ":") (? k>0 hd[(lo l[..k])]=(trim l[k+1..])))
-  out=(? (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest)
+  out=(? (|| (== (up method) "HEAD") st==204 st==304 (&& st>=100 st<200)) ""        ; these replies have no body, whatever Content-Length says
+        (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest)
         hd["content-length"] (readn c rest (num hd["content-length"]))
         (readall c rest))
   c.c()

@@ -23,6 +23,7 @@ const handler = (q, s) => {
     else if (q.url === '/redir') { s.writeHead(302, { Location: '/len' }); s.end(); }
     else if (q.url === '/loop') { s.writeHead(302, { Location: '/loop' }); s.end(); }
     else if (q.url === '/post') { s.writeHead(201); s.end(q.method + ':' + body + ':' + q.headers['x-extra']); }
+    else if (q.url === '/nobody') { s.socket.write(q.method === 'HEAD' ? 'HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n' : 'HTTP/1.1 304 Not Modified\r\nContent-Length: 5\r\n\r\n'); s.socket.end(); }
     else if (q.url === '/short') { s.socket.write('HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\nonly ten b'); s.socket.end(); }
     else { s.writeHead(404); s.end('nope'); }
   });
@@ -46,6 +47,10 @@ srv.listen(0, '127.0.0.1', async () => {
   t('POST with body and extra header', r.out === '201 POST:data:yes\n', r);
   r = await run(`(p (h.get ${u('/missing')}).status)`);
   t('404 is a response, not an error', r.out === '404\n', r);
+  r = await run(`r=(h.req "HEAD" ${u('/nobody')}) (p r.status r.body r.headers["content-length"])`);
+  t('HEAD reply has no body even with Content-Length', r.out === '200  5\n', r);
+  r = await run(`r=(h.get ${u('/nobody')}) (p r.status r.body)`);
+  t('304 reply has no body even with Content-Length', r.out === '304 \n', r);
   r = await run(`(p (try (h.get ${u('/short')}) e=>e))`);
   t('truncated body raises', r.out === 'response body truncated\n', r);
   const sp = tsrv.address().port, roots = `(use ${JSON.stringify(PKI)} as k)\nroots=(~ x=>(k.cert_parse x) (k.pem_certs (rd ${JSON.stringify(path.join(tmp, 'ca.pem'))})))\n`;
@@ -64,6 +69,6 @@ srv.listen(0, '127.0.0.1', async () => {
   t('other schemes are rejected', r.out === 'unsupported URL: ftp://x/\n', r);
   srv.close(); tsrv.close(); fs.rmSync(tmp, { recursive: true, force: true });
   console.log(bad ? `${bad} of ${n} http checks FAILED` : `http: ${n}/${n} ok`);
-  if (n < 14) bad = 1;
+  if (n < 16) bad = 1;
   process.exit(bad ? 1 : 0);
 });
