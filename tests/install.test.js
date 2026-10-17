@@ -81,4 +81,13 @@ r = run(['--prefix', p6, '--yes']);         t('--yes twice does not duplicate it
 r = run(['--prefix', p6, '--yes'], { PATH: path.join(p6, 'bin') + ':' + process.env.PATH });
 t('--yes when already on PATH leaves the profile alone', fs.readFileSync(prof, 'utf8').split(`${p6}/bin`).length === 2, out(r));
 
+// the PATH line also goes to the rc file of the user's shell, which a new (non-login) terminal reads; the message says how to use it right away
+for (const [sh, rc, other] of [['/bin/bash', '.bashrc', '.zshrc'], ['/usr/bin/zsh', '.zshrc', '.bashrc']]) {
+  const h = fs.mkdtempSync(path.join(tmp, 'home-')), pf = path.join(tmp, 'p7-' + rc);
+  r = run(['--prefix', pf, '--yes'], { HOME: h, SHELL: sh });
+  const line = `export PATH="${pf}/bin:$PATH"`;
+  t(`${rc} gets the PATH line for ${sh}`, fs.existsSync(path.join(h, rc)) && fs.readFileSync(path.join(h, rc), 'utf8').includes(line) && fs.readFileSync(path.join(h, '.profile'), 'utf8').includes(line) && !fs.existsSync(path.join(h, other)), out(r));
+  t('says how to use it in the current shell', out(r).includes('restart your terminal, or run now:  ' + line) && !/open a new shell/.test(out(r)), out(r));
+}
+
 console.log(`install: ${n - bad}/${n} passed`); fs.rmSync(tmp, { recursive: true, force: true }); process.exit(bad ? 1 : 0);
