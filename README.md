@@ -36,6 +36,8 @@ Then `ak prog.aklang` runs a program, and `ak build prog.aklang out` writes a st
 - **Check your install:** `./bin/ak examples/tictactoe.aklang` plays a game; `npm test` runs everything (about 2 minutes). `./build.sh` rebuilds `bin/ak` from `src/` with itself.
 
 ## Quick start
+New to Ak? [`docs/getting-started.md`](docs/getting-started.md) walks through installing and running a first program.
+
 ```
 ./bin/ak prog.aklang [args]          compile to memory and run (a 1.3 MB static binary; Linux x86-64)
 ./bin/ak build prog.aklang out       write a native executable
@@ -142,7 +144,7 @@ The fuzzer found real bugs I would not have written tests for: a spread operand 
 - Compile-time checks: undefined names, arity of direct calls, rest/pattern misuse, misplaced spreads, dangling infix operators — all as `file:line:col: message`.
 
 ## Layout
-`src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `lib/` libraries written in Ak for programs (`x11.aklang`, `canvas.aklang`, embedded fonts) · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `docs/` (screenshots) · `tools/` (token meter, v1→v2 migrator, font-atlas generator) · `build.sh`.
+`src/` compiler · `rt/` runtime · `bin/ak` seed binary · `boot/` JS bootstrap + JS target · `lib/` libraries written in Ak for programs (`x11.aklang`, `canvas.aklang`, embedded fonts) · `tests/` · `corpus/` (24 programs: `.py` reference, `.out` expected) · `examples/` · `docs/` (user guide, screenshots) · `tools/` (token meter, v1→v2 migrator, font-atlas generator) · `build.sh`.
 
 ## Testing
 GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pull request, and checks that the committed `bin/ak` is exactly what `./build.sh --boot` produces from the sources (if you change `src/` or `rt/`, run `./build.sh` and commit the new `bin/ak`).
