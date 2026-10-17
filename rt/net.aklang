@@ -82,6 +82,7 @@
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s))
   (fdwn fd d 0 ($hlen d)))
 (= (unixc path)                         ; connect to a Unix-domain socket (a file path): the fd
+  (needstr path)
   fd=($syscall 41 1 1 0)
   (? fd<0 (netfail "socket failed"))
   sa=($newb 1 110 110) ($stb sa 0 1)
