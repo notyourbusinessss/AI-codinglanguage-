@@ -157,3 +157,6 @@ GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pu
 - `**`/`pow` with fractional exponents can differ from V8 in the last digit (~3% of random inputs); `sin cos tan` of arguments beyond ~1e6 (exact bignum reduction) can be off by one digit in ~1% of cases.
 - The GUI library targets Linux with X11 or XWayland: depth-24 displays, fixed-size windows, ASCII text, no clipboard or window resizing yet. The terminal library needs a Linux terminal (raw mode via `ioctl`).
 - No static types. Overflow-checked arithmetic is a few times slower than unchecked in arithmetic-bound loops.
+
+## License
+Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Copyright 2026 notyourbusinessss. The embedded DejaVu font data keeps its own license, see `lib/FONT-LICENSE.txt`.
