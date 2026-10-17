@@ -19,6 +19,7 @@ RXNAMES=nil
 (= (rxhex n) v=0 (for k n d=(digitval (rxpeek)) (? d>=16 (rxerr "Invalid escape")) v=v*16+d (<- RXI RXI+1)) v)
 (= (rxescape)                      ; after the backslash: -> node or set item
   c=(rxpeek) (<- RXI RXI+1)
+  (? (== c -1) (rxerr "\\ at end of pattern"))
   (sw c
     100 ["set" false ["d"]] 68 ["set" false ["D"]] 119 ["set" false ["w"]] 87 ["set" false ["W"]] 115 ["set" false ["s"]] 83 ["set" false ["S"]]
     98 ["wordb" false] 66 ["wordb" true]
@@ -35,7 +36,12 @@ RXNAMES=nil
     lo=(? (rxeat 92) (: e=(rxescape) (? (== e[0] "set") (: (push items e[2][0]) nil) (== e[0] "char") e[1] (== e[0] "wordb") 8 nil)) (rxcp))
     (? (! ($isnil lo))
        (? (&& (== (rxpeek) 45) (< RXI+1 ($hlen RXP)) (!= ($ldb RXP RXI+1) 93))
-          (: (<- RXI RXI+1) hi=(? (rxeat 92) (: e=(rxescape) (? (== e[0] "char") e[1] 0)) (rxcp)) (push items [lo hi]))
+          (: (<- RXI RXI+1) he=(? (rxeat 92) (rxescape) nil)
+             (? (&& he (== he[0] "set"))                      ; [a-\d] is a, - and \d, not a range
+                (: (push items [lo lo]) (push items [45 45]) (push items he[2][0]))
+                (: hi=(? he (? (== he[0] "wordb") 8 he[1]) (rxcp))
+                   (? (< hi lo) (rxerr "Range out of order in character class"))
+                   (push items [lo hi]))))
           (push items [lo lo]))))
   (<- RXI RXI+1)
   ["set" neg items])
@@ -65,12 +71,14 @@ RXNAMES=nil
 (= (rxclose) (? (! (rxeat 41)) (rxerr "Unterminated group")))
 (= (rxquant a)
   c=(rxpeek)
+  (? (&& (has ["bol" "eol" "wordb"] a[0]) (|| c==42 c==43 c==63 (&& c==123 (>= (rxpeek2) 48) (<= (rxpeek2) 57)))) (rxerr "Nothing to repeat"))
   (? (|| c==42 c==43 c==63)
      (: (<- RXI RXI+1) lazy=(rxeat 63) ["rep" a (? c==43 1 0) (? c==63 1 1e9) (! lazy)])
      (&& c==123 (>= (rxpeek2) 48) (<= (rxpeek2) 57))
        (: (<- RXI RXI+1) mn=(rxnum) mx=mn
           (? (rxeat 44) (? (== (rxpeek) 125) mx=1e9 mx=(rxnum)))
           (? (! (rxeat 125)) (rxerr "Incomplete quantifier"))
+          (? (< mx mn) (rxerr "numbers out of order in {} quantifier"))
           lazy=(rxeat 63) ["rep" a mn mx (! lazy)])
      a))
 (= (rxpeek2) (? RXI+1<($hlen RXP) ($ldb RXP RXI+1) -1))
