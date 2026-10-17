@@ -5,6 +5,7 @@
 (= (tsize kind) (sw kind 0 1 1 1 2 2 3 2 4 4 5 4 6 4 8))
 (= (tlen x) ($ffloor ($fdiv ($hlen x) (tsize (tkind x)))))
 (= (tnew kind n)
+  (? (|| (! ($isnum n)) (! (isint n)) (< n 0) (> n 2147483647)) ($throwk 2 (strcat2 "Invalid typed array length: " (tostr n))))
   bytes=n*(tsize kind) x=($newb 9 bytes bytes)
   ($stw x 0 ($frombits ($bitshi ($ldw x 0)) ($fadd ($band ($bitslo ($ldw x 0)) 255) (* kind 256)))) x)
 (= (tget x i)         ; i: valid index
