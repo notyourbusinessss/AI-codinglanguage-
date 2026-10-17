@@ -1,9 +1,10 @@
 'use strict';
-// SPEC.md must document every builtin, and every name it lists as a builtin must exist.
+// SPEC.md and SPEC-extra.md together must document every builtin, and every name it lists as a builtin must exist.
 const fs = require('fs'), path = require('path');
 const { B } = require('../boot/runtime.js');
 const spec = fs.readFileSync(path.join(__dirname, '..', 'SPEC.md'), 'utf8');
-const builtinSection = spec.slice(spec.indexOf('## Builtins'), spec.indexOf('## CLI'));
+const extra = fs.readFileSync(path.join(__dirname, '..', 'SPEC-extra.md'), 'utf8');       // the less common builtins live here (SPEC.md is read by every session)
+const builtinSection = spec.slice(spec.indexOf('## Builtins'), spec.indexOf('## CLI')) + '\n' + extra.slice(extra.indexOf('## Less common builtins'), extra.indexOf('## Details'));
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const missing = Object.keys(B).filter(n => !new RegExp('(^|[\\s`(\\[])' + esc(n) + '($|[\\s`)\\]])').test(builtinSection));
 // operators are documented as groups ("& | ^ << >>"), so only flag identifier-like names
