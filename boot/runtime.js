@@ -349,7 +349,7 @@ const B = {
   },
   del: (c, k) => {
     if (c instanceof Map) { const m = new Map(c); m.delete(k); return m; }
-    if (Array.isArray(c)) { const l = c.slice(); l.splice(k < 0 ? k + l.length : k, 1); return l; }
+    if (Array.isArray(c)) { const l = c.slice(), t = Math.trunc(k); l.splice(t < 0 ? t + l.length : t, 1); return l; }
     const o = { ...c }; delete o[k]; return o;
   },
   '..': rng,
@@ -404,7 +404,7 @@ const B = {
   trim: s => s.trim(), up: s => s.toUpperCase(), lo: s => s.toLowerCase(),
   rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
-  rpt: (s, k) => { k = Math.max(0, n(k)); if (typeof s === 'string') return s.repeat(k); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
+  rpt: (s, k) => { k = Math.max(0, Math.trunc(n(k))); if (typeof s === 'string') return s.repeat(k); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
   fmt: (f, ...a) => { let i = 0; return f.replace(/%(-?)(0?)(\d*)(?:\.(\d+))?([sdfxXbo%])/g, (m, left, zero, w, prec, t) => {
       if (t === '%') return '%';
       const v = a[i++]; let s;
