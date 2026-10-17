@@ -1,5 +1,5 @@
 {
-  "spec": 1810,
+  "spec": 1300,
   "corpus": 2400,
   "note": "Ceilings in Anthropic-tokenizer tokens (node tools/measure.js py aklang, node tools/tok.js SPEC.md). tests/tokens.test.js fails above them. Lower them in the same pull request when a change saves tokens; raise one only on purpose and say why in the pull request."
 }
