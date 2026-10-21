@@ -1,0 +1,6 @@
+(p (json {:a 1 :b [2.5 -0.5]}))
+(p (try (json {:a (sqrt -1)}) e=>e))
+(p (try (json [1e999]) e=>e))
+(p (try (json [-1e999]) e=>e))
+(p (errkind (try (json [0/0]) e=>e)))
+(p (try (json 1e999) e=>e))

@@ -1,0 +1,6 @@
+{"a":1,"b":[2.5,-0.5]}
+json: cannot write NaN
+json: cannot write Infinity
+json: cannot write -Infinity
+arith
+json: cannot write Infinity
