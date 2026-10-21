@@ -134,6 +134,9 @@ INFATAL=false
 (= (bnot1 a) a=(tonum a) ($bxor a -1))
 
 ; ---- structural equality and ordering
+SD=0                                                    ; nesting depth of show and ==: a list or map that contains itself raises instead of looping
+(= (cyclic) (<- SD 0) ($throwk 0 "cyclic structure or nesting deeper than 10000"))
+(= (deep2 f a b) (<- SD SD+1) (? SD>10000 (cyclic)) r=(f a b) (<- SD SD-1) r)
 (= (eq2 a b)
   (? ($isnum a) (&& ($isnum b) (== a b))
      (! ($isptr a)) ($eqp a b)
@@ -143,8 +146,8 @@ INFATAL=false
         (? (!= ta ($type b)) false
            ta==1 ($streq a b)
            ta==7 (streq a b)
-           ta==2 (listeq a b)
-           ta==4 (mapeq a b)
+           ta==2 (deep2 listeq a b)
+           ta==4 (deep2 mapeq a b)
            ta==8 (streq a b)
            ta==9 (listeq (toarr a) (toarr b))
            ta==10 (== (bigcmp a b) 0)

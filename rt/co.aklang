@@ -4,7 +4,7 @@ COMAIN=0                                       ; context record of the main prog
 COCUR=nil                                      ; the coroutine running now (nil: the main program)
 COPOOL=[]                                      ; finished contexts, reused by the next coroutine
 COSZ=8388608                                   ; bytes of machine stack and of value stack of one coroutine (address space only, pages are touched when used)
-(= (co_ctx)                                    ; a context's memory: [value stack | guard page | machine stack], the record in the first 64 bytes
+(= (co_ctx)                                    ; a context's memory: [value stack | guard page | machine stack], the record (80 bytes: see gen.aklang) in the first 128
   (? COMAIN==0 (: m=($syscall 9 0 4096 3 16418 -1 0) (<- COMAIN m) ($cmain m)))
   (? #COPOOL>0 (pop COPOOL)
      (: b=($syscall 9 0 COSZ*2+4096 3 16418 -1 0)
@@ -14,7 +14,7 @@ COSZ=8388608                                   ; bytes of machine stack and of v
 (= (co f)                                      ; a coroutine that runs f(first resume value) when first resumed
   (? (! ($isfn f)) ($throwk 3 "co: expected a function"))
   r=(co_ctx)
-  ($cadd r r+COSZ*2+4096 r+64 co_entry)
+  ($cadd r r+COSZ*2+4096 r+128 co_entry)
   {:ctx r :fn f :st 0 :out nil :back 0 :up nil :err nil})
 (= (co_entry v)                                ; the bottom of every coroutine stack
   c=COCUR
