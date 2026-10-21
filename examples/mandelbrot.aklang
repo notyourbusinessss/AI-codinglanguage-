@@ -1,0 +1,27 @@
+; The Mandelbrot set drawn by worker processes into a canvas they share: one task per row, handed out to as many workers as there are cores.
+; It renders twice, with 1 worker and with every core, and says how much faster that was.   Run: ak examples/mandelbrot.aklang [width height [out.ppm]]
+(use "../lib/canvas.aklang")
+a=(args)
+W=(num (?? a[0] "800")) H=(num (?? a[1] "600")) IT=300
+cv=(canvas W H true)
+row y =
+ p=cv.px ci=-1.2+2.4*y/H
+ (for x W
+  cr=-2.2+3.2*x/W zr=0.0 zi=0.0 k=0
+  (wh (&& k<IT zr*zr+zi*zi<4) t=zr*zr-zi*zi+cr zi=2*zr*zi+ci zr=t k+=1)
+  c=(? k==IT 0 (rgb 9*k%256 (k*5)%256 255-k*3%256)) i=(y*W+x)*4
+  p[i]=c&255 p[i+1]=c>>8&255 p[i+2]=c>>16&255 p[i+3]=255)
+render w =
+ (fill cv 0)
+ t=(clock)
+ (par H row w)
+ (clock)-t
+total = (sum (~ i=>cv.px[i] 0..W*H*4))
+t1=(render 1) s1=(total)
+n=(cores)
+tn=(render n) sn=(total)
+(p (fmt "%dx%d, %d iterations at most" W H IT))
+(p (fmt "1 worker: %.2f s" t1/1000))
+(p (fmt "%d workers: %.2f s, %.1fx faster" n tn/1000 t1/tn))
+(p "same image:" s1==sn "checksum" sn)
+(? a[2] (save_ppm cv a[2]))

@@ -1,5 +1,5 @@
 ; Software canvas: BGRA pixels in a u8 array, anti-aliased shapes and text, no libraries. Native target. (x11.aklang shows a canvas in a window.)
-;   cv=(canvas 640 480)             (fill cv c)  (rect cv x y w h c a=255)  (rrect cv x y w h r c)  (circle cv cx cy r c a=255)
+;   cv=(canvas 640 480)  (canvas w h true) = pixels in shared memory, for `par` workers       (fill cv c)  (rect cv x y w h c a=255)  (rrect cv x y w h r c)  (circle cv cx cy r c a=255)
 ;   (ring cv cx cy r thick c)       (vgrad cv x y w h c1 c2)  (text cv x y "str" size c a=255) -> width   (text_w "str" size)   (px cv x y)
 ;   (blit dst dx dy src sx sy w h mask)   copy a region of one canvas onto another; mask = a canvas whose blue channel is each pixel's opacity (or nil)
 ;   (copy_canvas dst src)  (save_ppm cv "file.ppm")  (rgb r g b)     colours are 0xRRGGBB numbers; text sizes: 15, 22 (regular) and 34 (bold), ASCII
@@ -7,7 +7,7 @@ FONT15=(embed "font15.bin")
 FONT22=(embed "font22.bin")
 FONT34=(embed "font34.bin")
 (= (rgb r g b) (+ (* (& (int r) 255) 65536) (* (& (int g) 255) 256) (& (int b) 255)))
-(= (canvas w h) {:w w :h h :px (u8 w*h*4)})
+(= (canvas w h share=false) {:w w :h h :px (? share (shared "u8" w*h*4) (u8 w*h*4))})          ; share: the pixels live in shared memory, so `par` workers can draw into one canvas
 (= (px cv x y) i=(y*cv.w+x)*4 (rgb cv.px[i+2] cv.px[i+1] cv.px[i]))
 (= (fillpx p off n b g r)                                ; n pixels from byte offset off set to one opaque colour: the first one, then doubling copies
   (<@ p off b) (<@ p off+1 g) (<@ p off+2 r) (<@ p off+3 255)

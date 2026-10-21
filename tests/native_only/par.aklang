@@ -1,0 +1,69 @@
+; gcmin: 200000        (the workers inherit the stress setting: keep the tasks small and the collections few)
+; parallel workers: par, shared, cores
+(= (try1 f) (try (: (f) "no error") e=>e))
+(= (zombies) (== ($syscall 61 -1 0 1 0) -10))          ; wait4(-1, WNOHANG): -ECHILD when no child is left, running or not yet collected
+(= (nfds) #(ls "/proc/self/fd"))
+fds=(nfds)
+; results come back in order, whatever the number of workers
+p (par 6 i=>i*i)
+p (par 6 i=>i*i 1) (par 6 i=>i*i 2) (par 6 i=>i*i 50)
+p (par 0 i=>i) (par 1 i=>"one")
+p (par 100 i=>i%7)==(~ i=>i%7 0..100)
+c=(cores)
+p (isint c) c>=1
+; the function is a closure over the parent's data; changing the parent's variables from a worker is not seen by the parent
+xs=[10 20 30 40] n=0
+p (par 4 i=>xs[i]+1)
+(par 4 i=>(<- n n+1))
+p n
+; every kind of value crosses unchanged
+v=[nil true false 1.5 (/ 1 3) 1e300 -7 "a\xffb" "é" "" [] {} [1 [2 [3]]] {:a 1 :b [2] 3 "x" "k" nil} (u8 [1 2 255]) (f64 [0.5 1e-300]) (i16 [-1 7]) 12345678901234567890n (** 2n 70n)]
+r=(par 1 i=>v)[0]
+p r==v (~ ty r)
+p (ty (par 1 i=>(sqrt -1))[0]) (par 1 i=>(exp 1000))[0] (par 1 i=>(- (exp 1000)))[0]
+p #(par 1 i=>(rpt "abc" 100000))[0]                   ; larger than a pipe holds
+p (sum (~ s=>#s (par 12 i=>(rpt (chr 65+i) 70000))))
+p (sum (par 3000 i=>i))                               ; many small replies
+; shared arrays: zero-filled, shared with the workers, never moved
+a=(shared "i32" 8)
+p (ty a) #a (sum (~ x=>x a))
+(par 8 i=>(<@ a i i*i-5))
+p (~ x=>x a)
+b=(u8 4)
+(par 4 i=>(<@ b i 9))
+p (~ x=>x b)                                          ; an ordinary array is copied into the worker
+for k ["u8" "i8" "u16" "i16" "u32" "i32" "f32" "f64"]
+ s=(shared k 3)
+ (par 3 i=>(<@ s i -1.5-i))
+ (p k (~ x=>x s))
+big=(shared "f64" 1000)
+(par 10 t=>(for i 100 (<@ big t*100+i (** t 2)+i/100)))
+p (sum (~ x=>x big))
+(gc)
+p (sum (~ x=>x big)) big[999]                         ; a collection in the parent does not move it
+p #(shared "u8" 0) (try1 ()=>(shared "u8" -1)) (try1 ()=>(shared "u8" 1.5)) (try1 ()=>(shared "u64" 4)) (try1 ()=>(shared 8 4))
+; errors in a worker are thrown again in the parent, with their kind and data
+p (try (par 5 i=>(? i==3 (err "boom") i)) e=>[e (errkind e)])
+p (try (par 5 i=>(? i==3 (/ 1 0) i)) e=>[e (errkind e)])
+p (try (par 5 i=>(? i==3 (assert false "no") i)) e=>[e (errkind e)])
+p (try (par 5 i=>(? i==3 (raise "mine" "custom" [1 {:k 2}]) i)) e=>[e (errkind e) (errdata e)])
+p (try (par 3 i=>(? i==1 (x=>x) i)) e=>[e (errkind e)])
+p (try (par 3 i=>(? i==2 [1 (x=>x)] i)) e=>e)
+p (try1 ()=>(par 3 5)) (try1 ()=>(par -1 i=>i)) (try1 ()=>(par 1.5 i=>i)) (try1 ()=>(par "x" i=>i)) (try1 ()=>(par 3 i=>i 0)) (try1 ()=>(par 3 i=>i "x"))
+p (zombies) (== (nfds) fds)
+; a worker that exits or is killed is reported, the others are stopped at once (they would sleep for a minute), nothing is left behind
+t=(clock)
+p (try (par 8 i=>(? i==2 (exit 7) (: (sleep 60000) i)) 4) e=>e)
+p (try (par 8 i=>(? i==1 ($syscall 62 ($syscall 39) 9) (: (sleep 60000) i)) 4) e=>e)
+p (try (par 8 i=>(? i==3 (exit) (: (sleep 60000) i)) 4) e=>e)
+p (try (par 8 i=>(? i==0 (err "stop") (: (sleep 60000) i)) 4) e=>e)
+p (zombies) (== (nfds) fds) (< (clock)-t 10000)
+; output written by the parent before par is not written again by the workers
+p "before"
+(par 3 i=>(p "worker" i) 1)                            ; one worker, so the order of its output is fixed
+p "after"
+; par inside a worker, and inside a coroutine
+p (par 3 i=>(par 3 j=>i*10+j))
+co1=(co ()=>(yield (par 2 i=>i+100)))
+p (resume co1)
+p (zombies) (== (nfds) fds)

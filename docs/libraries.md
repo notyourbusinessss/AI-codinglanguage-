@@ -6,6 +6,7 @@ Everything here is native-only (Linux x86-64) unless it says "both targets", and
 |---|---|
 | a function that can pause and continue | [coroutines](#coroutines) (built in) |
 | many things happening at once without threads | [`lib/async.aklang`](#tasks-and-channels-libasyncaklang) |
+| use every CPU core | [parallel workers](#parallel-workers) (built in) |
 | TCP, UDP, DNS | [sockets](#sockets-dns-udp) (built in) |
 | fetch a web page, call an API | [`lib/http.aklang`](#http-client-libhttpaklang) |
 | hashes, encryption, random bytes | [`lib/crypto.aklang`](#cryptography-libcryptoaklang) |
@@ -77,6 +78,42 @@ p #replies (has replies "HELLO 7")
 20 true
 ```
 A task that throws prints `task error: msg` and ends; the others continue.
+
+## Parallel workers
+Coroutines and tasks run one at a time, so a program stays on one CPU core. For work that is CPU-bound (a renderer, a simulation, a search) `(par n f)` runs `f(0)` .. `f(n-1)` in worker processes, one per core, and returns the list of their results in order. `(cores)` says how many cores there are.
+```ak
+square i = i*i
+p (par 8 square)
+p (sum (par 1000 i=>i%7))
+```
+```output
+[0 1 4 9 16 25 36 49]
+2997
+```
+A worker is a copy of the program (made with `fork`), so `f` can use everything the parent has, and the runtime is untouched: every worker has its own memory and its own garbage collector. The price is that nothing a worker changes is seen by the parent, except in a **shared array**: `(shared "u8" n)` (kinds `u8 i8 u16 i16 u32 i32 f32 f64`) is a typed array in memory the workers share, so tasks that write different elements need no locks. This draws a Mandelbrot set one row per task, on all cores:
+```ak
+W=240 H=160
+px=(shared "u8" W*H)
+row y =
+ ci=-1.2+2.4*y/H
+ (for x W
+  cr=-2.2+3.2*x/W zr=0.0 zi=0.0 k=0
+  (wh (&& k<100 zr*zr+zi*zi<4) t=zr*zr-zi*zi+cr zi=2*zr*zi+ci zr=t k+=1)
+  px[y*W+x]=k)
+(par H row)
+p (sum (~ i=>px[i] 0..W*H))
+```
+```output
+935138
+```
+`lib/canvas.aklang` can draw into one: `(canvas w h true)` puts the pixels in shared memory, so workers can paint different strips of one canvas (`examples/mandelbrot.aklang`, which times 1 worker against every core: about 3.9x on 4 cores).
+
+- Results come back by value: nil, booleans, numbers, strings, lists, maps, BigInts and typed arrays; a function cannot be sent.
+- Tasks are handed out one at a time (in blocks when there are more than 1024), so tasks of different sizes balance themselves. `(par n f w)` limits the workers to `w`.
+- If a task throws, the other workers are stopped and `par` throws the same error (kind and data kept) as `par: task 3: message`. A worker that exits or is killed is reported too, and every worker is collected: no zombies. Workers die with the parent.
+- A `par` costs about 0.7 ms plus copying the results, so give each task at least a millisecond of work (a row of pixels, not one pixel).
+- A shared array is never freed or moved: make it once, not in a loop. There are no atomics or locks yet: tasks must not write the same element, and must not read what another task writes.
+- What a task prints appears when its worker ends; the parent's output before the `par` is written once, not once per worker.
 
 ## Sockets, DNS, UDP
 Built in, no `use` needed. Descriptors are plain numbers.
