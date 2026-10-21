@@ -1,0 +1,12 @@
+1 nil
+nil nil
+1 2 3
+3
+a 1
+expected list, got num
+expected list, got num
+expected list, got num
+5
+expected list, got str
+expected list, got num
+3

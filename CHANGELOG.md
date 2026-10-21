@@ -5,6 +5,11 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.28 (2026-10-21)
+
+### Fixed
+- Destructuring (`[a b]=v`, function parameter patterns, `for [k v]`, `let`, nested patterns) raises `expected list, got num` when the value is not a list; nil still gives nils and `[a b]=[1]` still gives `1 nil`. Native target only; before, `[a b]=5` gave `5 nil` and a string was split into characters (#119)
+
 ## 0.6.27 (2026-10-21)
 
 ### Fixed
