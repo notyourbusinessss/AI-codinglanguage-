@@ -1,0 +1,16 @@
+[a b]=[1]
+p a b
+[c d]=nil
+p c d
+[[x y] z]=[[1 2] 3]
+p x y z
+f [a b] = a+b
+p (f [1 2])
+for [k v] {:a 1} (p k v)
+p (try (: [a b]=5 a) e=>e)
+p (try (f 5) e=>e)
+p (try (: [[q]]=[5] q) e=>e)
+p (try (: [[q]]=[[5]] q) e=>e)
+p (try (: [a b]="hi" a) e=>e)
+p (try (let ([a b] 7) a) e=>e)
+p (try (let ([a b] [1 2]) a+b) e=>e)

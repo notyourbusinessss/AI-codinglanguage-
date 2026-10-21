@@ -249,7 +249,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   ["init" v val])
 (= (destructure pat src leaf)
   t=(newtemp (++ "%d" (newid))) items=pat[1..]
-  steps=[["init" t ["call" (rtref "toarr") [src]]]]
+  steps=[["init" t ["call" (rtref "destr") [src]]]]
   (for [k it] (enum items)
     (? (isspread it) (: (? (|| k!=#items-1 !(issym it[1])) (lerr "rest pattern ..x must be last" pat))
                         (? ($ it[1])!="_" (push steps (leaf ($ it[1]) ["call" (rtref "slice") [["ref" t] ["num" k] ["nil"]]]))))
