@@ -166,6 +166,7 @@ SYMTAB=nil
 (= (lset l i x) ($stw ($ldw l 2) i+1 x))
 (= (lat l i) n=($ldw l 1) (? i<0 i=n+i) (? (&& i>=0 i<n) (lget l i) nil))
 (= (needlist l) (? (! (islist l)) ($throwk 3 (strcat2 "expected list, got " (ty l)))) l)
+(= (destr x) (? (|| (islist x) ($isnil x)) (toarr x) (needlist x)))   ; destructuring source: a list, or nil (all nils)
 (= (push l ..xs) (needlist l) (for x xs (lpush l x)) l)
 (= (push1 l x) (? (! (islist l)) (needlist l)) (lpush l x) l)         ; (push l x) with exactly one value: called directly, no rest list
 (= (max2 a b) a=(tonum a) b=(tonum b) (? b>a b a))

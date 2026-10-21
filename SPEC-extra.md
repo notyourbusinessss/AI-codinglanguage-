@@ -60,3 +60,6 @@ A native string is UTF-8 bytes; a JS string is UTF-16 units. For ASCII text the 
 - `up` and `lo` map ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic letters one to one natively; JS also applies special casing (`ß` -> `SS`, a final sigma), which natively stays as it is.
 - Sizes: a count or length above 2^31 (lists and ranges: 2^27, `json` indent: 100) raises `invalid length: n` (`rpt`, `padl`, `padr`, `a..b step`, `json`, `fdr`, `udpfrom`) instead of hanging; `(exit x)` takes nil or an integer.
 Portable code treats text as opaque (compare, join, split on ASCII separators) and uses `ord`/`chr` for characters. `tests/strings.test.js` runs one table of cases on both targets, so a change in either direction fails until this section is updated.
+
+## Destructuring a non-list (native)
+`[a b]=v`, parameter patterns, `for [k v]`, `let` and nested patterns need a list or nil: any other value (`5`, `"hi"`, a map) raises `expected list, got num`. nil gives nils; a short list gives nil for the missing names (`[a b]=[1]` -> `1 nil`). The JS target still accepts anything.
