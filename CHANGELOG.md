@@ -11,6 +11,12 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 - Integer `+ - * **` raise `integer overflow` when the exact result is 2^53+1, which used to round to 2^53 and pass (`9007199254740991+2`, `2**53+1`); 2^53 itself still works (`9007199254740991+1`) (#117)
 - Integer literals above 2^53 (decimal, `0x` and `0b`) are a syntax error that points to BigInt (`10n`) instead of being rounded silently (#117)
 
+## 0.6.26 (2026-10-21)
+
+### Added
+- Parallel workers on the native target (#112): `(par n f w)` runs `f(0)` .. `f(n-1)` in worker processes (forked copies of the program, at most `w` at once, default `(cores)`) and returns their results in order; `(shared kind n)` makes a typed array in shared memory that workers can write to; `(cores)` is the number of CPUs the process may use. Errors, exits and kills of workers are reported in the parent, every worker is collected, and workers die with their parent
+- `(canvas w h true)` keeps the pixels in shared memory, so workers can draw into one canvas; `examples/mandelbrot.aklang` renders with 1 worker and with every core and reports the speed-up
+
 ## 0.6.25 (2026-10-21)
 
 ### Fixed
