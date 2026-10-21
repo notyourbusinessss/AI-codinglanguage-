@@ -33,6 +33,14 @@ for (const tg of TARGETS) {
   // case mapping of non-ASCII letters (simple 1:1 mappings; ß, final sigma and other special casing are left to the JS target)
   r = run(tg, '(p (up "àéîõüÿ ĀāĂă Łł Ωα άέ жзя ёў") (lo "ÀÉÎÕÜŸ ĀĂ ŁŇ ΩΑ ΆΈ ЖЗЯ ЁЎ") (up "日本語a") (lo "×÷B"))');
   t(L('up/lo map Latin-1, Latin Extended-A, Greek and Cyrillic'), r.stdout === 'ÀÉÎÕÜŸ ĀĀĂĂ ŁŁ ΩΑ ΆΈ ЖЗЯ ЁЎ àéîõüÿ āă łň ωα άέ жзя ёў 日本語A ×÷b\n', r);
+  // list builtins reject non-lists with the same type error on both targets (#106); case mapping leaves invalid UTF-8 bytes alone (#99)
+  for (const f of ['rev', 'sort', 'flat', 'uniq']) for (const a of ['5', 'true']) { r = run(tg, `(${f} ${a})`); t(L(`${f} ${a} raises`), r.status === 1 && r.stderr.startsWith('error: expected list, got '), r); }
+  r = run(tg, '(join 5 ",")'); t(L('join 5 raises'), r.status === 1 && r.stderr.startsWith('error: expected list, got num'), r);
+  for (const f of ['keys', 'vals']) { r = run(tg, `(${f} 5)`); t(L(f + ' 5 raises'), r.status === 1 && r.stderr.startsWith(`error: ${f} of num`), r); }
+  for (const f of ['up', 'lo', 'trim']) { r = run(tg, `(${f} 5)`); t(L(f + ' 5 raises'), r.status === 1 && r.stderr.startsWith('error: expected string, got num'), r); }
+  r = run(tg, '(p (rev [1 2]) (rev "ab") (sort "ba") (join [1 2] "-") (flat [[1] 2]) (uniq [1 1]) (keys nil) (rev nil))'); t(L('valid list builtins still work'), r.stdout === '[2 1] ba ["a" "b"] 1-2 [1 2] [1] [] []\n', r);
+  fs.writeFileSync(path.join(tmp, 'bin.dat'), Buffer.from([0x16, 3, 1, 2, 0, 1, 0, 1, 0xfc, 3, 3, 0xff, 0xfe, 0x80, 0x41, 0xc3, 0xa9, 0xc3]));
+  r = run(tg, `(s=(rd ${JSON.stringify(path.join(tmp, 'bin.dat'))}) (p #(lo s) #(up s) (== (up (lo s)) (up s))))`); t(L('up/lo accept invalid UTF-8'), r.status === 0 && r.stdout === '18 18 true\n', r);
 }
 // native only: the descriptor and length checks on sockets raise instead of crashing
 const nat = run(TARGETS[1], '(= (t f) (try (: (f) "no error") e=>"caught"))\n(p (t ()=>(fdr 0 1e300)) (t ()=>(fdr nil 5)) (t ()=>(fdr 0 "ab")) (t ()=>(udpfrom 0 "ab")) (t ()=>(fdwait [0] "x")) (t ()=>(fdwait 5)))');
