@@ -5,6 +5,14 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.35 (2026-10-21)
+
+### Added
+- `lib/async` `a.write fd s` writes without blocking the other tasks; new builtins `(fdwp fd s off n)` (write what fits now) and `(fdpoll rfds wfds ms)` (wait for readable and writable descriptors). A server task that sent more than a socket buffer used to freeze the whole process (#103)
+
+### Fixed
+- `ak --versoin` and `ak -x` print `unknown option ...` and the usage line and exit 2, instead of `cannot read --versoin`; `ak ./-name.aklang` still runs such a file (#115)
+
 ## 0.6.33 (2026-10-21)
 
 ### Changed

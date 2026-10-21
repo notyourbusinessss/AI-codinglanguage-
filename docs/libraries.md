@@ -35,7 +35,7 @@ p (resume c 5) (resume c nil) (resume c nil) (alive c)
 The argument of the first `resume` becomes the argument of the function; the argument of later ones is what `yield` returns inside. An error that is not caught inside the coroutine ends it and is thrown again by the `resume`, with its kind and data. Tens of thousands of coroutines can be alive at once (each has 8 MB of address space, used only as touched).
 
 ## Tasks and channels: `lib/async.aklang`
-Cooperative tasks on top of coroutines: code that looks blocking but lets other tasks run while it waits. `a.spawn f args..` starts a task, `a.sleep ms` waits, `a.pause()` lets the others run, `a.wait fd` waits until a socket is readable, `a.chan()` makes a channel (`a.send`, `a.recv`, `a.close`), and `a.run()` runs everything until no task can progress.
+Cooperative tasks on top of coroutines: code that looks blocking but lets other tasks run while it waits. `a.spawn f args..` starts a task, `a.sleep ms` waits, `a.pause()` lets the others run, `a.wait fd` waits until a socket is readable, `a.write fd s` writes all of `s` while letting the other tasks run when the socket buffer is full (`fdw` would block the whole process), `a.chan()` makes a channel (`a.send`, `a.recv`, `a.close`), and `a.run()` runs everything until no task can progress.
 ```ak
 (use "lib/async.aklang" as a)
 ch=a.chan()
@@ -125,8 +125,10 @@ Built in, no `use` needed. Descriptors are plain numbers.
 | `(tcpc host port ms=nil)` | connect; `host` may be an IPv4 address, `localhost`, a name in `/etc/hosts`, or any name DNS resolves |
 | `(fdr fd n=65536)` | read up to n bytes; `""` means the other side closed |
 | `(fdw fd s)` | write all of `s` (a string, byte list or `u8`) |
+| `(fdwp fd s off n)` | write without blocking: the number of bytes taken (0 when the buffer is full) |
 | `(fdc fd)` | close |
 | `(fdwait [fd ..] ms)` | the readable descriptors among them (`ms` < 0 waits forever) |
+| `(fdpoll [rfd ..] [wfd ..] ms)` | `[readable writable]`: which of the read and write descriptors are ready |
 | `(dns name)` | the IPv4 addresses of a name, as dotted strings |
 | `(udp)`, `(udpto fd ip port s)`, `(udpfrom fd n ms)` | UDP sockets |
 
