@@ -97,6 +97,17 @@
   r=($syscall 7 ($addr b) n (?? ms -1))
   (? r<0 (? r==-4 [] (netfail "poll failed"))
      (: out=[] (for i n (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out fds[i]))) out)))
+(= (fdwp fd s off n)                    ; write without blocking: the bytes taken (0 when the buffer is full), at most n of s from byte offset off
+  d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) (needfd fd) (flush)
+  r=($syscall 44 fd ($addr d)+off n 16448 0 0)                  ; MSG_NOSIGNAL | MSG_DONTWAIT
+  (? r==-88 r=($syscall 1 fd ($addr d)+off (min n 4096)))      ; not a socket (a pipe): after fdpoll said writable, PIPE_BUF bytes fit
+  (? r==-11 0 r==-4 0 r<0 (netfail "write failed") r))
+(= (fdpoll rd wr ms=nil)                ; wait for readable fds in rd and writable fds in wr: [readable writable] (ms<0: forever); a hung up or failed fd counts as ready
+  (needlist rd) (needlist wr) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) nr=#rd n=nr+#wr b=($newb 1 8*n 8*n)
+  (for i n (for k 4 ($stb b 8*i+k (% (// (? i<nr rd[i] wr[i-nr]) (** 256 k)) 256))) ($stb b 8*i+4 (? i<nr 1 4)))
+  r=($syscall 7 ($addr b) n (?? ms -1))
+  (? r<0 (? r==-4 [[] []] (netfail "poll failed"))
+     (: out=[[] []] (for i n (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out[(? i<nr 0 1)] (? i<nr rd[i] wr[i-nr])))) out)))
 
 ; ---- UDP and DNS ----
 (= (udp) fd=($syscall 41 2 2 0) (? fd<0 (netfail "socket failed")) fd)        ; a UDP socket (IPv4)
