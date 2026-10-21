@@ -15,7 +15,7 @@ for (const x of [1e6, 1e6 + 0.5, 3.3e6, 1e7, 1e9, 1.234e12, 1e15, 1e22, 1e100, 1
 for (let i = 0; i < 3000; i++) close.push([['sin', 'cos', 'tan'][i % 3], [Math.pow(10, 6 + rnd() * 294) * (rnd() < 0.5 ? -1 : 1)]]);
 exact.push(['abs', [-0.0]], ['abs', [0]], ['abs', [-3.5]]);
 const all = [...exact, ...close];
-const lit = x => Object.is(x, -0) ? '-0.0' : x === Infinity ? '(exp 1000)' : x === -Infinity ? '(- (exp 1000))' : Number.isNaN(x) ? '(- (exp 1000) (exp 1000))' : String(x);
+const lit = x => Object.is(x, -0) ? '-0.0' : x === Infinity ? '(exp 1000)' : x === -Infinity ? '(- (exp 1000))' : Number.isNaN(x) ? '(- (exp 1000) (exp 1000))' : /^-?\d{17,}$/.test(String(x)) ? String(x) + '.0' : String(x);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'akmath-')), file = path.join(tmp, 'm.aklang');
 fs.writeFileSync(file, all.map(([f, a]) => `(p (f64bits (${f} ${a.map(lit).join(' ')})))`).join('\n') + '\n');
 const r = cp.spawnSync(path.join(root, 'bin', 'ak'), [file], { encoding: 'utf8', timeout: 120000, maxBuffer: 1 << 26 });
