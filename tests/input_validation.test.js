@@ -45,6 +45,12 @@ for (const tg of TARGETS) {
 // native only: the descriptor and length checks on sockets raise instead of crashing
 const nat = run(TARGETS[1], '(= (t f) (try (: (f) "no error") e=>"caught"))\n(p (t ()=>(fdr 0 1e300)) (t ()=>(fdr nil 5)) (t ()=>(fdr 0 "ab")) (t ()=>(udpfrom 0 "ab")) (t ()=>(fdwait [0] "x")) (t ()=>(fdwait 5)))');
 t('native fdr/udpfrom/fdwait check their arguments', nat.stdout === 'caught caught caught caught caught caught\n', nat);
+// native only: integer literals above 2^53 are a syntax error (#117); 2^53, floats and exponents are fine
+for (const lit of ['9007199254740993', '123456789012345678901', '0x20000000000001', '0xFFFFFFFFFFFFFFFF', '0b1' + '0'.repeat(53) + '1', '00009007199254740993']) {
+  const r = run(TARGETS[1], `(p ${lit})`); t('native: literal ' + lit + ' is rejected', r.status === 1 && r.stdout === '' && r.stderr.includes('integer literal exceeds 2^53'), r);
+}
+{ const r = run(TARGETS[1], '(p 9007199254740992 0x20000000000000 0b1' + '0'.repeat(53) + ' 0009007199254740992 1e20 9007199254740993.5 12345678901234567890n)');
+  t('native: literals up to 2^53, floats and BigInts still work', r.stdout === '9007199254740992 9007199254740992 9007199254740992 9007199254740992 100000000000000000000 9007199254740994 12345678901234567890\n', r); }
 // the JS target says that sockets are native only (it used to report `undefined: tcpc`)
 for (const f of ['tcpl', 'tcpp', 'tcpa', 'tcpc', 'fdr', 'fdw', 'fdc', 'fdwait', 'udp', 'udpto', 'udpfrom', 'unixc', 'dns']) {
   const r = run(TARGETS[0], `(p (try (${f} 1 2 3) e=>e))`); t('js: ' + f + ' says native only', r.stdout.startsWith(f + ': sockets are native only'), r);
