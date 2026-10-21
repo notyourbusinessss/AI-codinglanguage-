@@ -72,8 +72,8 @@ CHARS=nil
      (&& c>=1024 c<=1039) c+80
      c))
 (= (recase s f) n=($hlen s) parts=(mklist 16) i=0
-  (wh i<n b=($ldb s i) k=(? b<192 1 b<224 2 b<240 3 4) (? i+k>n k=n-i)
-    (lpush parts (? b<128 (chr (f b)) b<192 (strslice s i i+k) (chr (f (ord (strslice s i i+k))))))
+  (wh i<n b=($ldb s i) k=(? (&& b>=194 b<224 i+1<n (== ($band ($ldb s i+1) 192) 128)) 2 1)
+    (lpush parts (? b<128 (chr (f b)) k==1 (strslice s i i+1) (chr (f (ord (strslice s i i+2))))))
     i+=k)
   (join parts ""))
 (= (hasnonascii s) n=($hlen s) i=0 (wh (&& i<n (< ($ldb s i) 128)) i+=1) i<n)
@@ -99,8 +99,9 @@ CHARS=nil
                 b=(strfind s d a)
                 (? b<0 (: (lpush r (strslice s a n)) a=-1) (: (lpush r (strslice s a b)) a=b+dl)))
               r)))))
+(= (needcoll x) (? (|| (islist x) ($isnil x) (isstr x) (ismap x) (istyped x)) x ($throwk 3 (strcat2 "expected list, got " (ty x)))))
 (= (join l d=nil)
-  l=(toarr l) d=(tostr (?? d "")) n=#l parts=(mklist n) pa=($ldw parts 2) total=0
+  l=(toarr (needcoll l)) d=(tostr (?? d "")) n=#l parts=(mklist n) pa=($ldw parts 2) total=0
   (for i n x=(lget l i) s=(? (isstr x) x (tostr x)) ($stw pa ($fadd i 1) s) total=($fadd total ($hlen s)))
   ($stw parts 1 n)
   total+=($hlen d)*(? n>0 n-1 0)
@@ -190,7 +191,7 @@ SYMTAB=nil
         r)))
 (= (rev l)
   (? (isstr l) (: n=($hlen l) r=(strnew n) (for i n ($stb r i ($ldb l n-1-i))) r)
-     (: l=(toarr l) n=#l r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 (lget l n-1-i))) ($stw r 1 n) r)))
+     (: l=(toarr (needcoll l)) n=#l r=(mklist n) arr=($ldw r 2) (for i n ($stw arr i+1 (lget l n-1-i))) ($stw r 1 n) r)))
 (= (enum l) l=(toarr l) n=#l r=(mklist n) arr=($ldw r 2)
   (for i n pa=($new 3 2 2) ($stw pa 1 i) ($stw pa 2 (lget l i)) pl=($new 2 3 3) ($stw pl 1 2) ($stw pl 2 pa) ($stw arr ($fadd i 1) pl))
   ($stw r 1 n) r)
@@ -199,7 +200,7 @@ SYMTAB=nil
 (= (take n l) (slice l 0 n))
 (= (drop n l) (slice l n nil))
 (= (sub c a b) (slice c a b))
-(= (flat l) l=(toarr l) r=(mklist 8) (for x l (? (islist x) (for y x (lpush r y)) (lpush r x))) r)
+(= (flat l) l=(toarr (needcoll l)) r=(mklist 8) (for x l (? (islist x) (for y x (lpush r y)) (lpush r x))) r)
 (= (zip ..ls) ls=(~ toarr ls) m=-1 (for l ls (? (|| m<0 #l<m) m=#l)) m=(? m<0 0 m)
   r=(mklist m) (for i m (lpush r (~ l=>(lget l i) ls))) r)
 (= (fnv f)
@@ -225,7 +226,7 @@ SYMTAB=nil
 (= (any f l) f=(fnv f) l=(toarr l) r=false i=0 n=#l (wh (&& (! r) i<n) (? (f (lget l i)) r=true) i+=1) r)
 (= (all f l) f=(fnv f) l=(toarr l) r=true i=0 n=#l (wh (&& r i<n) (? (! (f (lget l i))) r=false) i+=1) r)
 (= (ap f l) (apply (fnv f) (toarr l)))
-(= (uniq l) l=(toarr l) r=(mklist 8) seen=(map)
+(= (uniq l) l=(toarr (needcoll l)) r=(mklist 8) seen=(map)
   (for x l
     (? (|| (islist x) (ismap x))
        (? (! (any y=>(eq2 x y) r)) (lpush r x))
@@ -304,7 +305,7 @@ SYMTAB=nil
   arr=(msort2 keys V hasv n mode)
   r=(mklist 0) ($stw r 2 arr) ($stw r 1 n) r)
 (= (sort a b=nil)
-  (? ($isnil b) (: l=(toarr a) n=#l K=($new 3 n n) ($copy K 0 ($ldw l 2) 0 n*8) (sortlist l K false))
+  (? ($isnil b) (: l=(toarr (needcoll a)) n=#l K=($new 3 n n) ($copy K 0 ($ldw l 2) 0 n*8) (sortlist l K false))
      (: f=(fnv a) l=(toarr b) n=#l K=($new 3 n n) (for i n ($stw K i+1 (f (lget l i)))) (sortlist l K true))))
 
 ; ---- generic container access
