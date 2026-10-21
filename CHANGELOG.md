@@ -5,6 +5,13 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.25 (2026-10-21)
+
+### Fixed
+- `rev`, `sort`, `flat`, `join` and `uniq` raise `expected list, got num` for a value that is not a list, string, map or nil, and `keys`, `vals`, `up`, `lo` and `trim` raise a type error on the JS target too (before: native wrapped the value, JS returned `[]` or leaked a `TypeError`) (#106)
+- `up` and `lo` leave bytes that are not valid UTF-8 unchanged instead of raising `chr: invalid code point` (#99)
+- `lib/time` `parse` rejects days that do not exist in the month, such as `2023-02-29` and `2024-04-31` (#111)
+
 ## 0.6.22 (2026-10-17)
 
 ### Added

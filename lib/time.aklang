@@ -24,11 +24,12 @@
   (fmt "%04d-%02d-%02dT%02d:%02d:%02d%sZ" c.y c.mo c.d c.h c.mi c.s (? c.ms>0 (fmt ".%03d" c.ms) "")))
 (= (bad s) (err (++ "bad time: " (show s))))
 (= (digits s a b) (? (match (re "^\\d+$") s[a..b]) (num s[a..b]) (bad s)))
+(= (mlen y mo) (? mo==2 (? (&& y%4==0 (|| y%100!=0 y%400==0)) 29 28) (has [4 6 9 11] mo) 30 31))
 (= (parse s)
   (? (! (is "str" s)) (bad s))
   (? (! (match (re "^\\d{4}-\\d\\d-\\d\\d([T ]\\d\\d:\\d\\d(:\\d\\d(\\.\\d+)?)?)?(Z|[+-]\\d\\d:?\\d\\d)?$") s)) (bad s))
   y=(digits s 0 4) mo=(digits s 5 7) d=(digits s 8 10) h=0 mi=0 sec=0 frac=0 off=0 i=10
-  (? (&& mo>=1 mo<=12 d>=1 d<=31) nil (bad s))
+  (? (&& mo>=1 mo<=12 d>=1 d<=(mlen y mo)) nil (bad s))
   (? (&& #s>i (has "T " s[i])) (: h=(digits s i+1 i+3) mi=(digits s i+4 i+6) i+=6
        (? (&& #s>i s[i]==":") (: sec=(digits s i+1 i+3) i+=3
          (? (&& #s>i s[i]==".") (: j=i+1 (wh (&& j<#s (match (re "^\\d$") s[j])) j+=1) frac=(num (++ "0." s[i+1..j])) i=j))))))

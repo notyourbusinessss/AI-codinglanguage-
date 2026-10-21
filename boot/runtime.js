@@ -152,6 +152,7 @@ function slowAdd(a, b) {
 }
 
 // strict arithmetic: operands must be numbers (or bigints); nil/strings/lists never silently coerce
+function bad2(f, x) { throw new AkError(f + ' of ' + tyOf(x), 'type'); }
 function bad(x) { throw new AkError('expected number, got ' + tyOf(x), 'type'); }
 const n = x => (typeof x === 'number' || typeof x === 'bigint' || typeof x === 'boolean') ? x : bad(x);   // booleans count as 0/1 (like Python)
 // integer overflow detection: doubles are exact integers only up to 2^53. A result beyond that whose operands were
@@ -281,6 +282,8 @@ const tyOf = x => {
   if (x instanceof Sym) return 'sym';
   return 'obj';
 };
+const coll = l => { if (l == null || typeof l === 'string' || Array.isArray(l) || l instanceof Map || ArrayBuffer.isView(l)) return l; throw new AkError('expected list, got ' + tyOf(l), 'type'); };
+const str = s => { if (typeof s !== 'string') throw new AkError('expected string, got ' + tyOf(s), 'type'); return s; };
 const arr = l => Array.isArray(l) ? l : Array.from(it(l));
 const num = s => { if (typeof s === 'number') return s; const t = String(s).trim(); if (t === '') return null; const n = Number(t); return Number.isNaN(n) ? null : n; };
 
@@ -361,21 +364,21 @@ const B = {
   '~~': (f, l) => { f = fn(f); const o = []; l = arr(l); for (let i = 0; i < l.length; i++) { const r = f(l[i]); if (Array.isArray(r)) for (const y of r) o.push(y); else o.push(r); } return o; },
   '~/': red,
   sort: (a, b) => {
-    if (b === undefined) return arr(a).slice().sort(cmp);
+    if (b === undefined) return arr(coll(a)).slice().sort(cmp);
     const f = fn(a), l = arr(b), ks = l.map(x => f(x));
     return l.map((x, i) => i).sort((i, j) => cmp(ks[i], ks[j]) || i - j).map(i => l[i]);
   },
-  rev: l => typeof l === 'string' ? Array.from(l).reverse().join('') : arr(l).slice().reverse(),
+  rev: l => typeof l === 'string' ? Array.from(l).reverse().join('') : arr(coll(l)).slice().reverse(),
   zip: (...ls) => { ls = ls.map(arr); let m = Infinity; for (const x of ls) m = Math.min(m, x.length); const o = []; for (let i = 0; i < m; i++) o.push(ls.map(x => x[i])); return o; },
   uniq: l => {
     const seen = new Set(), o = [];
-    for (const x of arr(l)) {
+    for (const x of arr(coll(l))) {
       if (x === null || typeof x !== 'object') { if (!seen.has(x)) { seen.add(x); o.push(x); } }
       else if (!o.some(y => eq(x, y))) o.push(x);
     }
     return o;
   },
-  flat: l => { const o = []; for (const x of arr(l)) { if (Array.isArray(x)) for (const y of x) o.push(y); else o.push(x); } return o; },
+  flat: l => { const o = []; for (const x of arr(coll(l))) { if (Array.isArray(x)) for (const y of x) o.push(y); else o.push(x); } return o; },
   grp: (f, l) => { f = fn(f); const m = new Map(); for (const x of arr(l)) { const k = f(x); const g = m.get(k); if (g) g.push(x); else m.set(k, [x]); } return m; },
   idx: (c, x) => { if (typeof c === 'string') return c.indexOf(x); const l = arr(c); for (let i = 0; i < l.length; i++) if (eq(l[i], x)) return i; return -1; },
   has: (c, x) => {
@@ -387,8 +390,8 @@ const B = {
   },
   any: (f, l) => { f = fn(f); for (const x of arr(l)) if (tr(f(x))) return true; return false; },
   all: (f, l) => { f = fn(f); for (const x of arr(l)) if (!tr(f(x))) return false; return true; },
-  keys: m => m instanceof Map ? Array.from(m.keys()) : Object.keys(m ?? {}),
-  vals: m => m instanceof Map ? Array.from(m.values()) : Object.values(m ?? {}),
+  keys: m => m instanceof Map ? Array.from(m.keys()) : m == null ? [] : typeof m === 'object' ? Object.keys(m) : bad2('keys', m),
+  vals: m => m instanceof Map ? Array.from(m.values()) : m == null ? [] : typeof m === 'object' ? Object.values(m) : bad2('vals', m),
   prs: m => m instanceof Map ? Array.from(m, ([k, v]) => [k, v]) : Object.entries(m ?? {}),
   sub: (c, a, b) => c.slice(a, b == null ? undefined : b),
   take: (n, l) => l.slice(0, n), drop: (n, l) => l.slice(n),
@@ -403,8 +406,8 @@ const B = {
   },
   '$': tostr, show,
   split: (s, d) => d === undefined ? (s.trim() === '' ? [] : s.trim().split(/\s+/)) : s.split(d),
-  join: (l, d) => arr(l).map(tostr).join(d == null ? '' : tostr(d)),
-  trim: s => s.trim(), up: s => s.toUpperCase(), lo: s => s.toLowerCase(),
+  join: (l, d) => arr(coll(l)).map(tostr).join(d == null ? '' : tostr(d)),
+  trim: s => str(s).trim(), up: s => str(s).toUpperCase(), lo: s => str(s).toLowerCase(),
   rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
   rpt: (s, k) => { k = Math.max(0, Math.trunc(n(k))); if (typeof s === 'string') return s.repeat(k); if (!s.length) return []; if (s.length * k > 134217728) throw new AkError('invalid length: ' + show(s.length * k), 'arith'); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
