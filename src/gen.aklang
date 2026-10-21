@@ -704,10 +704,12 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
     "$label" (: (lea_l 0 args[0][1]) (int2num "rax"))
     ; coroutines: a context record (outside the heap) = [rsp r14 r15 handler-chain value-stack-base machine-stack-top - next]; [268435680] = the running one, [268435688] = all of them (the collector scans their value stacks)
     "$cmain" (: (gen args[0]) (num2int "rax" "rcx") (a "mov [268435680], rcx") (a "mov rax, [268435512]") (a "mov [rcx+32], rax") (a "mov rax, [268435576]") (a "mov [rcx+40], rax")
+                (a "mov rax, [268435696]") (a "mov [rcx+64], rax") (a "mov rax, [268435704]") (a "mov [rcx+72], rax")
                 (link_ctx) (a "mov rax, r11"))
     "$cadd" (: (gen args[0]) (push_rax) (gen args[1]) (push_rax) (gen args[2]) (push_rax) (gen args[3]) (popr "rdx") (num2int "rdx" "rdx") (popr "rsi") (num2int "rsi" "rsi") (popr "rcx") (num2int "rcx" "rcx")
                (a "mov [rdx], rax") (a "lea rdi, [rdx+8]") (a "mov [rcx+16], rdi") (a "mov [rcx+8], rdx") (a "mov [rcx+32], rdx") (a "mov [rcx+40], rsi")
                (a "lea rdi, [rsi-8]") (lea_l 0 ".costart") (a "mov [rdi], rax") (a "mov [rcx], rdi") (a "mov qword ptr [rcx+24], 0")
+               (a "lea rdi, [rsi-8126464]") (a "mov [rcx+64], rdi") (a "lea rdi, [rcx+8126464]") (a "mov [rcx+72], rdi")      ; CO_SZ (rt/co.aklang COSZ) 8388608 less 256 KB
                (link_ctx) (a "mov rax, r11"))
     "$cdrop" (: l1=(nl) l2=(nl) l3=(nl) (gen args[0]) (num2int "rax" "rcx")             ; unlink the context record in rcx
                 (a "mov rdx, [rcx+48]") (a "mov rsi, [rcx+56]") (a "test rsi, rsi") (a (++ "jz " l1)) (a "mov [rsi+48], rdx") (label l1)
@@ -768,6 +770,7 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
                 (a "push r14") (af "lea r14, [r15-%d]" 8*(P+1))))
   (label ok)
   (gen_poll)
+  (a "cmp rsp, [268435696]") (a "jb .err_stack") (a "cmp r15, [268435704]") (a "jae .err_stack")      ; machine or value stack within its margin of the end: raise
   (? G.trace (trace_push f))
   nloc=f.nslots-1-P-(? f.rest 1 0)
   (for k nloc (af "mov [r15+%d], r11" 8*k))
@@ -785,6 +788,9 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
 (= (gen_stubs)
   (label ".oom") (a "mov rdi, 137") (a "mov rax, 231") (a "syscall")
   (label ".err_num") (ptrconst 0 (strobj "expected number")) (a "mov rcx, 3") (a "mov [268435672], rcx") (a "jmp .throw")
+  (label ".err_stack")                                  ; no handler: the fatal printer runs on this stack, so switch the limits off first
+  (a "mov rcx, [268435456]") (a "test rcx, rcx") (a "jnz .err_stack2") (a "mov qword ptr [268435696], 0") (a "mov rcx, -1") (a "mov [268435704], rcx")
+  (label ".err_stack2") (ptrconst 0 (strobj "stack overflow")) (a "mov rcx, 0") (a "mov [268435672], rcx") (a "jmp .throw")
   (label ".gc")
   (mov_imm64 0 0x7FFFFFFF 0xFFFFFFFF) (a "mov [268435496], rax")
   (af "mov rsi, [%d]" (gaddr (prelude_gid "gc"))) (a "mov [r15], rsi") (a "add r15, 8") (a "mov rcx, 0") (a "call .callclosure") (a "ret")
@@ -959,8 +965,10 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
   (label ".cswitch")                                    ; rcx = the context to run, rax = the value it receives; saves the running context (its return address is on its machine stack) and returns into the target
   (a "mov rdx, [268435680]") (a "mov [rdx], rsp") (a "mov [rdx+8], r14") (a "mov [rdx+16], r15")
   (a "mov rsi, [268435456]") (a "mov [rdx+24], rsi") (a "mov rsi, [268435512]") (a "mov [rdx+32], rsi") (a "mov rsi, [268435576]") (a "mov [rdx+40], rsi")
+  (a "mov rsi, [268435696]") (a "mov [rdx+64], rsi") (a "mov rsi, [268435704]") (a "mov [rdx+72], rsi")
   (a "mov [268435680], rcx") (a "mov rsp, [rcx]") (a "mov r14, [rcx+8]") (a "mov r15, [rcx+16]")
   (a "mov rsi, [rcx+24]") (a "mov [268435456], rsi") (a "mov rsi, [rcx+32]") (a "mov [268435512], rsi") (a "mov rsi, [rcx+40]") (a "mov [268435576], rsi")
+  (a "mov rsi, [rcx+64]") (a "mov [268435696], rsi") (a "mov rsi, [rcx+72]") (a "mov [268435704], rsi")
   (a "ret")
   (label ".costart")                                    ; first entry of a coroutine: the value stack holds its entry closure; rax = the first value
   (a "mov [r15], rax") (a "add r15, 8") (a "mov rcx, 1") (a "call .callclosure") (a "mov rdi, 1") (a "mov rax, 231") (a "syscall")
@@ -1034,8 +1042,8 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
   (mmap_to HEAP_SIZE "r13") (a "mov [268435504], r13") (a "mov rcx, r13") (af "mov rdx, %d" HEAP_SIZE) (a "add rcx, rdx") (a "mov [268435464], rcx")
   (a "mov rcx, r13") (af "mov rdx, %d" GC_FIRST) (a "add rcx, rdx") (a "mov [268435496], rcx")
   (? G.trace (: (mmap_to 1073741824 "rax") (a "mov [268435480], rax") (a "mov [268435488], rax")))
-  (mmap_to 1073741824 "r15") (a "mov [268435512], r15")
-  (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx") (a "mov [268435576], rsp")
+  (mmap_to 1073741824 "r15") (a "mov [268435512], r15") (a "lea rcx, [r15+1072693248]") (a "mov [268435704], rcx")      ; value stack limit: 1 MB before its end
+  (mmap_to 1073741824 "rbx") (a "mov rdx, 1073741824") (a "add rbx, rdx") (a "mov rsp, rbx") (a "mov [268435576], rsp") (a "lea rcx, [rsp-1072693248]") (a "mov [268435696], rcx")
   (reload_consts)
   (af "mov rax, %d" L.nglob) (a "mov [268435624], rax")      ; the program's global count, read by the collector ($nglob): the runtime image is compiled before the program's globals exist
   (af "mov rdi, %d" GBASE) (af "mov rcx, %d" L.nglob) (a "mov rax, r11") (a "rep stosq")

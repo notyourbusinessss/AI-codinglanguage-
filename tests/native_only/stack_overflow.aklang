@@ -1,0 +1,10 @@
+f n = (? n==0 0 1+(f n-1))
+p (f 1000000)
+p (try (f 100000000) e=>e)
+p "after"
+c=(co ()=>(f 100000000))
+p (try (resume c) e=>(errkind e))
+; the value stack: many locals per frame
+g n = a=n b=n c=n d=n e=n (? n==0 0 1+(g n-1))
+p (try (g 100000000) e=>e)
+p (f 1000)

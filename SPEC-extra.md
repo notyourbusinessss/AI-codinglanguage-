@@ -63,3 +63,7 @@ Portable code treats text as opaque (compare, join, split on ASCII separators) a
 
 ## Destructuring a non-list (native)
 `[a b]=v`, parameter patterns, `for [k v]`, `let` and nested patterns need a list or nil: any other value (`5`, `"hi"`, a map) raises `expected list, got num`. nil gives nils; a short list gives nil for the missing names (`[a b]=[1]` -> `1 nil`). The JS target still accepts anything.
+
+## Stack overflow and cyclic data (native)
+- Unbounded recursion raises `error: stack overflow` (kind `error`, catchable with `try`, with the usual location and `called from` lines) instead of a segmentation fault. The check is at every function entry and covers both the machine stack and the value stack, also inside a coroutine (8 MB each).
+- `show`, `p`, `$`, `json` and `==` on a list or map that contains itself raise `cyclic structure or nesting deeper than 10000` (kind `error`).
