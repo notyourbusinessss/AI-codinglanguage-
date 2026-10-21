@@ -5,6 +5,12 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.30 (2026-10-21)
+
+### Fixed
+- Unbounded recursion raises a catchable `error: stack overflow` with the call-site trace instead of crashing with a segmentation fault, in the main program and in coroutines (#81)
+- `show`, `p`, `json` and `==` on a list or map that contains itself raise `cyclic structure or nesting deeper than 10000` instead of hanging or crashing (#110, #81)
+
 ## 0.6.28 (2026-10-21)
 
 ### Fixed

@@ -1,0 +1,16 @@
+x=[1]
+x[1]=x
+p (try (show x) e=>e)
+m={}
+m.a=m
+p (try (show m) e=>e)
+p (try (json x) e=>e)
+p (try (json m) e=>e)
+y=[1]
+y[1]=y
+p (try (x==y) e=>e)
+p (try (m==m) e=>e)
+p [1 [2 3] {:a [4]}]
+p ([1 [2]]==[1 [2]])
+z=(co ()=>(show x))
+p (try (resume z) e=>e)
