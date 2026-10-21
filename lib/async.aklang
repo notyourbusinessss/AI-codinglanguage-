@@ -2,16 +2,22 @@
 ;   (use "lib/async.aklang" as a)
 ;   a.spawn f args..   start a task          a.sleep ms   wait ms milliseconds        a.pause   let the other tasks run
 ;   a.wait fd          wait until fd is readable (a connection to accept, bytes to read, end of stream)
+;   a.write fd s       write all of s to fd, letting the other tasks run while its buffer is full (fdw would block the whole process)
 ;   a.chan   a.send ch v   a.recv ch (waits for a value)   a.close ch (receivers then get nil)
 ;   a.run              run the tasks until none is left that can still make progress; an uncaught error in a task ends it
 READY=[]
 TIMERS=[]
 WAITS={}
+WAITW={}
 CURRENT=nil
 (= (spawn f ..args) t=(co ()=>(f ..args)) (push READY t) t)
 (= (pause) (yield ["ready"]))
 (= (sleep ms) (yield ["sleep" now()+ms]))
 (= (wait fd) (yield ["fd" fd]))
+(= (write fd s)
+  d=(? (is "list" s) (frombytes s) (istyped s) s (tostr s)) n=($hlen d) k=0
+  (wh k<n r=(fdwp fd d k n-k) (? r>0 k+=r (yield ["fdw" fd])))
+  nil)
 (= (wake t) (push READY t))
 (= (chan) {:q [] :w [] :open true})
 (= (send ch v) (assert ch.open "send on a closed channel") (push ch.q v) (a_wake1 ch))
@@ -21,14 +27,14 @@ CURRENT=nil
   (? ch.q (: v=ch.q[0] ch.q=ch.q[1..] v) nil))
 (= (close ch) ch.open=false (wh ch.w (: t=ch.w[0] ch.w=ch.w[1..] (wake t))))
 (= (park_on r t)
-  (sw r[0] "sleep" (push TIMERS [r[1] t]) "fd" (: k=(tostr r[1]) l=(?? WAITS[k] []) (push l t) WAITS[k]=l) "park" nil (push READY t)))
+  (sw r[0] "sleep" (push TIMERS [r[1] t]) "fd" (: k=(tostr r[1]) l=(?? WAITS[k] []) (push l t) WAITS[k]=l) "fdw" (: k=(tostr r[1]) l=(?? WAITW[k] []) (push l t) WAITW[k]=l) "park" nil (push READY t)))
 (= (due)
   t=now() keep=[] due=[]
   (for x TIMERS (? x[0]<=t (push due x) (push keep x)))
   (<- TIMERS keep)
   (for x (sort (x=>x[0]) due) (push READY x[1])))
 (= (run)
-  (wh (|| READY TIMERS WAITS)
+  (wh (|| READY TIMERS WAITS WAITW)
     q=READY (<- READY [])
     (for t q
       (<- CURRENT t)
@@ -38,7 +44,9 @@ CURRENT=nil
     (due)
     (? (! READY)
        (: tmo=(? TIMERS (max 0 (- (min ..(~ x=>x[0] TIMERS)) now())) -1)
-          fds=(~ num (keys WAITS))
-          (? (|| fds TIMERS)
-             (: (for fd (fdwait fds tmo) k=(tostr fd) (for t WAITS[k] (push READY t)) (<- WAITS (del WAITS k)))
+          fds=(~ num (keys WAITS)) wfds=(~ num (keys WAITW))
+          (? (|| fds wfds TIMERS)
+             (: [rd wr]=(fdpoll fds wfds tmo)
+                (for fd rd k=(tostr fd) (for t WAITS[k] (push READY t)) (<- WAITS (del WAITS k)))
+                (for fd wr k=(tostr fd) (for t WAITW[k] (push READY t)) (<- WAITW (del WAITW k)))
                 (due)))))))

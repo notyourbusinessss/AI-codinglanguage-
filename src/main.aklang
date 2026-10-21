@@ -6,7 +6,7 @@
 (use "gen.aklang")
 (use "fmt.aklang")
 PRELUDE=(++ (embed "../rt/core.aklang") "\n" (embed "../rt/data.aklang") "\n" (embed "../rt/map.aklang") "\n" (embed "../rt/num.aklang") "\n" (embed "../rt/show.aklang") "\n" (embed "../rt/io.aklang") "\n" (embed "../rt/net.aklang") "\n" (embed "../rt/term.aklang") "\n" (embed "../rt/math.aklang") "\n" (embed "../rt/regex.aklang") "\n" (embed "../rt/big.aklang") "\n" (embed "../rt/json.aklang") "\n" (embed "../rt/typed.aklang") "\n" (embed "../rt/co.aklang") "\n" (embed "../rt/par.aklang") "\n" (embed "../rt/gc.aklang") "\n" (embed "../rt/prof.aklang"))
-VERSION="0.6.33"
+VERSION="0.6.35"
 
 ; ---- tree shaking: keep only the runtime functions the program can reach (by name)
 ROOTS=["at" "dot" "put" "setdot" "dotc" "setdotc" "slice" "apply" "concat" "isnum" "iter" "push1" "lpush" "cat2" "len" "list" "map" "sym" "toarr" "destr" "fatal" "finish" "gc" "chars_init" "bigfrom"
@@ -160,5 +160,6 @@ REPLHELP="enter an expression to see its value, or a definition (x=1, f n = .., 
        "repl" (cmd_repl)
        "run" (? #a<2 (usage) (runx (compile_src (rd a[1]) a[1]) a[2..]))
        "compile" (? #a!=3 (usage) (wrx a[2] (compile_src (rd a[1]) a[1])))
-       (runx (compile_src (rdsrc a[0]) (srcname a[0])) a[1..]))))
+       (? (&& (starts a[0] "-") a[0]!="-") (: (ep (++ "unknown option " a[0])) (usage))      ; ak ./-name.aklang still runs such a file
+          (runx (compile_src (rdsrc a[0]) (srcname a[0])) a[1..])))))
 (? (env "AK_DEBUG") (cli) (try (cli) e=>(: (ep (++ "error: " (withline e))) (exit 1))))
