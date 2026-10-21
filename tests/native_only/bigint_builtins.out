@@ -1,0 +1,11 @@
+big num false
+5 5 2
+1 3 2 9
+6 3 0
+5 5 -5
+12345678901234567890|    3
+expected number, got big
+expected number, got big
+expected number, got big
+cannot add big and num
+[1n 2n 3n] 3 1000000000000000000000000000000
