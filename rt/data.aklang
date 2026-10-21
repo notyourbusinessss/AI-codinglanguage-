@@ -169,8 +169,8 @@ SYMTAB=nil
 (= (destr x) (? (|| (islist x) ($isnil x)) (toarr x) (needlist x)))   ; destructuring source: a list, or nil (all nils)
 (= (push l ..xs) (needlist l) (for x xs (lpush l x)) l)
 (= (push1 l x) (? (! (islist l)) (needlist l)) (lpush l x) l)         ; (push l x) with exactly one value: called directly, no rest list
-(= (max2 a b) a=(tonum a) b=(tonum b) (? b>a b a))
-(= (min2 a b) a=(tonum a) b=(tonum b) (? b<a b a))
+(= (max2 a b) (? (&& ($isnum a) ($isnum b)) (? b>a b a) (|| (isbig a) (isbig b)) (? (gt2 b a) b a) (: a=(tonum a) b=(tonum b) (? b>a b a))))
+(= (min2 a b) (? (&& ($isnum a) ($isnum b)) (? b<a b a) (|| (isbig a) (isbig b)) (? (lt2 b a) b a) (: a=(tonum a) b=(tonum b) (? b<a b a))))
 (= (append1 l x) (needlist l) n=($ldw l 1) r=(mklist n+1) arr=($ldw r 2) ($copy arr 0 ($ldw l 2) 0 n*8) ($stw arr n+1 x) ($stw r 1 n+1) r)
 (= (pop l) (needlist l) n=($ldw l 1)
   (? n==0 nil (: arr=($ldw l 2) x=($ldw arr n) ($stw arr n nil) ($stw l 1 n-1) x)))
@@ -368,19 +368,20 @@ SYMTAB=nil
 (= (prs m) (? (ismap m) (mapentries m) ($isnil m) (mklist 0) ($throwk 3 (strcat2 "prs of " (ty m)))))
 
 ; ---- math
-(= (abs x) x=(tonum x) (? (< x 0) ($fsub -0 x) (== x 0) 0 x))      ; abs(-0) is +0 like Math.abs
+(= (abs x) (? (isbig x) (? (== (bigsign x) 1) (bigneg x) x) (absn x)))
+(= (absn x) x=(tonum x) (? (< x 0) ($fsub -0 x) (== x 0) 0 x))      ; abs(-0) is +0 like Math.abs
 (= (sqrt x) ($fsqrt (tonum x)))
-(= (flr x) ($ffloor (tonum x)))
-(= (cel x) ($fceil (tonum x)))
+(= (flr x) (? (isbig x) x ($ffloor (tonum x))))      ; a BigInt is already whole
+(= (cel x) (? (isbig x) x ($fceil (tonum x))))
 (= (rnd x) x=(tonum x) f=($ffloor x) (? (>= ($fsub x f) 0.5) ($fadd f 1) f))        ; ties go up like Math.round; x+0.5 itself would round up 0.49999999999999994 and odd integers above 2^52
-(= (int x) ($ftrunc (tonum x)))
+(= (int x) (? (isbig x) x ($ftrunc (tonum x))))
 (= (minmax sign a)
   (: l=(? (&& #a==1 (|| (islist a[0]) (ismap a[0]))) (toarr a[0]) a) r=nil first=true
-     (for x l x=(tonum x) (? (|| first (? sign<0 x<r x>r)) r=x) first=false) r))
+     (for x l x=(? (isbig x) x (tonum x)) (? (|| first (? sign<0 (lt2 x r) (gt2 x r))) r=x) first=false) r))
 (= (min ..a) (minmax -1 a))
 (= (max ..a) (minmax 1 a))
-(= (sum l) s=0 l=(toarr l)
-  (for x l (? ($isnum x) (: t=($fadd s x) (? (&& t<MAXI t>-MAXI) s=t s=(add2 s x))) s=(add2 s (tonum x))))      ; |sum| < 2^53 cannot overflow: no check needed
+(= (sum l) l=(toarr l) s=(? (&& #l>0 (isbig l[0])) (bigfromnum 0) 0)
+  (for x l (? (&& ($isnum x) ($isnum s)) (: t=($fadd s x) (? (&& t<MAXI t>-MAXI) s=t s=(add2 s x))) s=(add2 s (? (isbig x) x (tonum x)))))      ; |sum| < 2^53 cannot overflow: no check needed
   s)
 RNGI=nil
 (= (rand n=nil)

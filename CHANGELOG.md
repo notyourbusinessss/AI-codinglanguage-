@@ -5,6 +5,13 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.33 (2026-10-21)
+
+### Changed
+- `ty(10n)` is `"big"` (it was `"num"`), and `abs min max sum int flr cel` and `fmt "%d"` accept a BigInt; the other number builtins say `expected number, got big` (was `got num`) (#109)
+- `fmt` raises on missing or leftover arguments, an unfinished specifier and an unknown specifier (before: `nil`, the text passed through) (#107)
+- `json` raises an `arith` error for `NaN` and infinities (before: `null`) (#108)
+
 ## 0.6.30 (2026-10-21)
 
 ### Fixed

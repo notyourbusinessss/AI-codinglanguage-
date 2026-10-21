@@ -5,7 +5,7 @@ true
 true true
 [11 21 31 41]
 0
-true ["nil" "bool" "bool" "num" "num" "num" "num" "str" "str" "str" "list" "map" "list" "map" "arr" "arr" "arr" "num" "num"]
+true ["nil" "bool" "bool" "num" "num" "num" "num" "str" "str" "str" "list" "map" "list" "map" "arr" "arr" "arr" "big" "big"]
 num Infinity -Infinity
 300000
 840000
