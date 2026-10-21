@@ -1,0 +1,14 @@
+; a.write lets other tasks run while a socket buffer is full: 20 clients each get 1 MB from one process (fdw would block the whole process)
+(use "../../lib/async.aklang" as a)
+l=(tcpl 0 "127.0.0.1")
+port=(tcpp l)
+N=1024*1024
+chunk=(rpt "abcdefgh" 8192)
+total=[0]
+(a.spawn ()=>(for 20 (a.wait l) (a.spawn (s)=>(: sent=0 (wh sent<N (a.write s chunk) sent+=#chunk) (fdc s)) (tcpa l))))
+done=[0]
+(for i 20 (a.spawn ()=>(: c=(tcpc "127.0.0.1" port) d=nil
+  (wh d!="" (a.wait c) d=(fdr c) total[0]+=#d)
+  (fdc c) done[0]+=1)))
+a.run()
+p done[0] total[0] (total[0]==20*N)

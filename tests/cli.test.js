@@ -77,6 +77,14 @@ for (const h of ['-h', '--help', 'help']) {
 }
 const nu = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [], { encoding: 'utf8' });
 t('native no args: usage on stderr, exit 2', nu.status === 2 && /^usage: ak /.test(nu.stderr) && nu.stdout === '', nu);
+// an unknown option is not a file name (#115); a file whose name starts with - still runs by path
+for (const o of ['--versoin', '-x']) {
+  const nr = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), [o], { encoding: 'utf8' });
+  t('native ' + o + ': unknown option, usage, exit 2', nr.status === 2 && nr.stderr.startsWith('unknown option ' + o + '\nusage: ak ') && nr.stdout === '', nr);
+}
+const dashf = w('-dash.aklang', '(p "ran")\n');
+const nd = cp.spawnSync(path.join(__dirname, '..', 'bin', 'ak'), ['./-dash.aklang'], { encoding: 'utf8', cwd: tmp });
+t('native ./-name.aklang runs', nd.status === 0 && nd.stdout === 'ran\n', nd);
 // program on stdin: `ak -`, `ak check -`, `ak fmt -`, on both targets
 for (const [label, cmd, pre] of [['js', 'node', [AK]], ['native', path.join(__dirname, '..', 'bin', 'ak'), []]]) {
   const sh = (args, input) => cp.spawnSync(cmd, [...pre, ...args], { encoding: 'utf8', input, timeout: 60000 });
