@@ -7,7 +7,7 @@ Ak is a small programming language that is cheap to read and write (few tokens),
 | [Getting started](getting-started.md) | install, run a program, the `ak` commands, build a standalone executable |
 | [Language tour](language-tour.md) | values, syntax, functions, lists and maps, errors, strings, files, processes |
 | [Errors and tests](errors-and-tests.md) | `try`, error kinds, `raise`, stack traces, `ak test`, `ak repl` |
-| [Libraries](libraries.md) | coroutines and `async`, sockets, DNS, `http`, `crypto`, `pki`, `tls`, windows and `canvas`, the terminal |
+| [Libraries](libraries.md) | coroutines, `async` and parallel workers, sockets, DNS, `http`, `crypto`, `pki`, `tls`, windows and `canvas`, the terminal |
 | [Stability](stability.md) | what a release promises, deprecation rules, version numbers (and the [changelog](../CHANGELOG.md)) |
 | [Examples](../examples) | complete programs: a game, a web server, a GUI |
 
