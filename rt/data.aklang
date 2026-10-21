@@ -379,7 +379,7 @@ SYMTAB=nil
 (= (min ..a) (minmax -1 a))
 (= (max ..a) (minmax 1 a))
 (= (sum l) s=0 l=(toarr l)
-  (for x l (? ($isnum x) (: t=($fadd s x) (? (&& t<=MAXI t>=-MAXI) s=t s=(add2 s x))) s=(add2 s (tonum x))))      ; |sum| <= 2^53 cannot overflow: no check needed
+  (for x l (? ($isnum x) (: t=($fadd s x) (? (&& t<MAXI t>-MAXI) s=t s=(add2 s x))) s=(add2 s (tonum x))))      ; |sum| < 2^53 cannot overflow: no check needed
   s)
 RNGI=nil
 (= (rand n=nil)
