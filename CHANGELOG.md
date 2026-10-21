@@ -5,6 +5,12 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.26 (2026-10-21)
+
+### Added
+- Parallel workers on the native target (#112): `(par n f w)` runs `f(0)` .. `f(n-1)` in worker processes (forked copies of the program, at most `w` at once, default `(cores)`) and returns their results in order; `(shared kind n)` makes a typed array in shared memory that workers can write to; `(cores)` is the number of CPUs the process may use. Errors, exits and kills of workers are reported in the parent, every worker is collected, and workers die with their parent
+- `(canvas w h true)` keeps the pixels in shared memory, so workers can draw into one canvas; `examples/mandelbrot.aklang` renders with 1 worker and with every core and reports the speed-up
+
 ## 0.6.25 (2026-10-21)
 
 ### Fixed
