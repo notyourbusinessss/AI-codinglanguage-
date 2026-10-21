@@ -5,6 +5,12 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.6.27 (2026-10-21)
+
+### Fixed
+- Integer `+ - * **` raise `integer overflow` when the exact result is 2^53+1, which used to round to 2^53 and pass (`9007199254740991+2`, `2**53+1`); 2^53 itself still works (`9007199254740991+1`) (#117)
+- Integer literals above 2^53 (decimal, `0x` and `0b`) are a syntax error that points to BigInt (`10n`) instead of being rounded silently (#117)
+
 ## 0.6.25 (2026-10-21)
 
 ### Fixed
