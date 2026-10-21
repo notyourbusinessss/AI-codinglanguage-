@@ -147,22 +147,24 @@ P10=nil
           (? (&& i<n (== ($ldb f i) 48)) (: zero=true i+=1))
           (wh (&& i<n (isdig ($ldb f i))) w=w*10+(($ldb f i)-48) i+=1)
           (? (&& i<n (== ($ldb f i) 46)) (: i+=1 prec=0 (wh (&& i<n (isdig ($ldb f i))) prec=prec*10+(($ldb f i)-48) i+=1)))
-          t=(? i<n ($ldb f i) 0) i+=1
+          (? i>=n ($throwk 0 "fmt: incomplete format"))
+          t=($ldb f i) i+=1
           (? t==37 (lpush r "%")
-             (: v=(at a ai) ai+=1
+             (: (? ai>=#a ($throwk 0 (strcat2 "fmt: missing argument for %" (chr t)))) v=(lget a ai) ai+=1
                 s=(sw t
                     115 (: s=(tostr v) (? (! ($isnil prec)) (strslice s 0 (? prec<#s prec #s)) s))
-                    100 (fmtint ($ftrunc (tonum v)))
+                    100 (? (isbig v) (bigstr v) (fmtint ($ftrunc (tonum v))))
                     102 (tofixed (tonum v) (?? prec 6))
                     120 (toradix (tonum v) 16)
                     88 (up (toradix (tonum v) 16))
                     98 (toradix (tonum v) 2)
                     111 (toradix (tonum v) 8)
-                    (strcat2 "%" (chr t)))
+                    ($throwk 0 (strcat2 "fmt: unknown specifier %" (chr t))))
                 pad=w-#s
                 (lpush r (? pad<=0 s left (strcat2 s (rpt " " pad))
                             zero (? (&& #s>0 (== ($ldb s 0) 45)) (strcat2 "-" (strcat2 (rpt "0" pad) (strslice s 1 #s))) (strcat2 (rpt "0" pad) s))
                             (strcat2 (rpt " " pad) s))))))))
+  (? ai<#a ($throwk 0 "fmt: too many arguments"))
   (join r ""))
 
 ; ---- json (encoder appends into one growing buffer)
@@ -183,7 +185,7 @@ JN=0
             (for i k ($stb JB JN+i 32)) (<- JN JN+k))))
 (= (jenc x ind lvl)
   (? ($isnil x) (jcat "null")
-     ($isnum x) (jcat (? (|| (!= x x) (> (abs x) 1.7976931348623157e308)) "null" (fmtnum x)))
+     ($isnum x) (? (|| (!= x x) (> (abs x) 1.7976931348623157e308)) ($throwk 2 (strcat2 "json: cannot write " (fmtnum x))) (jcat (fmtnum x)))
      (isbig x) (jcat (bigstr x))
      (isbool x) (jcat (? x "true" "false"))
      (isstr x) (jqput x)

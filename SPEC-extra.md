@@ -67,3 +67,9 @@ Portable code treats text as opaque (compare, join, split on ASCII separators) a
 ## Stack overflow and cyclic data (native)
 - Unbounded recursion raises `error: stack overflow` (kind `error`, catchable with `try`, with the usual location and `called from` lines) instead of a segmentation fault. The check is at every function entry and covers both the machine stack and the value stack, also inside a coroutine (8 MB each).
 - `show`, `p`, `$`, `json` and `==` on a list or map that contains itself raise `cyclic structure or nesting deeper than 10000` (kind `error`).
+
+## BigInt, `fmt` and `json` rules (native)
+- `(ty 10n)` is `"big"`. `abs min max sum int flr cel` and `fmt "%d"` accept BigInts; `sqrt rpt` and the other number builtins raise `expected number, got big`. A BigInt and a number never mix in `+ - *` (`cannot add big and num`), but they compare and sort.
+- `fmt` raises (kind `error`) when it runs out of arguments (`fmt: missing argument for %s`), has arguments left over (`fmt: too many arguments`), ends inside a specifier (`fmt: incomplete format`) or meets an unknown one (`fmt: unknown specifier %e`).
+- `json` raises an `arith` error for `NaN`, `Infinity` and `-Infinity` (`json: cannot write NaN`) instead of writing `null`.
+

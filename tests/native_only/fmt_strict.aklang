@@ -1,0 +1,8 @@
+(p (fmt "a%d-%s" 1 "x") (fmt "%d%% %s" 5 nil) (fmt "%5.1f|%-4d|%04d" 2.25 7 42))
+(p (try (fmt "a%d-%s" 1) e=>e))
+(p (try (fmt "%e %c" 1.5 65) e=>e))
+(p (try (fmt "%5") e=>e))
+(p (try (fmt "%-") e=>e))
+(p (try (fmt "x" 1) e=>e))
+(p (try (fmt "%d" 1 2) e=>e))
+(p (errkind (try (fmt "%d") e=>e)))

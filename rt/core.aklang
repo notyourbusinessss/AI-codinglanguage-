@@ -13,7 +13,7 @@ UNDEF=($frombits 4294508544 3)
 (= (isbig x) (&& ($isptr x) (== ($type x) 10)))
 (= (isbool x) (|| ($eqp x true) ($eqp x false)))
 (= (ty x) t=(typeof x)
-  (? (|| t==100 t==10) "num" t==101 "nil" t==102 "bool" t==1 "str" t==2 "list" t==4 "map" t==5 "fn" t==7 "sym" (|| t==8 t==9) "arr" "obj"))
+  (? t==100 "num" t==10 "big" t==101 "nil" t==102 "bool" t==1 "str" t==2 "list" t==4 "map" t==5 "fn" t==7 "sym" (|| t==8 t==9) "arr" "obj"))
 (= (is t x) (&& (isstr t) (streq t (ty x))))
 (= (isnum x) ($isnum x))
 
