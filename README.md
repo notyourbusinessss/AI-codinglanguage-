@@ -51,6 +51,7 @@ echo '(p 1+2)' | ./bin/ak -        run a program read from stdin (also `ak check
 ./bin/ak examples/connect4.aklang    Connect Four in your terminal (arrow keys, colour, animation): uses the native terminal library, no libraries
 ./bin/ak examples/connect4web.aklang Connect Four with a graphical UI in your browser (http://localhost:8080), served by the program itself: native sockets, no JavaScript
 ./bin/ak examples/connect4gui.aklang Connect Four in its own native window: Ak speaks the X11 protocol itself (lib/x11.aklang) and draws with its own canvas (lib/canvas.aklang): no browser, no GUI library
+./bin/ak examples/mandelbrot.aklang [w h]  the Mandelbrot set drawn by worker processes on every CPU core into a shared canvas; times 1 worker against all cores
 ```
 `bin/ak` is the committed seed. Without it (or to re-derive everything from scratch) Node can bootstrap it once: `./build.sh --boot`.
 
@@ -75,6 +76,13 @@ Native Ak has stackful coroutines: `(co f)`, `(resume c v)`, `(yield x)`, `(aliv
 ```
 g=(co ()=>(for i 3 (yield i*10)))
 (p (drain g))                        ; [0 10 20]
+```
+
+## Parallel workers
+`(par n f)` runs `f(0)` .. `f(n-1)` in worker processes, one per CPU core, and returns the results in order; `(shared "u8" n)` makes a typed array in memory the workers share, so they can fill different parts of it (or of a canvas, `(canvas w h true)`) without locks. A worker is a `fork` of the program with its own heap and garbage collector, so the runtime has no locks and nothing to synchronise. `examples/mandelbrot.aklang` draws a Mandelbrot set one row per task and reports the speed-up: 3.9x on 4 cores. If a task throws, or a worker exits or is killed, the other workers are stopped and the error is thrown in the parent; no worker is left behind. API and limits: [`SPEC-extra.md`](SPEC-extra.md) ("Parallel workers").
+```
+px=(shared "u8" 1000*1000)
+(par 1000 y=>(for x 1000 px[y*1000+x]=x+y&255))   ; one row per task, on every core
 ```
 
 ## How self-hosting works
@@ -153,7 +161,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs `npm test` on every push and pu
 
 ## Known limits
 - Native target only runs on x86-64 Linux; strings are UTF-8 bytes (`#"é"` is 2; the JS target counts UTF-16 units); the full contract is in SPEC-extra.md, "Strings across targets".
-- Native target has no `aw`/Promises, `req`, `js`, `new`, or Node modules; use the JS target (`node boot/ak.js`) for `fetch` and npm packages. Concurrency on the native target is coroutines plus `lib/async.aklang` (see [Coroutines and tasks](#coroutines-and-tasks)), not threads: one task runs at a time, and a task that blocks (a long computation, a blocking read) holds up the rest. Natively there are blocking TCP sockets plus `fdwait` (poll), which `lib/async.aklang` turns into one task per connection (`examples/httpd.aklang` polls by hand, `examples/httpd_async.aklang` uses tasks) plus DNS (A records through `/etc/resolv.conf`, so `(tcpc "example.com" 80)` works) and an HTTP/HTTPS client in `lib/http.aklang` on top of a TLS 1.3 client written in Ak (`lib/tls.aklang`, with `lib/crypto.aklang` and `lib/pki.aklang`) — TLS is client-only: no server side, no client certificates.
+- Native target has no `aw`/Promises, `req`, `js`, `new`, or Node modules; use the JS target (`node boot/ak.js`) for `fetch` and npm packages. Concurrency on the native target is coroutines plus `lib/async.aklang` (see [Coroutines and tasks](#coroutines-and-tasks)), which run one task at a time, so a task that blocks (a long computation, a blocking read) holds up the rest; to use several cores there are worker processes with shared arrays (see [Parallel workers](#parallel-workers)), not threads on one heap. Natively there are blocking TCP sockets plus `fdwait` (poll), which `lib/async.aklang` turns into one task per connection (`examples/httpd.aklang` polls by hand, `examples/httpd_async.aklang` uses tasks) plus DNS (A records through `/etc/resolv.conf`, so `(tcpc "example.com" 80)` works) and an HTTP/HTTPS client in `lib/http.aklang` on top of a TLS 1.3 client written in Ak (`lib/tls.aklang`, with `lib/crypto.aklang` and `lib/pki.aklang`) — TLS is client-only: no server side, no client certificates.
 - `**`/`pow` with fractional exponents can differ from V8 in the last bit (about 4% of random inputs); `sin cos tan` of arguments beyond ~1e6 (exact bignum reduction) can differ in the last bit in about 0.05% of cases. Never by more than 1 ulp; special values (zeros, infinities, NaN) are exact. `tests/math_accuracy.test.js` measures both against V8.
 - The GUI library targets Linux with X11 or XWayland: depth-24 displays, fixed-size windows, ASCII text, no clipboard or window resizing yet. The terminal library needs a Linux terminal (raw mode via `ioctl`).
 - No static types. Overflow-checked arithmetic is a few times slower than unchecked in arithmetic-bound loops.
