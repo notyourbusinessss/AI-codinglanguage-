@@ -41,9 +41,9 @@ const lines = (label, r, want, src, min = 40) => {
   for (const tg of TARGETS) lines('time ' + tg[0], run(tg, 'time', lib('time') + '\n' + src.map(s => s.replace(/^\(p /, '(p ').replace(/\(t\./g, '(time.')).join('\n') + '\n'.replace(/t\./g, 'time.')), want, ts);
   // fixed cases: parse forms, milliseconds, durations, errors
   const fixed = [['(time.parse "2023-11-14T23:13:20+01:00")', '1700000000'], ['(time.parse "2023-11-14T22:13:20-0130")', '1700005400'], ['(time.parse "2023-11-14")', '1699920000'], ['(time.parse "2023-11-14 22:13")', '1699999980'],
-    ['(time.parse "2023-11-14T22:13:20.5Z")', '1700000000.5'], ['(time.iso 1700000000.25)', '2023-11-14T22:13:20.250Z'], ['(time.epoch 2024 2 30)', String(Date.UTC(2024, 2, 1) / 1000)], ['(time.epoch 2023 11 14)', '1699920000'],
+    ['(time.parse "2023-11-14T22:13:20.5Z")', '1700000000.5'], ['(time.iso 1700000000.25)', '2023-11-14T22:13:20.250Z'], ['(time.epoch 2024 2 30)', String(Date.UTC(2024, 2, 1) / 1000)], ['(time.iso (time.parse "2024-02-29"))', '2024-02-29T00:00:00Z'], ['(time.iso (time.parse "2000-02-29"))', '2000-02-29T00:00:00Z'], ['(time.iso (time.parse "2024-12-31"))', '2024-12-31T00:00:00Z'], ['(time.epoch 2023 11 14)', '1699920000'],
     ['(time.fmtdur 3723)', '1h2m3s'], ['(time.fmtdur 0)', '0s'], ['(time.fmtdur 90061)', '1d1h1m1s'], ['(time.fmtdur -90)', '-1m30s'], ['(time.pardur "1d2h")', '93600'], ['(time.pardur "-5m3s")', '-303'], ['(time.pardur "90s")', '90'],
-    ...['nope', '2023-13-01', '2023-11-14T25:00', '2023-11-14T22:13:20+1', '', '2023-1-1'].map(s => [`(try (time.parse ${q(s)}) e=>"bad")`, 'bad']), ['(try (time.pardur "1x") e=>"bad")', 'bad'], ['(try (time.pardur "") e=>"bad")', 'bad']];
+    ...['nope', '2023-13-01', '2023-11-14T25:00', '2023-11-14T22:13:20+1', '', '2023-1-1', '2023-02-29', '2024-02-30', '2024-04-31', '1900-02-29'].map(s => [`(try (time.parse ${q(s)}) e=>"bad")`, 'bad']), ['(try (time.pardur "1x") e=>"bad")', 'bad'], ['(try (time.pardur "") e=>"bad")', 'bad']];
   for (const tg of TARGETS) { const r = run(tg, 'time2', lib('time') + '\n' + fixed.map(f => `(p ${f[0]})`).join('\n') + '\n'); lines('time fixed ' + tg[0], r, fixed.map(f => f[1]), fixed.map(f => f[0]), 20); }
 }
 
