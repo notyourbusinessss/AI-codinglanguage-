@@ -28,8 +28,8 @@ f64 [-1.5 -2.5 -3.5]
 ["par: task 3: division by zero" "arith"]
 ["par: task 3: no" "assert"]
 ["par: task 3: custom" "mine" [1 {"k" 2}]]
-["par: task 0: cannot send a fn between processes" "type"]
-par: task 0: cannot send a fn between processes
+["par: task 1: cannot send a fn between processes" "type"]
+par: task 2: cannot send a fn between processes
 par: expected a function, got num invalid length: -1 invalid length: 1.5 invalid length: x par: invalid number of workers: 0 par: invalid number of workers: x
 true true
 par: a worker exited with code 7
