@@ -5,6 +5,26 @@ Each release PR adds its section here; `tests/version.test.js` fails when the cu
 
 ## Unreleased
 
+## 0.7.0 (2026-10-21)
+
+Native runtime hardening and the first parallel workers. The patch sections below (0.6.26 to 0.6.35) have the details and issue numbers.
+
+### Added
+- Parallel workers on the native target: `par`, `shared`, `cores`, a shared canvas (0.6.26, #112)
+- `lib/async` `a.write` and the builtins `fdwp` and `fdpoll`: a task can send more than a socket buffer without freezing the others (#103)
+
+### Changed
+- `ty(10n)` is `"big"`; `abs min max sum int flr cel` and `fmt "%d"` accept BigInts (#109)
+- `fmt` raises on missing, leftover and unknown arguments or specifiers (#107)
+- `json` raises an `arith` error for `NaN` and infinities instead of writing `null` (#108)
+- Integer overflow past 2^53 is detected exactly, and integer literals above 2^53 are a syntax error that points to BigInt (#117)
+
+### Fixed
+- Unbounded recursion raises a catchable `stack overflow` instead of a segmentation fault; a list or map that contains itself raises in `p`, `show`, `json` and `==` instead of hanging (#81, #110)
+- Destructuring a non-list raises a type error (#119)
+- Unknown command line options are reported instead of being read as file names (#115)
+- List builtins reject non-lists, `up` and `lo` keep invalid UTF-8, and `lib/time` `parse` checks the days of a month (#106, #99, #111)
+
 ## 0.6.35 (2026-10-21)
 
 ### Added
