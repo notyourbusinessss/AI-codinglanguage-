@@ -1,0 +1,12 @@
+; The program-directory tests run whatever they find, so an empty or half-renamed directory would pass while testing nothing.
+; This fails when tests/native/ or tests/native_only/ shrink below a floor, or when a .out has no program (or the other way round).
+(= (names d ext) (sort (~ (\ (f) (sub f 0 #f-#ext)) (~? (\ (f) (ends f ext)) (ls d)))))
+; floors: raise them when programs are added, never lower them to make a failure go away
+(for [d floor] [["tests/native" 35] ["tests/native_only" 5] ["corpus" 20] ["examples" 8]]
+  (assert (>= #(names d ".aklang") floor) (+ d " holds fewer than " floor " programs")))
+(for d ["tests/native_only" "examples"]
+  progs=(names d ".aklang")
+  (for o (names d ".out") (assert (has progs o) (+ d ": " o ".out has no .aklang program")))
+)
+(for p (names "tests/native_only" ".aklang") (assert (ex (+ "tests/native_only/" p ".out")) (+ "tests/native_only/" p " lacks its .out file")))
+(assert (== #(names "tests/native" ".out") 0) "tests/native: stray .out files (those programs are compared with the JS target)")
