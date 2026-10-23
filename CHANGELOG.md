@@ -5,6 +5,10 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 
 ## Unreleased
 
+### Added
+- `lib/tls`: ALPN (`opts.alpn` on the client, `:alpn` in `t.creds`, `cn.alpn` for the result) and client certificates on both sides: `opts.cert`/`opts.key` on `t.connect`, `:clientca` and `:optional` in `t.creds`, `cn.peer` for the verified peer certificate (part of #102)
+- `k.check_chain` accepts `nil` as the host to skip the name check (used for client certificates)
+
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
