@@ -5,14 +5,19 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 
 ## Unreleased
 
+### Changed
+- Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
+
+## 0.7.8 (2026-10-23)
+
+The TLS work of #102: TLS 1.2 client, ALPN, client certificates, more key exchange groups, HelloRetryRequest and session resumption.
+
 ### Added
+- `lib/tls`: TLS 1.3 session resumption on both sides: the server issues stateless tickets (`:tkey` of `t.creds`), the client keeps them (`t.session`) and offers one with `{:session s}`; `cn.resumed` reports it. No tickets when client certificates are required (part of #102)
 - `lib/tls`: key exchange on secp256r1 and secp384r1 besides x25519 (TLS 1.3 and 1.2 client, TLS 1.3 server), and HelloRetryRequest on both sides (cookie echo included); `lib/pki` gained `ecdh_pair`, `ecdh` and `curve_by_id` (part of #102)
 - `lib/tls` client speaks TLS 1.2 when the server has no TLS 1.3: ECDHE (x25519) with AES-128/256-GCM or ChaCha20-Poly1305, RSA or ECDSA certificates, extended master secret, ALPN and client certificates; the ClientHello also lists secp256r1/secp384r1 so servers accept certificates on those curves (part of #102)
 - `lib/tls`: ALPN (`opts.alpn` on the client, `:alpn` in `t.creds`, `cn.alpn` for the result) and client certificates on both sides: `opts.cert`/`opts.key` on `t.connect`, `:clientca` and `:optional` in `t.creds`, `cn.peer` for the verified peer certificate (part of #102)
 - `k.check_chain` accepts `nil` as the host to skip the name check (used for client certificates)
-
-### Changed
-- Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
 ## 0.7.7 (2026-10-23)
 
