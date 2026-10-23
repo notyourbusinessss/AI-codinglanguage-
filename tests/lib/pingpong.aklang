@@ -1,0 +1,8 @@
+; 20000 one-byte round trips over loopback with the default (fdr fd): prints the bytes seen; run with AK_GCSTATS=1 to count collections
+l=(tcpl 0 "127.0.0.1")
+c=(tcpc "127.0.0.1" (tcpp l))
+s=(tcpa l)
+n=0
+(for i 20000 (fdw c "x") n+=#(fdr s) (fdw s "y") n+=#(fdr c))
+(p n)
+(fdc c) (p (fdr s)=="") (fdc s) (fdc l)

@@ -103,6 +103,7 @@ RXC=nil           ; capture positions: [start0 end0 start1 end1 ...], -1 when un
 RXCI=false
 RXML=false
 RXDOT=false
+RXSTEPS=0          ; matcher calls left in the current search; running out raises "regex too complex"
 (= (rxlow b) (? (&& b>=65 b<=90) b+32 b))
 (= (rxdecode i)                    ; code point at byte i -> code point; second value via RXLEN
   c=($ldb RXS i)
@@ -126,6 +127,7 @@ RXLEN=1
            (&& RXCI (: lc=(rxlow c) uc=(? (&& c>=97 c<=122) c-32 c) (|| (&& lc>=it[0] lc<=it[1]) (&& uc>=it[0] uc<=it[1]))))) (? true hit=true)))
   (? n[1] (! hit) hit))
 (= (rxm n i k)
+  (? (< (<- RXSTEPS RXSTEPS-1) 0) ($throw "regex too complex: the pattern backtracks too much"))
   (sw n[0]
     "char" (: c=n[1]
               (? c<128 (: b=(? i<($hlen RXS) ($ldb RXS i) -1) (? (|| (== b c) (&& RXCI (>= b 0) (== (rxlow b) (rxlow c)))) (k i+1) false))
@@ -188,7 +190,7 @@ RXLEN=1
 (= (rxexec r s start)              ; first match at or after start -> capture list [s0 e0 s1 e1 ...] or nil
   (<- RXS s) (<- RXCI (has r.flags "i")) (<- RXML (has r.flags "m")) (<- RXDOT (has r.flags "s"))
   ng=r.ngroups i=start res=nil n=($hlen s) fs=r.first nc=2*(ng+1)
-  (<- RXC (mklist nc)) (for q nc (lpush RXC -1))
+  (<- RXC (mklist nc)) (for q nc (lpush RXC -1)) (<- RXSTEPS 2000000+n*64)
   endpos=-1 k0=(j=>(: (<- endpos j) true))
   (wh (&& ($isnil res) i<=n)
     (? fs (wh (&& i<n (== ($ldb fs ($ldb s i)) 0)) i=($fadd i 1)))

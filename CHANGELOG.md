@@ -8,6 +8,22 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.6 (2026-10-23)
+
+### Added
+- UDP servers: `(udpl port host)` binds a UDP socket and `(udpfrom2 fd n ms)` returns `[data ip port]` of the sender, so a server can answer with `udpto` (#100)
+- `lib/x11` windows can be resized: a `{:type "resize" :w :h}` event, a smallest size of half the opening size, `gui_open title w h minw minh` to change it (#105)
+
+### Changed
+- `udpto` raises an io error for a destination that is not an IPv4 address (it returned nil without sending) (#100)
+- `(fdr fd)` and `udpfrom` with the default size read into one reused 64 KB buffer instead of allocating one per call: 50,000 one-byte round trips over loopback take 0.29 s instead of 0.71 s (#104)
+
+### Fixed
+- `sh` reports `sh killed by signal N` when its command dies from a signal; it said `failed (0)` (#130)
+- A regex that backtracks past a step budget raises `regex too complex` instead of hanging (`(a+)+b` on 26 `a`s took over 30 s); the limit is documented in the README and SPEC-extra.md (#129)
+- A single expression with thousands of operators compiles in linear time: 16000 terms of `x+x+...` took over a minute, now about 1.5 s (#128)
+- `(!)`, `(-)`, `(<)` and other operators with too few operands are a normal `file:line:col` error instead of `internal: unknown IR node nil` (the native half of #118; the JS target is unchanged)
+
 ## 0.7.0 (2026-10-21)
 
 Native runtime hardening and the first parallel workers. The patch sections below (0.6.26 to 0.6.35) have the details and issue numbers.

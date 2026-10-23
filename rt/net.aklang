@@ -67,10 +67,12 @@
   (? ms ($syscall 72 fd 4 0))           ; back to blocking mode
   (? why (: ($syscall 3 fd) why) fd))
 (= (needfd fd) (? (|| (! ($isnum fd)) (! (isint fd)) fd<0) ($throwk 3 (strcat2 "expected a file descriptor, got " (ty fd)))) fd)
+RDBUF=nil                               ; one 64 KB buffer reused by fdr and udpfrom, so a small read does not allocate 64 KB (workers are forked copies, coroutines never switch inside a read)
+(= (rdbuf n) (? n>65536 (strnew n) (: (? ($isnil RDBUF) (<- RDBUF (strnew 65536))) RDBUF)))
 (= (fdr fd n=nil)                           ; read up to n (default 65536) bytes; "" at end of stream
-  n=(needlen (?? n 65536) 2147483647) (needfd fd) b=(strnew n) r=-4
+  n=(needlen (?? n 65536) 2147483647) (needfd fd) b=(rdbuf n) r=-4
   (wh r==-4 r=($syscall 0 fd ($addr b) n))
-  (? r<0 (netfail "read failed") r==n b (strslice b 0 r)))
+  (? r<0 (netfail "read failed") (strslice b 0 r)))
 (= (fdwn fd s off n)                    ; write n bytes of s (string, byte list or typed array) starting at byte offset off
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) k=0
   (flush)
@@ -112,15 +114,32 @@
 ; ---- UDP and DNS ----
 (= (udp) fd=($syscall 41 2 2 0) (? fd<0 (netfail "socket failed")) fd)        ; a UDP socket (IPv4)
 (= (udpto fd ip port s)                 ; send one datagram to ip (a [a b c d] list or dotted string) : port
-  ip=(? (isstr ip) (dotted ip) ip) d=(? (islist s) (frombytes s) (tostr s)) sa=(sockaddr ip port)
+  ip=(? (isstr ip) (dotted ip) ip)
+  (? (|| (! (islist ip)) (!= #ip 4) (! (all (\ (v) (&& ($isnum v) (isint v) v>=0 v<=255)) ip))) (netfail "udpto needs an IPv4 address like 127.0.0.1"))
+  d=(? (islist s) (frombytes s) (tostr s)) sa=(sockaddr ip port)
   r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) 16)
   (? r<0 (netfail "send failed")) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
   n=(needlen (?? n 65536) 2147483647) (needfd fd)
   (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
-     (: b=(strnew n) r=-4
+     (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
         (? r<0 (netfail "receive failed") (strslice b 0 r)))))
+(= (udpl port host="0.0.0.0")           ; a UDP socket bound to host:port (port 0 picks a free one; see tcpp), to serve with udpfrom2 and udpto
+  ip=(hostip host)
+  (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
+  fd=($syscall 41 2 2 0)
+  (? fd<0 (netfail "socket failed"))
+  sa=(sockaddr ip (?? port 0))
+  (? (< ($syscall 49 fd ($addr sa) 16) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot bind UDP port " (tostr port)))))
+  fd)
+(= (udpfrom2 fd n=nil ms=nil)           ; like udpfrom, but returns [data ip port] of the sender (ip as [a b c d]), so a server can answer with udpto
+  n=(needlen (?? n 65536) 2147483647) (needfd fd)
+  (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
+     (: b=(rdbuf n) sa=($newb 1 16 16) ln=($newb 1 4 4) ($stb ln 0 16) r=-4
+        (wh r==-4 r=($syscall 45 fd ($addr b) n 0 ($addr sa) ($addr ln)))
+        (? r<0 (netfail "receive failed")
+           [(strslice b 0 r) [($ldb sa 4) ($ldb sa 5) ($ldb sa 6) ($ldb sa 7)] (+ (* 256 ($ldb sa 2)) ($ldb sa 3))]))))
 (= (randbytes n) b=($newb 1 n n) ($syscall 318 ($addr b) n 0) (bytes (strslice b 0 n)))
 (= (be16 b i) (+ (* 256 ($ldb b i)) ($ldb b i+1)))
 (= (dnsskip r i)                        ; offset after the (possibly compressed) name at i

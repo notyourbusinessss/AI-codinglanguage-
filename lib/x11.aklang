@@ -1,11 +1,13 @@
 ; Ak's own window system client: the X11 protocol spoken directly over a socket (no libraries). Native target, Linux (X11 or XWayland).
 ;   (use "x11.aklang")
-;   w=(gui_open "title" 640 480)        open a fixed-size window (uses $DISPLAY and ~/.Xauthority)
+;   w=(gui_open "title" 640 480)        open a window (resizable, see "resize" below) (uses $DISPLAY and ~/.Xauthority)
 ;   (gui_present w canvas)              show a canvas (see canvas.aklang); the window repaints itself when it is uncovered
 ;   ev=(gui_event w 16)                 next event, or nil after 16 ms: {:type "key" :key "left" :down true :shift false :ctrl false}
 ;                                       {:type "mouse" :button "left" :down true :x 10 :y 20} {:type "motion" :x :y} {:type "wheel" :dy 1 :x :y} {:type "close"}
+;                                       {:type "resize" :w 800 :h 600}  the window was resized (by the user or the window manager): make a canvas of that size and present it
 ;   (gui_snapshot w)                    a canvas holding what the window really shows (GetImage)
 ;   (gui_close w)
+; The window can be resized, down to half its opening size; (gui_open title w h minw minh) sets another smallest size.
 ; Keys are named "left" "right" "up" "down" "enter" "esc" "tab" "backspace" "delete" "home" "end" "shift" "ctrl" "alt", or the typed character.
 (use "canvas.aklang")
 
@@ -111,6 +113,9 @@
     5 (? (< d 4) (push w.queue {:type "mouse" :button (sw d 1 "left" 2 "middle" 3 "right" "other") :down false :x x :y y}))
     6 (: q=w.queue (? (&& #q>0 q[#q-1].type=="motion") (pop q)) (push q {:type "motion" :x x :y y}))
     12 (? (== (r16 h 28) 0) w.dirty=true)
+    22 (: nw=(r16 h 20) nh=(r16 h 22)                             ; ConfigureNotify: only a real size change is an event, and several in a row become one
+          (? (|| nw!=w.w nh!=w.h)
+             (: w.w=nw w.h=nh q=w.queue (? (&& #q>0 q[#q-1].type=="resize") (pop q)) (push q {:type "resize" :w nw :h nh}))))
     33 (? (== (r32 h 12) w.delatom) (push w.queue {:type "close"}))
     nil))
 
@@ -130,20 +135,20 @@
   r)
 
 ; ---- windows
-(= (gui_open title width height)
+(= (gui_open title width height minw=nil minh=nil)
   w=(x_connect nil)
   w.w=width w.h=height w.last=nil w.dirty=false
   (x_keys w)                                                          ; before any event can arrive: x_keys waits for a reply and events must not nest inside that wait
   wid=(x_id w) gc=(x_id w)
   w.id=wid w.gc=gc
-  ; CreateWindow: depth 24, black background, events: key press/release, button press/release, pointer motion, exposure
+  ; CreateWindow: depth 24, black background, events: key press/release, button press/release, pointer motion, exposure, structure changes (resize)
   mask=2+2048
-  evm=1+2+4+8+64+32768
+  evm=1+2+4+8+64+32768+131072
   (x_req w [1 24 ..(le16 8+2) ..(le32 wid) ..(le32 w.root) ..(le16 (// (- w.sw width) 2)) ..(le16 (// (- w.sh height) 2)) ..(le16 width) ..(le16 height) ..(le16 0) ..(le16 1) ..(le32 w.visual) ..(le32 mask) ..(le32 w.black) ..(le32 evm)])
   (x_req w [55 0 ..(le16 4) ..(le32 gc) ..(le32 wid) ..(le32 0)])
   (gui_title w title)
-  ; fixed size (WM_NORMAL_HINTS: PMinSize | PMaxSize)
-  hints=[..(le32 48) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 width) ..(le32 height) ..(le32 width) ..(le32 height) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0)]
+  ; WM_NORMAL_HINTS: PMinSize only, so the window can be resized but not made tiny
+  hints=[..(le32 16) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 (max 1 (?? minw (// width 2)))) ..(le32 (max 1 (?? minh (// height 2)))) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0) ..(le32 0)]
   (x_req w [18 0 ..(le16 6+18) ..(le32 wid) ..(le32 40) ..(le32 41) 32 0 0 0 ..(le32 18) ..hints])
   ; WM_PROTOCOLS = [WM_DELETE_WINDOW]: the close button arrives as an event instead of killing the connection
   prot=(x_atom w "WM_PROTOCOLS") w.delatom=(x_atom w "WM_DELETE_WINDOW")

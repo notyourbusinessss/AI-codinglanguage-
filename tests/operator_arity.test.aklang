@@ -1,0 +1,14 @@
+; an operator called with too few operands is a normal compile error with a position, never "internal: unknown IR node" (native half of #118)
+(use "lib/run.aklang" as t)
+(= (ak code)
+  f=(+ "/tmp/aktest-arity-" ($ (rand 1000000000)) ".aklang")
+  (wr f code)
+  r=(t.run (+ "bin/ak " f) nil)
+  (rm f)
+  r)
+(for [src want] [["p (!)" "! takes at least 1 argument, got 0"] ["p (-)" "- takes at least 1 argument, got 0"] ["p (<)" "< takes 2 arguments, got 0"]
+                 ["p (== 1)" "== takes 2 arguments, got 1"] ["p (bnot)" "bnot takes at least 1 argument, got 0"]]
+  r=(ak src)
+  (assert (&& (== r.code 1) (has r.err want) (! (has r.err "internal"))) (+ src ": " (show r.err))))
+r=(ak "p (! 1) (- 3) (< 1 2) (== 1 1)")
+(assert (== r.out "false -3 true true\n") (+ "valid calls: " (show r.out) (show r.err)))

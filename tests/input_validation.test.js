@@ -52,7 +52,7 @@ for (const lit of ['9007199254740993', '123456789012345678901', '0x2000000000000
 { const r = run(TARGETS[1], '(p 9007199254740992 0x20000000000000 0b1' + '0'.repeat(53) + ' 0009007199254740992 1e20 9007199254740993.5 12345678901234567890n)');
   t('native: literals up to 2^53, floats and BigInts still work', r.stdout === '9007199254740992 9007199254740992 9007199254740992 9007199254740992 100000000000000000000 9007199254740994 12345678901234567890\n', r); }
 // the JS target says that sockets are native only (it used to report `undefined: tcpc`)
-for (const f of ['tcpl', 'tcpp', 'tcpa', 'tcpc', 'fdr', 'fdw', 'fdc', 'fdwait', 'udp', 'udpto', 'udpfrom', 'unixc', 'dns']) {
+for (const f of ['tcpl', 'tcpp', 'tcpa', 'tcpc', 'fdr', 'fdw', 'fdc', 'fdwait', 'udp', 'udpto', 'udpfrom', 'udpl', 'udpfrom2', 'unixc', 'dns']) {
   const r = run(TARGETS[0], `(p (try (${f} 1 2 3) e=>e))`); t('js: ' + f + ' says native only', r.stdout.startsWith(f + ': sockets are native only'), r);
 }
 fs.rmSync(tmp, { recursive: true, force: true });
