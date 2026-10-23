@@ -1,0 +1,8 @@
+; builds tests/elf_demo.aklang's native program with the Ak assembler and runs it
+(use "lib/run.aklang" as t)
+out=(+ "/tmp/ak_elf_demo_" ($ (rand 1000000000)))
+b=(t.run (+ "bin/ak tests/elf_demo.aklang " out) nil)
+(assert (== b.code 0) (+ "build failed: " b.err))
+r=(t.run out nil)
+(sh (+ "rm -f " out))
+(assert (&& (== r.out "hello from Ak\n") (== r.code 62)) (+ "native_elf: stdout " (show r.out) ", exit " r.code))

@@ -1,0 +1,16 @@
+; One version number, three places (package.json, `ak --version` of both targets) and a changelog section for it.
+(use "lib/run.aklang" as t)
+v=(unjson (rd "package.json"))["version"]
+(assert (match "^\\d+\\.\\d+\\.\\d+$" v) (+ "package.json version is not X.Y.Z: " v))
+r=(t.run "bin/ak --version" nil)
+(assert (== r.out (+ "ak " v "\n")) (+ "bin/ak --version is " (show r.out)))
+; the JS target is checked while it exists (and only when node is installed)
+(? (== (t.run "command -v node" nil).code 0)
+  (: j=(t.run "node boot/ak.js --version" nil)
+  (assert (== j.out (+ "ak " v "\n")) (+ "boot/ak.js --version is " (show j.out)))))
+(assert (has (rd "src/main.aklang") (+ "VERSION=\"" v "\"")) "src/main.aklang VERSION differs from package.json")
+ls=(split (rd "CHANGELOG.md") "\n")
+(assert (any (\ (l) (re (+ "^## " (rep v "." "\\.") " \\(\\d{4}-\\d{2}-\\d{2}\\)$") l)) ls) "CHANGELOG.md has no section for the current version")
+(assert (has ls "## Unreleased") "CHANGELOG.md has no Unreleased section")
+(assert (< (idx ls "## Unreleased") (idx ls (fst (~? (\ (l) (starts l (+ "## " v " "))) ls)))) "Unreleased must be above the current version")
+(assert (has (rd "README.md") "docs/stability.md") "README does not link the stability policy")

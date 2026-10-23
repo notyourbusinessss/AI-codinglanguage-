@@ -1,9 +1,12 @@
 # Changelog
 
 All notable changes, newest first. The rules for what may change between versions are in [docs/stability.md](docs/stability.md).
-Each release PR adds its section here; `tests/version.test.js` fails when the current version has no section.
+Each release PR adds its section here; `tests/version.test.aklang` fails when the current version has no section.
 
 ## Unreleased
+
+### Changed
+- Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
 ## 0.7.0 (2026-10-21)
 

@@ -28,7 +28,7 @@ A change to any of these is a breaking change:
 
 ## The changelog
 
-[`CHANGELOG.md`](../CHANGELOG.md) has one section per release, newest first, plus an "Unreleased" section that pull requests add to. A release pull request renames "Unreleased" to the version and date. `tests/version.test.js` fails when the current version has no section.
+[`CHANGELOG.md`](../CHANGELOG.md) has one section per release, newest first, plus an "Unreleased" section that pull requests add to. A release pull request renames "Unreleased" to the version and date. `tests/version.test.aklang` fails when the current version has no section.
 
 ## Version numbers
 
