@@ -1,0 +1,7 @@
+; lib/tls.aklang's server side against curl, openssl s_client and the Ak client (needs openssl and curl): EC P-256/P-384 and RSA certificates in PKCS#8 and traditional PEM, a chain file, all three suites, SNI, 300 KB responses, and the failures a server must survive
+(use "lib/run.aklang" as t)
+r=(t.run "sh tests/lib/tls_server.sh" nil)
+lines=(split (trim r.out) "\n")
+(assert (== #lines 19) (+ "tls_server.sh printed too little: " (show r.out) r.err))
+bad=(~? l=>(! (starts l "ok ")) lines)
+(assert (== #bad 0) (+ "tls server checks failed:\n" (join bad "\n")))
