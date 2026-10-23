@@ -4,6 +4,8 @@
 ;   k.verify_sig key alg data sig -> true / false    alg: rsa_pkcs1_sha256 rsa_pkcs1_sha384 rsa_pss_sha256 rsa_pss_sha384 ecdsa_sha256 ecdsa_sha384
 ;   k.trust_roots -> parsed CA certificates from the system bundle (SSL_CERT_FILE overrides)
 ;   k.check_chain ders host roots now -> the parsed leaf, or raises "certificate: why"   (host: a name or a dotted IPv4; now: unix seconds)
+;   k.priv_parse pem -> private key map (PEM "PRIVATE KEY", "EC PRIVATE KEY" or "RSA PRIVATE KEY", unencrypted; RSA or EC P-256/P-384)
+;   k.sign key alg data -> signature string (alg: rsa_pss_sha256 rsa_pss_sha384 ecdsa_sha256 ecdsa_sha384)      k.key_matches priv pub -> true / false (pub: a cert's :key)
 ; Checked: signatures along the chain, validity dates, CA flag and keyCertSign, subjectAltName host match. Not checked: revocation, name constraints, path length, extended key usage.
 (use "crypto.aklang" as c)
 ; ---- DER: an element is [tag content_start content_end element_start]
@@ -219,3 +221,59 @@ CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
   (? ($isnil result) (err "certificate: chain is too long"))
   leaf)
 (= (first xs) (? #xs xs[0] nil))
+; ---- private keys and signing (for a TLS server)
+(= (pem_block text label)               ; DER of the first -----BEGIN label----- block, or nil
+  a=(++ "-----BEGIN " label "-----") i=(idx text a)
+  (? i<0 nil (: rest=text[i+#a..] j=(idx rest (++ "-----END " label "-----")) (? j<0 nil (b64 rest[..j])))))
+(= (priv_parse text)
+  p8=(pem_block text "PRIVATE KEY") ec=(pem_block text "EC PRIVATE KEY") rsa=(pem_block text "RSA PRIVATE KEY")
+  (? p8 (priv_pkcs8 p8) ec (ec_priv ec nil) rsa (rsa_priv rsa)
+     (err "private key: no unencrypted PEM PRIVATE KEY block found")))
+(= (priv_pkcs8 s)
+  kids=(der_kids s (der_at s 0)) alg=(der_kids s kids[1]) o=(oid s alg[0]) inner=(der_str s kids[2])
+  (? (== o "2a864886f70d010101") (rsa_priv inner)
+     (== o "2a8648ce3d0201") (ec_priv inner CURVES[(oid s alg[1])])
+     (err (++ "private key: unsupported key type " o))))
+(= (ec_priv s cv)                       ; ECPrivateKey; cv from PKCS#8, else from its [0] parameters
+  kids=(der_kids s (der_at s 0))
+  (for x kids (? (&& (! cv) x[0]==160) cv=CURVES[(oid s (der_kids s x)[0])]))
+  (? (! cv) (err "private key: unsupported EC curve")
+     {:type "ec" :curve cv :d (c.bn_be (der_str s kids[1]))}))
+(= (rsa_priv s)                         ; RSAPrivateKey
+  kids=(der_kids s (der_at s 0)) v=(~ x=>(der_int s x) kids[1..9])
+  l=(der_str s kids[1]) (wh (&& #l>0 ($ldb l 0)==0) l=l[1..])
+  {:type "rsa" :n v[0] :e v[1] :d v[2] :p v[3] :q v[4] :dp v[5] :dq v[6] :qi v[7] :len #l :bits (- (* 8 #l) (- 8 (bitlen ($ldb l 0))))})
+(= (key_matches priv pub)
+  (? (!= priv.type pub.type) false
+     (== priv.type "rsa") (== priv.n pub.n)
+     (: cv=priv.curve [x y]=(ec_affine cv (ec_mul cv [cv.gx cv.gy 1n] priv.d)) (&& (== cv.name pub.curve.name) (== x pub.x) (== y pub.y)))))
+(= (der_len n) (? n<128 (frombytes [n]) n<256 (frombytes [129 n]) (frombytes [130 (>>> n 8) (& n 255)])))
+(= (der_tlv tag s) (++ (frombytes [tag]) (der_len #s) s))
+(= (der_uint x w)                       ; DER INTEGER of a non-negative BigInt
+  b=(c.bn_bytes_be x w) i=0 (wh (&& i<#b-1 ($ldb b i)==0) i+=1) b=b[i..]
+  (der_tlv 2 (? ($ldb b 0)>=128 (++ "\0" b) b)))
+(= (ecdsa_sign key hname data)
+  cv=key.curve n=cv.n h=((c.hashfn hname) data) e=(c.bn_be h[..(min #h cv.bytes)])
+  r=0n s=0n
+  (wh (|| (== r 0n) (== s 0n))
+    kk=(% (c.bn_be (c.random cv.bytes+8)) n)
+    (? (!= kk 0n)
+       (: [ax ay]=(ec_affine cv (ec_mul cv [cv.gx cv.gy 1n] kk))
+          r=(% ax n) s=(% (* (inv_mod kk n) (+ e (* r key.d))) n))))
+  (der_tlv 48 (++ (der_uint r cv.bytes) (der_uint s cv.bytes))))
+(= (rsa_priv_op key m)                  ; m**d mod n by the Chinese remainder theorem, checked with the public exponent
+  m1=(c.mpow (% m key.p) key.dp key.p) m2=(c.mpow (% m key.q) key.dq key.q)
+  h=(% (* key.qi (- (+ m1 key.p) (% m2 key.p))) key.p)
+  sg=(+ m2 (* h key.q))
+  (? (== (c.mpow sg key.e key.n) m) sg (err "private key: RSA signature check failed (corrupt key)")))
+(= (rsa_sign key alg data)              ; RSASSA-PSS with the salt as long as the hash
+  (? (! (starts alg "rsa_pss")) (err "private key: only RSA-PSS signatures are supported")
+     (: hname=(hash_of alg) hf=(c.hashfn hname) hl=(c.hashlen hname)
+        embits=key.bits-1 el=(cel (/ embits 8))
+        salt=(c.random hl) h=(hf (++ (rpt "\0" 8) (hf data) salt))
+        db=(++ (rpt "\0" (- el hl hl 2)) "\x01" salt)
+        mdb=(bytes (c.xor db (mgf1 hf h #db)))
+        mdb[0]=(& mdb[0] (>>> 255 (- (* 8 el) embits)))
+        (c.bn_bytes_be (rsa_priv_op key (c.bn_be (++ (frombytes mdb) h (frombytes [188])))) key.len))))
+(= (sign key alg data)
+  (? (== key.type "rsa") (rsa_sign key alg data) (ecdsa_sign key (hash_of alg) data)))
