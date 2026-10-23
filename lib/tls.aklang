@@ -6,6 +6,9 @@
 ;   (t.write conn s)  (t.close conn)  (t.fd conn)   (t.fd is the socket, for fdwait)
 ; (t.read) returns "" at the end; conn.truncated is true when the peer hung up without close_notify (many servers do), so data without its own length framing may be cut short.
 ; TLS 1.3 only, x25519 key exchange, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and TLS_CHACHA20_POLY1305_SHA256; no client certificates, no session resumption, no 0-RTT.
+; Server side: cr=(t.creds {:cert chain_pem :key key_pem})   load a certificate chain (leaf first) and its unencrypted private key once (RSA, or EC P-256/P-384)
+;   conn=(t.accept fd cr)   handshake on a socket from (tcpa l); cr may also be the {:cert :key} map itself. Same conn as t.connect (read, write, close, fd), plus conn.sni (the client's server name, or nil).
+;   On failure it closes fd and raises. Client certificates are not requested. Signs with rsa_pss_rsae or ECDSA, picking what the client offered.
 (use "crypto.aklang" as c)
 (use "pki.aklang" as k)
 (= (be n w) (? w>4 (++ (be (flr (/ n 4294967296)) w-4) (be (% n 4294967296) 4)) (frombytes (~ i=>(& (>>> n (* 8 (- w 1 i))) 255) 0..w))))
@@ -206,3 +209,89 @@
   (try (rec_send conn 21 "\x01\x00") e=>nil)
   (fdc conn.fd) nil)
 (= (fd conn) conn.fd)
+; ---- server side
+(= (by1 s i) (? (|| i<0 i>=#s) (tfail "malformed message") ($ldb s i)))
+(= (by2 s i) 256*(by1 s i)+(by1 s i+1))
+(= (by2s s i n) (~ j=>(by2 s i+2*j) 0..n//2))
+(= (hmsg ty body) (++ (frombytes [ty]) (be #body 3) body))
+(= (sfail conn n msg) (try (rec_send conn 21 (frombytes [2 n])) e=>nil) (tfail msg))
+(= (creds opts)
+  (? opts.ders opts
+     (: (? (|| ($isnil opts.cert) ($isnil opts.key)) (tfail "accept needs :cert (PEM chain) and :key (PEM private key)"))
+        ders=(k.pem_certs opts.cert)
+        (? (! #ders) (tfail "no certificate in :cert"))
+        key=(try (k.priv_parse opts.key) e=>(tfail e))
+        leaf=(k.cert_parse ders[0])
+        (? (! (k.key_matches key leaf.key)) (tfail "the private key does not match the first certificate"))
+        {:ders ders :key key :algs (? (== key.type "rsa") [2052 2053] (== key.curve.name "P-256") [1027] [1283])})))
+(= (parse_client_hello m)
+  b=m[4..] i=34
+  sid=b[i+1..i+1+(by1 b i)] i+=1+(by1 b i)
+  cl=(by2 b i) suites=(by2s b i+2 cl) i+=2+cl
+  i+=1+(by1 b i)
+  end=i+2+(by2 b i) i+=2
+  (? end>#b (tfail "malformed ClientHello"))
+  h={:sid sid :suites suites :versions [] :sigs [] :share nil :sni nil}
+  (wh i<end
+    et=(by2 b i) el=(by2 b i+2) eb=b[i+4..i+4+el]
+    (? #eb<el (tfail "malformed ClientHello"))
+    (? et==0 (: nl=(by2 eb 3) h.sni=eb[5..5+nl]))
+    (? et==43 h.versions=(by2s eb 1 (by1 eb 0)))
+    (? et==13 h.sigs=(by2s eb 2 (by2 eb 0)))
+    (? et==51
+       (: j=2 (wh j<#eb g=(by2 eb j) kl=(by2 eb j+2) (? (&& g==29 kl==32) h.share=eb[j+4..j+4+kl]) j+=4+kl)))
+    i+=4+el)
+  h)
+(= (accept fd opts)
+  cr=(creds opts)
+  conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0}
+  (try (srv_handshake conn cr) e=>(: (fdc fd) (raise "io" e nil)))
+  conn)
+(= (srv_handshake conn cr)
+  ch=(hs_next conn)
+  (? ($ldb ch 0)!=1 (tfail "expected ClientHello"))
+  h=(parse_client_hello ch)
+  (? (! (has h.versions 772)) (sfail conn 70 "the client does not support TLS 1.3"))
+  suite=(k.first (~? x=>(has [4865 4866 4867] x) h.suites))
+  (? ($isnil suite) (sfail conn 40 "no cipher suite in common"))
+  (? ($isnil h.share) (sfail conn 40 "the client offered no x25519 key share"))
+  alg=(k.first (~? x=>(has h.sigs x) cr.algs))
+  (? ($isnil alg) (sfail conn 40 "no signature algorithm in common"))
+  (sw suite
+    4865 (: conn.hash="sha256" conn.klen=16 conn.suite="aes")
+    4866 (: conn.hash="sha384" conn.klen=32 conn.suite="aes")
+    (: conn.hash="sha256" conn.klen=32 conn.suite="chacha"))
+  hash=conn.hash hf=(c.hashfn hash) hl=(c.hashlen hash)
+  priv=(c.random 32) pub=(c.x25519_base priv)
+  shared=(c.x25519 priv h.share)
+  (? (== shared (rpt "\0" 32)) (sfail conn 47 "bad key share"))
+  exts=(++ (ext 43 "\x03\x04") (ext 51 (++ "\x00\x1d\x00\x20" pub)))
+  sbody=(++ "\x03\x03" (c.random 32) (frombytes [#h.sid]) h.sid (be suite 2) "\x00" (be #exts 2) exts)
+  sh=(hmsg 2 sbody)
+  (rec_send conn 22 sh)
+  (rec_send conn 20 "\x01")
+  zeros=(rpt "\0" hl)
+  hs=(c.hkdf_extract hash (derive hash (c.hkdf_extract hash "" zeros) "derived" (hf "")) shared)
+  chs=(derive hash hs "c hs traffic" (hf (++ ch sh))) shs=(derive hash hs "s hs traffic" (hf (++ ch sh)))
+  (install_write conn shs) (install_read conn chs)
+  th=(++ ch sh)
+  ee=(hmsg 8 "\x00\x00")
+  cl=(join (~ d=>(++ (be #d 3) d "\x00\x00") cr.ders) "")
+  cm=(hmsg 11 (++ "\x00" (be #cl 3) cl))
+  th+=(++ ee cm)
+  sig=(k.sign cr.key (sigalg_of alg) (++ (rpt " " 64) "TLS 1.3, server CertificateVerify\x00" (hf th)))
+  cv=(hmsg 15 (++ (be alg 2) (be #sig 2) sig))
+  th+=cv
+  fin=(hmsg 20 (c.hmac hash (expand_label hash shs "finished" "" hl) (hf th)))
+  th+=fin
+  flight=(++ ee cm cv fin) i=0
+  (wh i<#flight (rec_send conn 22 flight[i..(min i+16384 #flight)]) i+=16384)
+  master=(c.hkdf_extract hash (derive hash hs "derived" (hf "")) zeros)
+  sap=(derive hash master "s ap traffic" (hf th)) cap=(derive hash master "c ap traffic" (hf th))
+  (install_write conn sap)
+  m=(hs_next conn)
+  (? ($ldb m 0)!=20 (tfail "expected the client Finished (client certificates are not supported)"))
+  (? (! (c.ct_eq m[4..] (c.hmac hash (expand_label hash chs "finished" "" hl) (hf th)))) (sfail conn 51 "client Finished does not verify"))
+  (install_read conn cap)
+  conn.sni=h.sni conn.open=true
+  conn)
