@@ -80,7 +80,7 @@
 ; ---- handshake messages
 (= (ext type body) (++ (be type 2) (be #body 2) body))
 (= (alpn_ext names) (? #names (ext 16 (let (l (join (~ n=>(++ (frombytes [#n]) n) names) "")) (++ (be #l 2) l))) ""))
-(= (client_hello host pub random sid alpn)
+(= (client_hello host ks random sid alpn cookie)   ; ks: the key_share entry (group, length, key)
   exts=(++
     (? (dotted host) "" (ext 0 (let (nm (++ "\x00" (be #host 2) host)) (++ (be #nm 2) nm))))
     (ext 10 "\x00\x06\x00\x1d\x00\x17\x00\x18")   ; x25519 first; P-256 and P-384 are listed so servers accept ECDSA certificates on those curves
@@ -88,31 +88,36 @@
     (ext 43 "\x04\x03\x04\x03\x03")
     (ext 11 "\x01\x00") (ext 23 "") (ext 65281 "\x00")
     (alpn_ext alpn)
-    (ext 51 (let (ks (++ "\x00\x1d\x00\x20" pub)) (++ (be #ks 2) ks))))
+    (ext 51 (++ (be #ks 2) ks))
+    (? cookie (ext 44 (++ (be #cookie 2) cookie)) ""))
   suites=(c.unhex "130113021303c02bc02fc02cc030cca9cca8")
   body=(++ "\x03\x03" random (frombytes [#sid]) sid (be #suites 2) suites "\x01\x00" (be #exts 2) exts)
   (++ "\x01" (be #body 3) body))
-(= (parse_server_hello conn m)
-  (? ($ldb m 0)!=2 (tfail "expected ServerHello"))
-  body=m[4..] i=2+32
-  sidlen=($ldb body i) i+=1+sidlen
-  suite=256*($ldb body i)+($ldb body i+1) i+=3
-  extlen=256*($ldb body i)+($ldb body i+1) i+=2
-  (? (== body[2..34] (c.unhex "cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c")) (tfail "server asked for a different key exchange group (HelloRetryRequest), which is not supported"))
-  share=nil ver=nil end=i+extlen
-  (wh i<end
-    et=256*($ldb body i)+($ldb body i+1) el=256*($ldb body i+2)+($ldb body i+3) eb=body[i+4..i+4+el]
-    (? et==51 (: (? (!= 256*($ldb eb 0)+($ldb eb 1) 29) (tfail "unsupported key exchange group")) share=eb[4..36]))
-    (? et==43 ver=256*($ldb eb 0)+($ldb eb 1))
-    i+=4+el)
-  (? (!= ver 772) (tfail "server did not negotiate TLS 1.3"))
-  (? ($isnil share) (tfail "no key share in ServerHello"))
-  (sw suite
+(= (set_suite13 conn n)
+  (sw n
     4865 (: conn.hash="sha256" conn.klen=16 conn.suite="aes")
     4866 (: conn.hash="sha384" conn.klen=32 conn.suite="aes")
     4867 (: conn.hash="sha256" conn.klen=32 conn.suite="chacha")
-    (tfail "server chose a cipher suite that was not offered"))
-  share)
+    (tfail "server chose a cipher suite that was not offered")))
+(= HRR_RANDOM (c.unhex "cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c"))
+(= (is_hrr m) (== m[6..38] HRR_RANDOM))
+(= (ext_of s t) (k.first (~? e=>e[0]==t s.exts)))
+(= (parse_server_hello conn m sent)     ; -> the server's key share for the group we sent
+  (? ($ldb m 0)!=2 (tfail "expected ServerHello"))
+  s=(sh_parse m) v=(ext_of s 43) ks=(ext_of s 51)
+  (? (|| ($isnil v) (!= (by2 v[1] 0) 772)) (tfail "server did not negotiate TLS 1.3"))
+  (? ($isnil ks) (tfail "no key share in ServerHello"))
+  g=(by2 ks[1] 0) kl=(by2 ks[1] 2)
+  (? (!= g sent) (tfail "the server picked a key exchange group that was not offered"))
+  (? (!= kl (sw g 29 32 23 65 24 97 0)) (tfail "bad key share length"))
+  (set_suite13 conn s.suite)
+  ks[1][4..4+kl])
+(= (parse_hrr conn m)                   ; HelloRetryRequest -> {:group (nil = keep ours) :cookie}
+  s=(sh_parse m) v=(ext_of s 43) g=(ext_of s 51) ck=(ext_of s 44)
+  (? (|| ($isnil v) (!= (by2 v[1] 0) 772)) (tfail "server did not negotiate TLS 1.3"))
+  (? (&& ($isnil g) ($isnil ck)) (tfail "HelloRetryRequest that changes nothing"))
+  (set_suite13 conn s.suite)
+  {:group (? g (by2 g[1] 0) nil) :cookie (? ck ck[1][2..2+(by2 ck[1] 0)] nil)})
 (= (hs_next conn)                       ; next whole handshake message (header included); also adds it to the transcript when keep is set
   (wh (< #conn.hsbuf 4)
     r=(rec_recv conn)
@@ -145,20 +150,35 @@
   (try (handshake conn host opts) e=>(: (fdc fd) (raise "io" e nil)))
   conn)
 (= (handshake conn host opts)
-  priv=(c.random 32) pub=(c.x25519_base priv) sid=(c.random 32)
+  priv=(c.random 32) pub=(c.x25519_base priv) sid=(c.random 32) rnd=(c.random 32)
   cc=(? opts.ders opts (? opts.cert (creds opts) nil))
-  ch=(client_hello host pub (c.random 32) sid opts.alpn)
+  ch=(client_hello host (++ "\x00\x1d\x00\x20" pub) rnd sid opts.alpn nil)
   (rec_send conn 22 ch)
   sh=(hs_next conn)
-  (? (any e=>e[0]==43 (sh_parse sh).exts) (hs13 conn host opts cc ch sh priv) (hs12 conn host opts cc ch sh priv pub)))
-(= (hs13 conn host opts cc ch sh priv)
+  (? (any e=>e[0]==43 (sh_parse sh).exts) (hs13 conn host opts cc ch sh priv [host rnd sid opts.alpn]) (hs12 conn host opts cc ch sh priv pub)))
+(= (hs13 conn host opts cc ch sh priv ctx)
   (rec_send conn 20 "\x01")             ; compatibility ChangeCipherSpec
   conn.hash="sha256"
-  share=(parse_server_hello conn sh)
+  hist=ch kx=[29 priv]
+  (? (is_hrr sh)
+     (: hr=(parse_hrr conn sh) g=(?? hr.group 29)
+        ks=(++ "\x00\x1d\x00\x20" (c.x25519_base priv))
+        (? (&& g==29 ($isnil hr.cookie)) (tfail "the server asked for a key exchange group that is not supported"))
+        (? g!=29
+           (: cvc=(k.curve_by_id g)
+              (? ($isnil cvc) (tfail "the server asked for a key exchange group that is not supported"))
+              pr=(k.ecdh_pair cvc) pk=pr[1]
+              kx=[g pr[0]] ks=(++ (be g 2) (be #pk 2) pk)))
+        ch2=(client_hello ctx[0] ks ctx[1] ctx[2] ctx[3] hr.cookie)
+        (rec_send conn 22 ch2)
+        hist=(++ (frombytes [254 0 0 (c.hashlen conn.hash)]) ((c.hashfn conn.hash) ch) sh ch2)
+        sh=(hs_next conn)
+        (? (is_hrr sh) (tfail "the server sent a second HelloRetryRequest"))))
+  share=(parse_server_hello conn sh kx[0])
   hash=conn.hash
-  shared=(c.x25519 priv share)
+  shared=(? kx[0]==29 (c.x25519 kx[1] share) (try (k.ecdh (k.curve_by_id kx[0]) kx[1] share) e=>(tfail e)))
   (? (== shared (rpt "\0" 32)) (tfail "bad key share"))
-  th=(++ ch sh)
+  th=(++ hist sh)
   zeros=(rpt "\0" (c.hashlen hash))
   early=(c.hkdf_extract hash "" zeros)
   hs=(c.hkdf_extract hash (derive hash early "derived" ((c.hashfn hash) "")) shared)
@@ -279,7 +299,7 @@
   i+=1+(by1 b i)
   end=i+2+(by2 b i) i+=2
   (? end>#b (tfail "malformed ClientHello"))
-  h={:sid sid :suites suites :versions [] :sigs [] :share nil :sni nil :alpn nil}
+  h={:sid sid :suites suites :versions [] :sigs [] :groups [] :shares [] :sni nil :alpn nil}
   (wh i<end
     et=(by2 b i) el=(by2 b i+2) eb=b[i+4..i+4+el]
     (? #eb<el (tfail "malformed ClientHello"))
@@ -288,7 +308,8 @@
     (? et==43 h.versions=(by2s eb 1 (by1 eb 0)))
     (? et==13 h.sigs=(by2s eb 2 (by2 eb 0)))
     (? et==51
-       (: j=2 (wh j<#eb g=(by2 eb j) kl=(by2 eb j+2) (? (&& g==29 kl==32) h.share=eb[j+4..j+4+kl]) j+=4+kl)))
+       (: j=2 (wh j<#eb kl=(by2 eb j+2) (push h.shares [(by2 eb j) eb[j+4..j+4+kl]]) j+=4+kl)))
+    (? et==10 h.groups=(by2s eb 2 (by2 eb 0)))
     i+=4+el)
   h)
 (= (accept fd opts)
@@ -296,6 +317,9 @@
   conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0}
   (try (srv_handshake conn cr) e=>(: (fdc fd) (raise "io" e nil)))
   conn)
+(= (pick_share h)                       ; [group key] of the first usable key share (x25519, then P-256, then P-384), or nil
+  (k.first (~? x=>(has [29 23 24] x[0]) (~? x=>(== #x[1] (sw x[0] 29 32 23 65 24 97 0)) (sort_by_pref h.shares)))))
+(= (sort_by_pref shares) (~ g=>(k.first (~? x=>x[0]==g shares)) (~? g=>(has (~ x=>x[0] shares) g) [29 23 24])))
 (= (srv_handshake conn cr)
   ch=(hs_next conn)
   (? ($ldb ch 0)!=1 (tfail "expected ClientHello"))
@@ -303,7 +327,6 @@
   (? (! (has h.versions 772)) (sfail conn 70 "the client does not support TLS 1.3"))
   suite=(k.first (~? x=>(has [4865 4866 4867] x) h.suites))
   (? ($isnil suite) (sfail conn 40 "no cipher suite in common"))
-  (? ($isnil h.share) (sfail conn 40 "the client offered no x25519 key share"))
   alg=(k.first (~? x=>(has h.sigs x) cr.algs))
   (? ($isnil alg) (sfail conn 40 "no signature algorithm in common"))
   (sw suite
@@ -311,19 +334,33 @@
     4866 (: conn.hash="sha384" conn.klen=32 conn.suite="aes")
     (: conn.hash="sha256" conn.klen=32 conn.suite="chacha"))
   hash=conn.hash hf=(c.hashfn hash) hl=(c.hashlen hash)
-  priv=(c.random 32) pub=(c.x25519_base priv)
-  shared=(c.x25519 priv h.share)
-  (? (== shared (rpt "\0" 32)) (sfail conn 47 "bad key share"))
-  exts=(++ (ext 43 "\x03\x04") (ext 51 (++ "\x00\x1d\x00\x20" pub)))
+  sel=(pick_share h) hist=ch ccs=false
+  (? ($isnil sel)
+     (: g=(k.first (~? x=>(has h.groups x) [29 23 24]))
+        (? ($isnil g) (sfail conn 40 "no key exchange group in common"))
+        x=(++ (ext 43 "\x03\x04") (ext 51 (be g 2)))
+        hrr=(hmsg 2 (++ "\x03\x03" HRR_RANDOM (frombytes [#h.sid]) h.sid (be suite 2) "\x00" (be #x 2) x))
+        (rec_send conn 22 hrr) (rec_send conn 20 "\x01")
+        ch2=(hs_next conn)
+        (? ($ldb ch2 0)!=1 (tfail "expected the second ClientHello"))
+        h=(parse_client_hello ch2) sel=(pick_share h) ccs=true
+        (? (|| ($isnil sel) (!= sel[0] g)) (sfail conn 47 "the second ClientHello has no key share for the requested group"))
+        hist=(++ (frombytes [254 0 0 hl]) (hf ch) hrr ch2)))
+  (? (== sel[0] 29)
+     (: priv=(c.random 32) pub=(c.x25519_base priv) shared=(c.x25519 priv sel[1])
+        (? (== shared (rpt "\0" 32)) (sfail conn 47 "bad key share")))
+     (: pr=(k.ecdh_pair (k.curve_by_id sel[0])) pub=pr[1]
+        shared=(try (k.ecdh (k.curve_by_id sel[0]) pr[0] sel[1]) e=>(sfail conn 47 e))))
+  exts=(++ (ext 43 "\x03\x04") (ext 51 (++ (be sel[0] 2) (be #pub 2) pub)))
   sbody=(++ "\x03\x03" (c.random 32) (frombytes [#h.sid]) h.sid (be suite 2) "\x00" (be #exts 2) exts)
   sh=(hmsg 2 sbody)
   (rec_send conn 22 sh)
-  (rec_send conn 20 "\x01")
+  (? (! ccs) (rec_send conn 20 "\x01"))
   zeros=(rpt "\0" hl)
   hs=(c.hkdf_extract hash (derive hash (c.hkdf_extract hash "" zeros) "derived" (hf "")) shared)
-  chs=(derive hash hs "c hs traffic" (hf (++ ch sh))) shs=(derive hash hs "s hs traffic" (hf (++ ch sh)))
+  chs=(derive hash hs "c hs traffic" (hf (++ hist sh))) shs=(derive hash hs "s hs traffic" (hf (++ hist sh)))
   (install_write conn shs) (install_read conn chs)
-  th=(++ ch sh)
+  th=(++ hist sh)
   pick=(? h.alpn (k.first (~? x=>(has h.alpn x) (?? cr.alpn []))) nil)
   (? (&& cr.alpn h.alpn ($isnil pick)) (sfail conn 120 "no ALPN protocol in common"))
   conn.alpn=pick
@@ -406,23 +443,27 @@
   m=(hs_next conn)
   (? ($ldb m 0)!=12 (tfail "expected ServerKeyExchange"))
   th+=m b=m[4..]
-  (? (|| (!= (by1 b 0) 3) (!= (by2 b 1) 29) (!= (by1 b 3) 32)) (tfail "unsupported key exchange group"))
-  point=b[4..36] alg=(sigalg12_of (by2 b 36))
+  grp=(by2 b 1) pl=(by1 b 3) cvc=(k.curve_by_id grp)
+  (? (|| (!= (by1 b 0) 3) (&& (!= grp 29) ($isnil cvc)) (!= pl (? (== grp 29) 32 1+2*(?? cvc.bytes 0)))) (tfail "unsupported key exchange group"))
+  point=b[4..4+pl] alg=(sigalg12_of (by2 b 4+pl))
   (? (|| ($isnil alg) (!= (starts alg "ecdsa") (== ktype "ec"))) (tfail "unsupported signature algorithm in ServerKeyExchange"))
-  (? (! (k.verify_sig leaf.key alg (++ cr s.random b[..36]) b[40..40+(by2 b 38)])) (tfail "server signature (ServerKeyExchange) is invalid"))
+  (? (! (k.verify_sig leaf.key alg (++ cr s.random b[..4+pl]) b[8+pl..8+pl+(by2 b 6+pl)])) (tfail "server signature (ServerKeyExchange) is invalid"))
   m=(hs_next conn)
   req=nil
   (? ($ldb m 0)==13 (: req=m th+=m m=(hs_next conn)))
   (? ($ldb m 0)!=14 (tfail "expected ServerHelloDone"))
   th+=m
-  pms=(c.x25519 priv point)
-  (? (== pms (rpt "\0" 32)) (tfail "bad key share"))
+  mine=pub pms=nil
+  (? (== grp 29)
+     (: pms=(c.x25519 priv point)
+        (? (== pms (rpt "\0" 32)) (tfail "bad key share")))
+     (: pr=(k.ecdh_pair cvc) mine=pr[1] pms=(try (k.ecdh cvc pr[0] point) e=>(tfail e))))
   (? req
      (: rb=req[4..] tl=(by1 rb 0) ralgs=(by2s rb 3+tl (by2 rb 1+tl))
         alg=(? cc (k.first (~? x=>(has ralgs x) cc.algs)) nil)
         list=(? alg (join (~ d=>(++ (be #d 3) d) cc.ders) "") "")
         th+=(snd conn (hmsg 11 (++ (be #list 3) list)))))
-  th+=(snd conn (hmsg 16 (++ (frombytes [32]) pub)))
+  th+=(snd conn (hmsg 16 (++ (frombytes [#mine]) mine)))
   master=(prf hname pms (? ems "extended master secret" "master secret") (? ems (hf th) (++ cr s.random)) 48)
   (? (&& req alg)
      (: sig=(k.sign cc.key (sigalg12_of alg) th)
