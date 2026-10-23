@@ -277,3 +277,16 @@ CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
         (c.bn_bytes_be (rsa_priv_op key (c.bn_be (++ (frombytes mdb) h (frombytes [188])))) key.len))))
 (= (sign key alg data)
   (? (== key.type "rsa") (rsa_sign key alg data) (ecdsa_sign key (hash_of alg) data)))
+; ---- ECDH on P-256 / P-384 (TLS key exchange)
+(= (curve_by_id g) (? g==23 CURVES["2a8648ce3d030107"] g==24 CURVES["2b81040022"] nil))   ; TLS named group -> curve
+(= (ecdh_pair cv)                       ; -> [private BigInt, uncompressed public point (04 x y)]
+  d=(+ (% (c.bn_be (c.random cv.bytes+8)) (- cv.n 1n)) 1n)
+  [x y]=(ec_affine cv (ec_mul cv [cv.gx cv.gy 1n] d))
+  [d (++ "\x04" (c.bn_bytes_be x cv.bytes) (c.bn_bytes_be y cv.bytes))])
+(= (ecdh cv d peer)                     ; shared secret (the x coordinate) with a peer's uncompressed point, or raises
+  (? (|| (!= #peer 1+2*cv.bytes) ($ldb peer 0)!=4) (err "ecdh: bad public point")
+     (: x=(c.bn_be peer[1..1+cv.bytes]) y=(c.bn_be peer[1+cv.bytes..])
+        (? (|| (>= x cv.p) (>= y cv.p) (! (ec_on_curve cv x y))) (err "ecdh: point is not on the curve")
+           (: pt=(ec_mul cv [x y 1n] d)
+              (? (== pt[2] 0n) (err "ecdh: bad public point")
+                 (c.bn_bytes_be (fst (ec_affine cv pt)) cv.bytes)))))))
