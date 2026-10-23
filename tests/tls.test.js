@@ -1,6 +1,6 @@
 'use strict';
 // lib/tls.aklang (native TLS 1.3 client) against Node's TLS server: EC and RSA certificates, all three cipher suites, large transfers,
-// and the failures a client must report (wrong host, untrusted CA, TLS 1.2 only server, server hanging up during the handshake).
+// and the failures a client must report (wrong host, untrusted CA, server hanging up during the handshake).
 const cp = require('child_process'), crypto = require('crypto'), fs = require('fs'), net = require('net'), os = require('os'), path = require('path'), tls = require('tls');
 const NAT = path.join(__dirname, '..', 'bin', 'ak'), DRV = path.join(__dirname, 'tls_driver.aklang');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aktls-'));
@@ -44,7 +44,7 @@ const serve = (opts, handler) => new Promise(res => {
   s.close();
   s = await serve({ key: rd('ec256.key'), cert: rd('ec256.pem'), maxVersion: 'TLSv1.2' });
   const o12 = await run('localhost', s.address().port, 'ca.pem');
-  t('TLS 1.2-only server is rejected', /^ERR tls: (server did not negotiate TLS 1\.3|alert 70 \(protocol_version\))/.test(o12), o12);
+  t('TLS 1.2-only server works (TLS 1.2 fallback)', o12 === want, o12);
   s.close();
   const hang = net.createServer(sock => { sock.on('error', () => {}); sock.end(); }); await new Promise(r => hang.listen(0, '127.0.0.1', r));
   t('server hanging up during the handshake', /^ERR tls: connection closed during the handshake/.test(await run('localhost', hang.address().port, 'ca.pem')));
