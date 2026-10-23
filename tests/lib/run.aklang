@@ -1,0 +1,11 @@
+; Test helper: run a command through sh and capture stdout, stderr and the exit status.
+; (use "tests/lib/run.aklang" as t)   (t.run "bin/ak -e '(p 1)'" "stdin text")  ->  {:out s :err s :code n}
+(= (q s) (+ "'" (rep s "'" "'\\''") "'"))
+(= (tmpname) (+ "/tmp/aktest-" ($ (now)) "-" ($ (rand 1000000000))))
+(= (run cmd input)
+  b=(tmpname)
+  (wr b+".in" (?? input ""))
+  code=(trim (sh (+ "(" cmd ") <" b ".in >" b ".out 2>" b ".err; echo $?")))
+  r={:out (rd b+".out") :err (rd b+".err") :code (num code)}
+  (sh (+ "rm -f " b ".in " b ".out " b ".err"))
+  r)
