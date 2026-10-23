@@ -8,6 +8,11 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.7 (2026-10-23)
+
+### Added
+- TLS server side: `(t.creds {:cert :key})` and `(t.accept fd cr)` in `lib/tls.aklang` serve TLS 1.3 with an RSA or EC P-256/P-384 certificate chain, answering curl, `openssl s_client` and the Ak client; `lib/pki` gained `priv_parse`, `sign` and `key_matches` (#101)
+
 ## 0.7.6 (2026-10-23)
 
 ### Added

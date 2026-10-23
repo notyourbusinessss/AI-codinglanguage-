@@ -202,7 +202,7 @@ p leaf.subject leaf.san leaf.na
 `check_chain` verifies signatures up to a root, validity dates, the CA flag and keyCertSign, and the host name against subjectAltName (the CN is ignored). It does **not** check revocation, name constraints or path length, and rejects SHA-1 and SHA-512 signatures. See [`SPEC-extra.md`](../SPEC-extra.md) for the exact signatures.
 
 ## TLS: `lib/tls.aklang`
-A TLS 1.3 client. It always verifies the certificate chain and the host name, and there is deliberately no switch to turn that off.
+A TLS 1.3 client and server. The client always verifies the certificate chain and the host name, and there is deliberately no switch to turn that off.
 ```ak no-run
 (use "lib/tls.aklang" as t)
 cn=(t.connect "example.com" 443 {:ms 5000})
@@ -211,7 +211,17 @@ d=(t.read cn)
 p d[..15]
 (t.close cn)
 ```
-`t.read` returns `""` at the end of the stream; `t.fd cn` gives the descriptor for `fdwait`. Failures raise `tls: ...`. Supported: x25519, the three TLS 1.3 cipher suites (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), RSA-PSS and ECDSA server signatures, KeyUpdate. Not supported: TLS 1.2 and older, client certificates, resumption, 0-RTT, ALPN, a server side. It is tested against Node's TLS server and OpenSSL, not yet against public servers, so treat it as young code.
+A server loads its certificate chain and private key once, then handshakes each accepted socket. `accept` closes the socket and raises if the handshake fails, so wrap it in `try`; `cn.sni` is the server name the client asked for.
+```ak no-run
+(use "lib/tls.aklang" as t)
+cr=(t.creds {:cert (rd "chain.pem") :key (rd "key.pem")})   ; leaf first; RSA or EC P-256/P-384, not encrypted
+l=(tcpl 8443)
+cn=(t.accept (tcpa l) cr)
+req=(t.read cn)
+(t.write cn "HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nhi")
+(t.close cn)
+```
+`t.read` returns `""` at the end of the stream; `t.fd cn` gives the descriptor for `fdwait`. Failures raise `tls: ...`. Supported: x25519, the three TLS 1.3 cipher suites (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), RSA-PSS and ECDSA server signatures, KeyUpdate. The server signs with RSA-PSS or ECDSA, whichever the client offers. Not supported: TLS 1.2 and older, client certificates, resumption, 0-RTT, ALPN. It is tested against Node's TLS server and OpenSSL, not yet against public servers, so treat it as young code.
 
 ## Windows and drawing
 Ak speaks the X11 protocol itself (`lib/x11.aklang`) and draws in software (`lib/canvas.aklang`): no GUI library, no browser. It needs a Linux X11 or XWayland display of depth 24; windows have a fixed size and text is ASCII.
