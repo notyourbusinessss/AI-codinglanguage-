@@ -5,10 +5,13 @@
 ;   (t.read conn n=16384)                 up to n plain bytes; "" at end of stream (close_notify or the peer closed)
 ;   (t.write conn s)  (t.close conn)  (t.fd conn)   (t.fd is the socket, for fdwait)
 ; (t.read) returns "" at the end; conn.truncated is true when the peer hung up without close_notify (many servers do), so data without its own length framing may be cut short.
-; TLS 1.3 only, x25519 key exchange, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and TLS_CHACHA20_POLY1305_SHA256; no client certificates, no session resumption, no 0-RTT.
+; opts also take :alpn ["h2" "http/1.1"] (offered protocols; conn.alpn is the one the server chose, or nil) and :cert/:key (PEM; a client certificate for servers that ask for one, see t.creds). conn.peer is the other side's verified certificate (parsed) after mutual TLS.
+; TLS 1.3 only, x25519 key exchange, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and TLS_CHACHA20_POLY1305_SHA256; no session resumption, no 0-RTT.
 ; Server side: cr=(t.creds {:cert chain_pem :key key_pem})   load a certificate chain (leaf first) and its unencrypted private key once (RSA, or EC P-256/P-384)
 ;   conn=(t.accept fd cr)   handshake on a socket from (tcpa l); cr may also be the {:cert :key} map itself. Same conn as t.connect (read, write, close, fd), plus conn.sni (the client's server name, or nil).
-;   On failure it closes fd and raises. Client certificates are not requested. Signs with rsa_pss_rsae or ECDSA, picking what the client offered.
+;   On failure it closes fd and raises. Signs with rsa_pss_rsae or ECDSA, picking what the client offered.
+;   cr options: :alpn ["h2" "http/1.1"] (server preference; conn.alpn is the pick, nil if the client offered none; no overlap is an error)
+;     :clientca PEM text of trusted CA certificates: ask the client for a certificate and verify it against them (conn.peer is its parsed leaf); with :optional true a client may send none (conn.peer nil)
 (use "crypto.aklang" as c)
 (use "pki.aklang" as k)
 (= (be n w) (? w>4 (++ (be (flr (/ n 4294967296)) w-4) (be (% n 4294967296) 4)) (frombytes (~ i=>(& (>>> n (* 8 (- w 1 i))) 255) 0..w))))
@@ -62,12 +65,14 @@
 (= (install_write conn secret) kv=(traffic conn conn.hash secret) conn.wkey=kv[0] conn.wiv=kv[1] conn.wseq=0 conn.wsecret=secret)
 ; ---- handshake messages
 (= (ext type body) (++ (be type 2) (be #body 2) body))
-(= (client_hello host pub random sid)
+(= (alpn_ext names) (? #names (ext 16 (let (l (join (~ n=>(++ (frombytes [#n]) n) names) "")) (++ (be #l 2) l))) ""))
+(= (client_hello host pub random sid alpn)
   exts=(++
     (? (dotted host) "" (ext 0 (let (nm (++ "\x00" (be #host 2) host)) (++ (be #nm 2) nm))))
     (ext 10 (++ "\x00\x02\x00\x1d"))
     (ext 13 (let (sa (c.unhex "0804080508060403050306030401050106010201")) (++ (be #sa 2) sa)))
     (ext 43 "\x02\x03\x04")
+    (alpn_ext alpn)
     (ext 51 (let (ks (++ "\x00\x1d\x00\x20" pub)) (++ (be #ks 2) ks))))
   suites=(c.unhex "130113021303")
   body=(++ "\x03\x03" random (frombytes [#sid]) sid (be #suites 2) suites "\x01\x00" (be #exts 2) exts)
@@ -126,7 +131,8 @@
   conn)
 (= (handshake conn host opts)
   priv=(c.random 32) pub=(c.x25519_base priv) sid=(c.random 32)
-  ch=(client_hello host pub (c.random 32) sid)
+  cc=(? opts.ders opts (? opts.cert (creds opts) nil))
+  ch=(client_hello host pub (c.random 32) sid opts.alpn)
   (rec_send conn 22 ch)
   (rec_send conn 20 "\x01")             ; compatibility ChangeCipherSpec
   conn.hash="sha256"
@@ -145,14 +151,17 @@
   hf=(c.hashfn hash)
   m=(hs_next conn)
   (? ($ldb m 0)!=8 (tfail "expected EncryptedExtensions"))
+  (parse_ee conn m opts.alpn)
   th+=m
   m=(hs_next conn)
-  (? ($ldb m 0)==13 (tfail "the server asks for a client certificate, which is not supported"))
+  req=nil
+  (? ($ldb m 0)==13 (: req=m th+=m m=(hs_next conn)))
   (? ($ldb m 0)!=11 (tfail "expected Certificate"))
   th+=m
   ders=(parse_certs m)
   (? (! #ders) (tfail "the server sent no certificate"))
   leaf=(try (k.check_chain ders host (?? opts.roots k.trust_roots()) (flr (/ (now) 1000))) e=>(tfail e))
+  conn.peer=leaf
   tcv=(hf th)
   m=(hs_next conn)
   (? ($ldb m 0)!=15 (tfail "expected CertificateVerify"))
@@ -172,6 +181,7 @@
   cap=(derive hash (c.hkdf_extract hash (derive hash hs "derived" (hf "")) zeros) "c ap traffic" ap_th)
   sap=(derive hash (c.hkdf_extract hash (derive hash hs "derived" (hf "")) zeros) "s ap traffic" ap_th)
   cfk=(expand_label hash chs "finished" "" (c.hashlen hash))
+  (? req th+=(client_cert conn req cc hf th))
   cf=(c.hmac hash cfk (hf th))
   (rec_send conn 22 (++ "\x14" (be #cf 3) cf))
   (install_write conn cap) (install_read conn sap)
@@ -209,6 +219,25 @@
   (try (rec_send conn 21 "\x01\x00") e=>nil)
   (fdc conn.fd) nil)
 (= (fd conn) conn.fd)
+; ---- ALPN and client certificates (client side)
+(= (parse_ee conn m offered)
+  b=m[4..] end=2+(by2 b 0) i=2
+  (wh i<end
+    et=(by2 b i) el=(by2 b i+2) eb=b[i+4..i+4+el]
+    (? et==16 (: conn.alpn=eb[3..3+(by1 eb 2)] (? (! (has (?? offered []) conn.alpn)) (tfail "the server chose an ALPN protocol that was not offered"))))
+    i+=4+el))
+(= (client_cert conn req cc hf th)      ; answer a CertificateRequest with our chain and signature, or an empty Certificate; sends it, returns the bytes
+  b=req[4..] cl=(by1 b 0) ctx=b[1..1+cl]
+  algs=[] i=1+cl end=i+2+(by2 b i) i+=2
+  (wh i<end (? (by2 b i)==13 algs=(by2s b i+6 (by2 b i+4))) i+=4+(by2 b i+2))
+  alg=(? cc (k.first (~? x=>(has algs x) cc.algs)) nil)
+  list=(? alg (join (~ d=>(++ (be #d 3) d "\x00\x00") cc.ders) "") "")
+  cm=(hmsg 11 (++ (frombytes [cl]) ctx (be #list 3) list))
+  out=cm
+  (? alg (: sig=(k.sign cc.key (sigalg_of alg) (++ (rpt " " 64) "TLS 1.3, client CertificateVerify\x00" (hf (++ th cm))))
+            out=(++ cm (hmsg 15 (++ (be alg 2) (be #sig 2) sig)))))
+  (rec_send conn 22 out)
+  out)
 ; ---- server side
 (= (by1 s i) (? (|| i<0 i>=#s) (tfail "malformed message") ($ldb s i)))
 (= (by2 s i) 256*(by1 s i)+(by1 s i+1))
@@ -223,7 +252,9 @@
         key=(try (k.priv_parse opts.key) e=>(tfail e))
         leaf=(k.cert_parse ders[0])
         (? (! (k.key_matches key leaf.key)) (tfail "the private key does not match the first certificate"))
-        {:ders ders :key key :algs (? (== key.type "rsa") [2052 2053] (== key.curve.name "P-256") [1027] [1283])})))
+        cas=(? opts.clientca (~ d=>(k.cert_parse d) (k.pem_certs opts.clientca)) nil)
+        (? (&& opts.clientca (! #cas)) (tfail "no certificate in :clientca"))
+        {:ders ders :key key :algs (? (== key.type "rsa") [2052 2053] (== key.curve.name "P-256") [1027] [1283]) :alpn opts.alpn :cas cas :optional opts.optional})))
 (= (parse_client_hello m)
   b=m[4..] i=34
   sid=b[i+1..i+1+(by1 b i)] i+=1+(by1 b i)
@@ -231,11 +262,12 @@
   i+=1+(by1 b i)
   end=i+2+(by2 b i) i+=2
   (? end>#b (tfail "malformed ClientHello"))
-  h={:sid sid :suites suites :versions [] :sigs [] :share nil :sni nil}
+  h={:sid sid :suites suites :versions [] :sigs [] :share nil :sni nil :alpn nil}
   (wh i<end
     et=(by2 b i) el=(by2 b i+2) eb=b[i+4..i+4+el]
     (? #eb<el (tfail "malformed ClientHello"))
     (? et==0 (: nl=(by2 eb 3) h.sni=eb[5..5+nl]))
+    (? et==16 (: h.alpn=[] j=2 (wh j<#eb nl=(by1 eb j) (push h.alpn eb[j+1..j+1+nl]) j+=1+nl)))
     (? et==43 h.versions=(by2s eb 1 (by1 eb 0)))
     (? et==13 h.sigs=(by2s eb 2 (by2 eb 0)))
     (? et==51
@@ -275,22 +307,40 @@
   chs=(derive hash hs "c hs traffic" (hf (++ ch sh))) shs=(derive hash hs "s hs traffic" (hf (++ ch sh)))
   (install_write conn shs) (install_read conn chs)
   th=(++ ch sh)
-  ee=(hmsg 8 "\x00\x00")
+  pick=(? h.alpn (k.first (~? x=>(has h.alpn x) (?? cr.alpn []))) nil)
+  (? (&& cr.alpn h.alpn ($isnil pick)) (sfail conn 120 "no ALPN protocol in common"))
+  conn.alpn=pick
+  ee=(hmsg 8 (let (x (alpn_ext (? pick [pick] []))) (++ (be #x 2) x)))
+  creq=(? cr.cas (hmsg 13 (let (x (ext 13 (let (sa (c.unhex "0804080504030503")) (++ (be #sa 2) sa)))) (++ "\x00" (be #x 2) x))) "")
   cl=(join (~ d=>(++ (be #d 3) d "\x00\x00") cr.ders) "")
   cm=(hmsg 11 (++ "\x00" (be #cl 3) cl))
-  th+=(++ ee cm)
+  th+=(++ ee creq cm)
   sig=(k.sign cr.key (sigalg_of alg) (++ (rpt " " 64) "TLS 1.3, server CertificateVerify\x00" (hf th)))
   cv=(hmsg 15 (++ (be alg 2) (be #sig 2) sig))
   th+=cv
   fin=(hmsg 20 (c.hmac hash (expand_label hash shs "finished" "" hl) (hf th)))
   th+=fin
-  flight=(++ ee cm cv fin) i=0
+  flight=(++ ee creq cm cv fin) i=0
   (wh i<#flight (rec_send conn 22 flight[i..(min i+16384 #flight)]) i+=16384)
   master=(c.hkdf_extract hash (derive hash hs "derived" (hf "")) zeros)
   sap=(derive hash master "s ap traffic" (hf th)) cap=(derive hash master "c ap traffic" (hf th))
   (install_write conn sap)
   m=(hs_next conn)
-  (? ($ldb m 0)!=20 (tfail "expected the client Finished (client certificates are not supported)"))
+  (? cr.cas
+     (: (? ($ldb m 0)!=11 (tfail "expected the client Certificate"))
+        th+=m ders=(parse_certs m)
+        (? #ders
+           (: leaf=(try (k.check_chain ders nil cr.cas (flr (/ (now) 1000))) e=>(sfail conn 42 (++ "client " e)))
+              hf0=(hf th)
+              m=(hs_next conn)
+              (? ($ldb m 0)!=15 (tfail "expected the client CertificateVerify"))
+              a=(sigalg_of (by2 m 4))
+              (? (|| ($isnil a) (! (k.verify_sig leaf.key a (++ (rpt " " 64) "TLS 1.3, client CertificateVerify\x00" hf0) m[8..8+(by2 m 6)]))) (sfail conn 51 "client signature (CertificateVerify) is invalid"))
+              th+=m conn.peer=leaf
+              m=(hs_next conn))
+           (: (? (! cr.optional) (sfail conn 116 "the client sent no certificate"))
+              m=(hs_next conn)))))
+  (? ($ldb m 0)!=20 (tfail "expected the client Finished"))
   (? (! (c.ct_eq m[4..] (c.hmac hash (expand_label hash chs "finished" "" hl) (hf th)))) (sfail conn 51 "client Finished does not verify"))
   (install_read conn cap)
   conn.sni=h.sni conn.open=true
