@@ -40,4 +40,4 @@ finish 2
 openssl s_server -accept 0 -cert server.pem -key server.key -CAfile ca.pem -Verify 1 -alpn h2 -www -tls1_3 > ossl.out 2>&1 &
 i=0; while ! grep -q "ACCEPT" ossl.out && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
 PORT=$(sed -n 's/.*ACCEPT.*:\([0-9]*\).*/\1/p' ossl.out | head -1)
-o=$(akc h2 "$D/client.pem" "$D/client.key" get); case "$o" in *"client-alpn=h2"*) echo "ok ak client to openssl s_server: mutual TLS and ALPN";; *) echo "FAIL ak client to s_server: $o";; esac
+o=$(akc h2 "$D/client.pem" "$D/client.key" /); case "$o" in *"client-alpn=h2"*) echo "ok ak client to openssl s_server: mutual TLS and ALPN";; *) echo "FAIL ak client to s_server: $o";; esac
