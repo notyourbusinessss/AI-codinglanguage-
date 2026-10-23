@@ -8,6 +8,7 @@
 ; Records are maps compared by :id only (never ==, which would recurse through the cycles).
 L={:statics [] :files [] :cf nil :cs nil :uid 0 :file "<ak>" :nglob 0 :funcs [] :globals [] :line 1 :col 1 :prelude nil :mod nil}
 POS={}
+NEEDS2=["%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "&" "|" "^" "<<" ">>" ">>>"]     ; operators that need two operands (the others need at least one)
 INLINE=["+" "-" "*" "/" "%" "//" "**" "<" ">" "<=" ">=" "==" "!=" "!" "&" "|" "^" "<<" ">>" ">>>" "bnot" "#"]
 INTRINSICS=["$ldw" "$stw" "$ldb" "$stb" "$type" "$hlen" "$sethdr" "$new" "$newb" "$addr" "$syscall" "$isptr" "$isnum" "$isnil" "$eqp" "$bitshi" "$bitslo" "$frombits" "$throw" "$throwk" "$errkind" "$peek" "$poke" "$argc" "$argv" "$toint" "$fadd" "$fsub" "$fmul" "$fdiv" "$fsqrt" "$ffloor" "$fceil" "$ftrunc" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$tagof" "$void" "$copy" "$apply" "$tracetop" "$tracebase" "$tracenames" "$peekw" "$pokew" "$ptraddr" "$mkptr" "$rawcopy" "$vtop" "$vbase" "$hptr" "$heapbase" "$nglob" "$gcset" "$gclim" "$envp" "$gbase" "$label" "$islist" "$isstr" "$ismap" "$issym" "$isfn" "$sp" "$hslot" "$strhash" "$streq" "$gccopy" "$ld16" "$st16" "$ldf32" "$stf32" "$ndig" "$utoa" "$find" "$mapfind_s" "$mapfind_n" "$cmain" "$cadd" "$cdrop" "$ccur" "$cswitch"]
 ISPRIM={"list" "$islist" "str" "$isstr" "map" "$ismap" "sym" "$issym" "fn" "$isfn" "nil" "$isnil"}
@@ -389,7 +390,9 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
        (: name=($ h) v=(lookup name)
           (? v==nil (lerr (++ "undefined: " name) h))
           (? (&& v.kind=="local" v.fn.id!=L.cf.id) (capture L.cf v))
-          (? (&& v.pre (has INLINE name) !hasspread) ["prim" name (~ a=>(lower a false) args)]
+          (? (&& v.pre (has INLINE name) !hasspread #args<(? (has NEEDS2 name) 2 1))
+               (lerr (++ name " takes " (? (has NEEDS2 name) "2 arguments" "at least 1 argument") ", got " #args) x)
+             (&& v.pre (has INLINE name) !hasspread) ["prim" name (~ a=>(lower a false) args)]
              (&& v.pre (== name "push") #args==2 !hasspread) ["prim" "push1" (~ a=>(lower a false) args)]
              (&& v.pre (== name "is") #args==2 !hasspread (is "str" args[0]) ISPRIM[args[0]]) ["prim" ISPRIM[args[0]] [(lower args[1] false)]]       ; (is "list" x) etc. with a literal type name: inline type test
              (&& v.pre (== name "lpush") #args==2 !hasspread) ["prim" "lpush" (~ a=>(lower a false) args)]

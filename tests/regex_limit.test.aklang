@@ -1,0 +1,16 @@
+; a pattern that backtracks exponentially raises "regex too complex" quickly instead of hanging (#129); ordinary matches are unaffected
+(use "lib/run.aklang" as t)
+(= (ak code)                    ; run a program given as text with bin/ak
+  f=(+ "/tmp/aktest-prog-" ($ (rand 1000000000)) ".aklang")
+  (wr f code)
+  r=(t.run (+ "bin/ak " f) nil)
+  (rm f)
+  r)
+t0=(now)
+r=(ak "p(try(match(\"(a+)+b\" rpt(\"a\" 26)) e=>e))")
+(assert (&& (== r.code 0) (has r.out "regex too complex")) (+ "(a+)+b on 26 a: " (show r.out) (show r.err)))
+r=(ak "p(try(match(\"(a+)+b\" rpt(\"a\" 40)) e=>e))")
+(assert (has r.out "regex too complex") (+ "(a+)+b on 40 a: " (show r.out)))
+(assert (< (- (now) t0) 10000) "the pathological patterns must fail within seconds")
+r=(ak "p(match(\"(a+)+b\" \"aaab\") #(match(\"a+b\" rpt(\"a\" 5000)+\"b\")[0]) #rep(rpt(\"ab \" 100000) \"\\\\w+\" \"x\"))")
+(assert (== r.out "[\"aaab\" \"aaa\"] 5001 300000\n") (+ "ordinary matches: " (show r.out) (show r.err)))

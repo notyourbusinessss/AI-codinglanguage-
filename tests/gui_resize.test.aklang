@@ -1,0 +1,7 @@
+; the X11 library reports a window resize as a {:type "resize" :w :h} event and keeps working at the new size (#105); needs Xvfb, skipped without it
+(use "lib/run.aklang" as t)
+(? (!= (t.run "command -v Xvfb" nil).code 0) (: (pr "gui_resize: Xvfb is missing, skipped\n") (exit 0)))
+cmd="d=95; while [ -e /tmp/.X11-unix/X$d ]; do d=$((d+1)); done; Xvfb :$d -screen 0 1280x900x24 -nolisten tcp >/dev/null 2>&1 & x=$!; sleep 1.5; DISPLAY=:$d bin/ak tests/lib/resize_probe.aklang; c=$?; kill $x; exit $c"
+r=(t.run cmd nil)
+(assert (== r.code 0) (+ "probe failed: " (show r.out) (show r.err)))
+(assert (== r.out "resize 700 500\nnil\n700 500\n") (+ "probe output: " (show r.out)))
