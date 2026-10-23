@@ -211,7 +211,7 @@ d=(t.read cn)
 p d[..15]
 (t.close cn)
 ```
-A server loads its certificate chain and private key once, then handshakes each accepted socket. `accept` closes the socket and raises if the handshake fails, so wrap it in `try`; `cn.sni` is the server name the client asked for.
+`opts.alpn` offers protocols (`cn.alpn` is the one chosen) and `opts.cert`/`opts.key` give a client certificate for servers that ask for one. A server loads its certificate chain and private key once, then handshakes each accepted socket. `accept` closes the socket and raises if the handshake fails, so wrap it in `try`; `cn.sni` is the server name the client asked for. `{:alpn ["h2" "http/1.1"]}` in the `t.creds` options picks the protocol, and `{:clientca (rd "ca.pem")}` requires a client certificate signed by that CA (`cn.peer` is its parsed leaf; add `:optional true` to let clients skip it).
 ```ak no-run
 (use "lib/tls.aklang" as t)
 cr=(t.creds {:cert (rd "chain.pem") :key (rd "key.pem")})   ; leaf first; RSA or EC P-256/P-384, not encrypted
@@ -221,7 +221,7 @@ req=(t.read cn)
 (t.write cn "HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nhi")
 (t.close cn)
 ```
-`t.read` returns `""` at the end of the stream; `t.fd cn` gives the descriptor for `fdwait`. Failures raise `tls: ...`. Supported: x25519, the three TLS 1.3 cipher suites (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), RSA-PSS and ECDSA server signatures, KeyUpdate. The server signs with RSA-PSS or ECDSA, whichever the client offers. Not supported: TLS 1.2 and older, client certificates, resumption, 0-RTT, ALPN. It is tested against Node's TLS server and OpenSSL, not yet against public servers, so treat it as young code.
+`t.read` returns `""` at the end of the stream; `t.fd cn` gives the descriptor for `fdwait`. Failures raise `tls: ...`. Supported: x25519, the three TLS 1.3 cipher suites (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), RSA-PSS and ECDSA server signatures, KeyUpdate. The server signs with RSA-PSS or ECDSA, whichever the client offers. Not supported: TLS 1.2 and older, resumption, 0-RTT. It is tested against Node's TLS server and OpenSSL, not yet against public servers, so treat it as young code.
 
 ## Windows and drawing
 Ak speaks the X11 protocol itself (`lib/x11.aklang`) and draws in software (`lib/canvas.aklang`): no GUI library, no browser. It needs a Linux X11 or XWayland display of depth 24; windows have a fixed size and text is ASCII.
