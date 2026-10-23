@@ -1,0 +1,7 @@
+; ALPN and client certificates in lib/tls.aklang, both sides, against curl and openssl s_client / s_server (needs openssl and curl)
+(use "lib/run.aklang" as t)
+r=(t.run "sh tests/lib/tls_features.sh" nil)
+lines=(split (trim r.out) "\n")
+(assert (== #lines 17) (+ "tls_features.sh printed " #lines " lines, expected 17: " (show r.out) r.err))
+bad=(~? l=>(! (starts l "ok ")) lines)
+(assert (== #bad 0) (+ "tls feature checks failed:\n" (join bad "\n")))

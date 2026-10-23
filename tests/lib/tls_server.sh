@@ -18,7 +18,7 @@ finish() { i=0; while [ "$(wc -l < srv.out)" -le "$1" ] && [ $i -lt 150 ]; do sl
 check() { if [ "$2" = "$3" ]; then echo "ok $1"; else echo "FAIL $1: got [$2] want [$3]"; fi; }
 for k in ec256:ec256.pem:ec256.key ec384:ec384.pem:ec384.key rsa:rsa.pem:rsa.key rsa-trad:rsa.pem:rsa.trad ec-sec1:ec256.pem:ec256.sec1 chain:chain.pem:ec256.key; do
   n=${k%%:*}; r=${k#*:}; serve ${r%%:*} ${r#*:} 2
-  check "curl $n" "$(curl -sS --cacert ca.pem https://localhost:$PORT/ 2>&1)" "hello localhost"
+  check "curl $n" "$(curl -sS --cacert ca.pem https://localhost:$PORT/ 2>&1)" "hello localhost alpn=- peer=no"
   check "curl $n 300 KB" "$(curl -sS --cacert ca.pem https://localhost:$PORT/big 2>&1 | wc -c | tr -d ' ')" 300000
   finish 2; kill $(jobs -p) 2>/dev/null; wait
 done
@@ -27,7 +27,7 @@ for s in TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384 TLS_CHACHA20_POLY1305_SHA
   o=$( (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 2) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_return_error -verify_hostname localhost -servername foo.example -ciphersuites $s -tls1_3 2>&1)
   case "$o" in *"Cipher is $s"*"hello foo.example"*|*"Cipher    : $s"*"hello foo.example"*) echo "ok s_client $s, sni";; *) echo "FAIL s_client $s: $o" | head -5;; esac
 done
-check "ak client" "$(cd "$R" && $AK tests/tls_driver.aklang localhost $PORT "$D/ca.pem" 2>&1)" "OK 10 $(printf 'echo:hello' | sha256sum | cut -d' ' -f1)"
+check "ak client" "$(cd "$R" && $AK tests/tls_driver.aklang localhost $PORT "$D/ca.pem" 2>&1)" "OK 25 $(printf 'echo:hello alpn=- peer=no' | sha256sum | cut -d' ' -f1)"
 check "curl wrong CA is rejected" "$(curl -sS --cacert other.pem https://localhost:$PORT/ 2>&1 | grep -c 'SSL certificate')" 1
 o=$(printf 'x' | openssl s_client -connect localhost:$PORT -tls1_2 2>&1); case "$o" in *"alert protocol version"*|*"protocol version"*) echo "ok TLS 1.2 client gets protocol_version";; *) echo "FAIL tls1.2: $o" | head -3;; esac
 finish 6; sed 1d srv.out | sort | uniq -c | sed 's/^ *//' | sort > counts

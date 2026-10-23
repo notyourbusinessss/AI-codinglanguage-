@@ -3,7 +3,7 @@
 ;   k.pem_certs text -> list of DER strings          k.cert_parse der -> map: raw tbs sigalg sig issuer subject nb na key san ips ca keyusage
 ;   k.verify_sig key alg data sig -> true / false    alg: rsa_pkcs1_sha256 rsa_pkcs1_sha384 rsa_pss_sha256 rsa_pss_sha384 ecdsa_sha256 ecdsa_sha384
 ;   k.trust_roots -> parsed CA certificates from the system bundle (SSL_CERT_FILE overrides)
-;   k.check_chain ders host roots now -> the parsed leaf, or raises "certificate: why"   (host: a name or a dotted IPv4; now: unix seconds)
+;   k.check_chain ders host roots now -> the parsed leaf, or raises "certificate: why"   (host: a name or a dotted IPv4, or nil to skip the name check; now: unix seconds)
 ;   k.priv_parse pem -> private key map (PEM "PRIVATE KEY", "EC PRIVATE KEY" or "RSA PRIVATE KEY", unencrypted; RSA or EC P-256/P-384)
 ;   k.sign key alg data -> signature string (alg: rsa_pss_sha256 rsa_pss_sha384 ecdsa_sha256 ecdsa_sha384)      k.key_matches priv pub -> true / false (pub: a cert's :key)
 ; Checked: signatures along the chain, validity dates, CA flag and keyCertSign, subjectAltName host match. Not checked: revocation, name constraints, path length, extended key usage.
@@ -208,7 +208,7 @@ CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
 (= (check_chain ders host roots now)
   certs=(~ d=>(cert_parse d) ders) leaf=certs[0]
   (? (! (cert_valid leaf now)) (err "certificate: leaf is expired or not yet valid"))
-  (? (! (host_match leaf host)) (err (++ "certificate: host name " host " does not match the certificate")))
+  (? (&& host (! (host_match leaf host))) (err (++ "certificate: host name " host " does not match the certificate")))
   cur=leaf depth=0 result=nil
   (wh (&& ($isnil result) depth<10)
     anchor=(first (~? r=>(&& (== r.subject cur.issuer) (cert_valid r now) (can_sign r) (cert_sig_ok cur r)) roots))
