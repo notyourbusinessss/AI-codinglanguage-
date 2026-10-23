@@ -565,7 +565,7 @@ function standalone(file, body, name) {
   } else exec(body, WT.workerData.argv, WT.workerData.dir, WT.workerData.name);
 }
 // sockets exist only natively: say so, instead of `undefined: tcpc`
-for (const nm of ['tcpl', 'tcpp', 'tcpa', 'tcpc', 'fdr', 'fdw', 'fdc', 'fdwait', 'udp', 'udpto', 'udpfrom', 'unixc', 'dns'])
+for (const nm of ['tcpl', 'tcpp', 'tcpa', 'tcpc', 'fdr', 'fdw', 'fdc', 'fdwait', 'udp', 'udpto', 'udpfrom', 'udpl', 'udpfrom2', 'unixc', 'dns'])
   if (!(nm in B)) Object.defineProperty(B, nm, { value: () => { throw new AkError(nm + ': sockets are native only; on the JS target use Node modules, e.g. (req "net"), or fetch', 'error'); }, enumerable: false, writable: true, configurable: true });   // not enumerable: spec.test.js lists the real JS builtins
 // for tests/embedding: compile+run in-process, return value
 function evalCode(code) { return new Function('R', 'require', code)(api, require); }

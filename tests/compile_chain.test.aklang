@@ -1,0 +1,11 @@
+; a single expression with 20000 operators compiles in linear time (it was quadratic: 16000 terms took over a minute) (#128)
+(use "lib/run.aklang" as t)
+f=(+ "/tmp/aktest-chain-" ($ (rand 1000000000)) ".aklang")
+(for op ["+" "-" "*"]
+  (wr f (+ "x=1\np(" (join (~ i=>"x" 0..20000) op) ")\n"))
+  t0=(now)
+  r=(t.run (+ "bin/ak " f) nil)
+  ms=(- (now) t0)
+  (assert (&& (== r.code 0) (== r.out (? (== op "+") "20000\n" (== op "-") "-19998\n" "1\n"))) (+ op " chain: " (show r.out) (show r.err)))
+  (assert (< ms 15000) (+ op " chain of 20000 terms took " ($ ms) " ms")))
+(rm f)

@@ -141,5 +141,7 @@ IEOF=false
   ($syscall 61 pid mem+520 0 0)
   st=(+ ($peek mem+520) (* 256 ($peek mem+521)))
   code=($band ($ushr st 8) 255)
-  (? (|| (!= code 0) (!= ($band st 127) 0)) ($throwk 4 (strcat2 (strcat2 (strcat2 (strcat2 "sh failed (" (fmtint code)) "): ") cmd) "")))
+  sig=($band st 127)
+  (? (!= sig 0) ($throwk 4 (strcat2 (strcat2 (strcat2 (strcat2 "sh killed by signal " (fmtint sig)) ": ") cmd) ""))
+     (!= code 0) ($throwk 4 (strcat2 (strcat2 (strcat2 (strcat2 "sh failed (" (fmtint code)) "): ") cmd) "")))
   out)
