@@ -1,4 +1,4 @@
-; Test client for lib/tls.aklang: ak tls_client.aklang host port roots.pem [alpn,alpn|- [cert.pem key.pem [get]]] -> sends "hello" (or a GET request when the 7th argument is given), prints the reply, then "alpn=<chosen>" or "ERR <message>".
+; Test client for lib/tls.aklang: ak tls_client.aklang host port roots.pem [alpn,alpn|- [cert.pem key.pem [get]]] -> sends "hello" (or "GET <7th argument> HTTP/1.0" when it is given), prints the reply, then "alpn=<chosen>" or "ERR <message>".
 (use "../../lib/tls.aklang" as t)
 (use "../../lib/pki.aklang" as k)
 [host port roots alpn cert key get]=(args)
@@ -6,7 +6,7 @@
   (: o={:roots (~ x=>(k.cert_parse x) (k.pem_certs (rd roots))) :ms 5000 :alpn (? (&& alpn (!= alpn "-")) (split alpn ",") nil)}
      (? (&& cert (!= cert "-")) (: o.cert=(rd cert) o.key=(rd key)))
      cn=(t.connect host (num port) o)
-     (t.write cn (? get "GET / HTTP/1.0\r\n\r\n" "hello"))
+     (t.write cn (? get (++ "GET " get " HTTP/1.0\r\n\r\n") "hello"))
      data="" d=nil
      (wh d!="" d=(t.read cn) data+=d)
      (t.close cn)
