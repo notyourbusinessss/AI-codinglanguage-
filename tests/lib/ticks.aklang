@@ -1,0 +1,11 @@
+; a wide-open read: n bytes at most, then end of stream
+l=(tcpl 0 "127.0.0.1")
+c=(tcpc "127.0.0.1" (tcpp l))
+s=(tcpa l)
+(fdw c (rpt "a" 100000))
+(fdc c)
+a=(fdr s 10) b=(fdr s) 
+tot=#a+#b
+r=(fdr s)
+(wh (!= r "") tot+=#r r=(fdr s))
+(p #a (<= #b 65536) tot (fdr s)=="")

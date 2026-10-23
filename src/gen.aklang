@@ -90,7 +90,7 @@ TRACE_BASE=268435488
   "call" (: old=G.curpos G.curpos=x[3] (gen_call x false) G.curpos=old)
   "tcall" (: old=G.curpos G.curpos=x[3] (gen_call x true) G.curpos=old)
   "fn" (gen_closure x[1])
-  "prim" (: old=G.curpos G.curpos=x[3] (gen_prim x[1] x[2]) G.curpos=old)
+  "prim" (: old=G.curpos G.curpos=x[3] (gen_prim x[1] x[2]) G.curpos=old (memo_prim x))
   "static" (af "mov rax, [%d]" 268435600+8*x[1])
   "initcall" (: (a "mov [r15], r11") (a "add r15, 8") (a "mov rcx, 0") (a (++ "call .f" x[1])))
   "try" (gen_try x)
@@ -256,12 +256,19 @@ NUMPRIMS=["+" "-" "*" "/" "%" "//" "**" "&" "|" "^" "<<" ">>" ">>>"]
     false))
 NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint" "$band" "$bor" "$bxor" "$shl" "$shr" "$ushr" "$addr" "$peek"]
 (= (isnumir x)                  ; x always yields a double (or throws)
+  (? (&& x[0]=="prim" #x>5) x[4]
   (|| x[0]=="num" (&& x[0]=="ref" x[1].isnum) (&& x[0]=="prim" (has NUMINTRIN x[1]))
-      (&& x[0]=="prim" (has NUMPRIMS x[1]) (all isnumir x[2]))))
+      (&& x[0]=="prim" (has NUMPRIMS x[1]) (all isnumir x[2])))))
+;; once an arithmetic node is generated its isnumir and bound are kept in x[4] x[5]: the parent asks for them next, and walking the
+;; whole left subtree again at every level made a long chain of operators take quadratic time
+(= (memo_prim x)
+  (? (&& (has NUMPRIMS x[1]) #x<=4)
+     (: (for k 4 (? #x<=k (push x nil))) isn=(isnumir x) b=(bound x) (push x isn) (push x b))))
 (= (boundok op b1 b2)           ; bounds known and the result cannot leave 2^53
   (&& b1!=nil b2!=nil (? (== op "*") (&& b1<=67108864 b2<=67108864) (&& b1<=4503599627370496 b2<=4503599627370496))))
 (= (bound x)                    ; |value of x| <= bound, or nil when unknown (lets + - * skip the 2^53 overflow test)
-  (? x[0]=="num" (abs x[1])
+  (? (&& x[0]=="prim" #x>5) x[5]
+     x[0]=="num" (abs x[1])
      x[0]=="prim"
        (: op=x[1] args=x[2]
           (? (has ["$hlen" "$bitshi" "$bitslo" "$ushr" "#"] op) 4294967296

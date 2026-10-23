@@ -1,0 +1,14 @@
+; opens a window, resizes it from the client side (what a window manager does) and prints the resize events
+(use "../../lib/x11.aklang")
+w=(gui_open "probe" 320 200)
+(gui_event w 100)
+(x_req w [12 0 ..(le16 5) ..(le32 w.id) ..(le16 12) 0 0 ..(le32 640) ..(le32 480)])
+(x_req w [12 0 ..(le16 5) ..(le32 w.id) ..(le16 12) 0 0 ..(le32 700) ..(le32 500)])
+ev=nil
+(wh (|| (== ev nil) ev.type!="resize" ev.w!=700) ev=(gui_event w 2000))
+(p ev.type ev.w ev.h)
+(p (gui_event w 100))
+(gui_present w (canvas ev.w ev.h))
+s=(gui_snapshot w)
+(p s.w s.h)
+(gui_close w)

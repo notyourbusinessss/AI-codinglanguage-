@@ -130,7 +130,8 @@ Built in, no `use` needed. Descriptors are plain numbers.
 | `(fdwait [fd ..] ms)` | the readable descriptors among them (`ms` < 0 waits forever) |
 | `(fdpoll [rfd ..] [wfd ..] ms)` | `[readable writable]`: which of the read and write descriptors are ready |
 | `(dns name)` | the IPv4 addresses of a name, as dotted strings |
-| `(udp)`, `(udpto fd ip port s)`, `(udpfrom fd n ms)` | UDP sockets |
+| `(udp)`, `(udpto fd ip port s)`, `(udpfrom fd n ms)` | UDP client sockets (`ip` is a dotted IPv4 string or `[a b c d]`) |
+| `(udpl port host)`, `(udpfrom2 fd n ms)` | UDP server: bind a socket (`tcpp` gives the port); `udpfrom2` returns `[data ip port]` so the server can reply with `udpto` |
 
 ```ak
 l=(tcpl 0 "127.0.0.1")
