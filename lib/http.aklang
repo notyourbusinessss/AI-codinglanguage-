@@ -51,10 +51,10 @@
      (: fd=(tcpc host port opts.ms) {:r n=>(: d=(fdr fd n rms) (? (== d nil) (netfail "read timed out") d)) :w s=>(fdw fd s wms) :c ()=>(fdc fd)})))
 (= (noproxy host)                       ; is host listed in NO_PROXY (names, .suffixes, *), or a loopback address?
   lh=(lo host)
+  es=(~ (\ (e) (: e=(trim (lo e)) e=(? (starts e "*.") e[2..] (starts e ".") e[1..] e) (? (&& (has e ":") (! (starts e "["))) (split e ":")[0] e)))
+        (split (?? (env "NO_PROXY") (?? (env "no_proxy") "")) ","))
   (|| (== lh "localhost") (starts lh "127.") (== lh "::1") (ends lh ".localhost")
-      (any e=>(|| (== e "*") (== e lh) (ends lh (++ "." e)))
-           (~ e=>(: e=(trim (lo e)) e=(? (starts e "*.") e[2..] (starts e ".") e[1..] e) (? (has e ":") (? (starts e "[") e (split e ":")[0]) e))
-              (split (?? (env "NO_PROXY") (env "no_proxy") "") ",")))))
+      (any (\ (e) (|| (== e "*") (== e lh) (ends lh (++ "." e)))) es)))
 (= (proxyfor sec host opts)             ; the proxy URL for a request: opts.proxy (false = none), else HTTPS_PROXY / HTTP_PROXY unless NO_PROXY or loopback; nil = direct
   p=(? (!= opts.proxy nil) opts.proxy
        (noproxy host) nil
@@ -107,7 +107,7 @@
      (++ origin dir "/" loc)))
 (= (req method url body=nil headers=nil opts=nil hops=0)
   [sec host port path user]=(parseurl url) opts=(?? opts {})
-  chk("method" method " :/") chk("URL" url "") chk("host" host "")
+  (chk "method" method " :/") (chk "URL" url "") (chk "host" host "")
   px=(proxyfor sec host opts)
   pp=(? px (parseurl px) nil)
   auth=(? port==(? sec 443 80) (hostpart host) (++ (hostpart host) ":" port))
@@ -115,7 +115,7 @@
   (? user h.Authorization=(++ "Basic " (b64 user)))
   (? (&& px (! sec) pp[4]) h["Proxy-Authorization"]=(++ "Basic " (b64 pp[4])))
   (? body (: h["Content-Length"]=#body))
-  (for [k v] (?? headers {}) (: chk("header name" k " :") chk("header value" (tostr v) "") h[k]=v))
+  (for [k v] (?? headers {}) (: (chk "header name" k " :") (chk "header value" (tostr v) "") h[k]=v))
   head=(++ method " " (? (&& px (! sec)) (++ "http://" auth path) path) " HTTP/1.1\r\n" (join (~ k=>(++ k ": " h[k]) (keys h)) "\r\n") "\r\n\r\n")
   c=(? (&& px sec) (tunnel px host port opts) px (open pp[0] pp[1] pp[2] opts) (open sec host port opts))
   c.w((++ head (?? body "")))
