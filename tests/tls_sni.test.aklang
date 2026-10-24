@@ -1,0 +1,7 @@
+; certificate choice by server name (#160), against openssl s_client
+(use "lib/run.aklang" as t)
+r=(t.run "sh tests/lib/tls_sni.sh" nil)
+lines=(split (trim r.out) "\n")
+(assert (== #lines 6) (+ "tls_sni.sh printed " #lines " lines, expected 6: " (show r.out) r.err))
+bad=(~? l=>(! (starts l "ok ")) lines)
+(assert (== #bad 0) (+ "SNI checks failed:\n" (join bad "\n")))

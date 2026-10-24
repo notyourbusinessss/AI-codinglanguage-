@@ -8,7 +8,7 @@ r=(t.run (+ "AK_DNS=127.0.0.1:" port " bin/ak tests/lib/dns_client.aklang") nil)
 log=(split (trim (rd (+ base ".out"))) "\n")
 (sh (+ "kill " pid " 2>/dev/null; rm -f " base ".out"))
 (assert (== r.code 0) (+ "dns_client failed: " r.err))
-(assert (== r.out "[\"2001:db8::7\"]\n[\"192.0.2.7\" \"2001:db8::7\"]\n[\"192.0.2.9\"]\n[\"192.0.2.5\" \"2001:db8::5\"] [\"192.0.2.5\" \"2001:db8::5\"]\n[\"192.0.2.5\" \"2001:db8::5\"]\ncannot resolve nx.test\n[\"::1\"] [\"2001:db8::1\"] [\"127.0.0.1\"]\n") (+ "resolver output: " (show r.out)))
+(assert (== r.out "[\"2001:db8::7\"]\n[\"192.0.2.7\" \"2001:db8::7\"]\n[\"192.0.2.9\"]\n[\"192.0.2.5\" \"2001:db8::5\"] [\"192.0.2.5\" \"2001:db8::5\"]\n[\"192.0.2.5\" \"2001:db8::5\"]\ncannot resolve nx.test\n[\"::1\"] [\"2001:db8::1\"] [\"127.0.0.1\"]\n[\"host77.example.test\" \"alias.77.2.0.192.in-addr.arpa\"] [\"v6.example.test\"] [] true rdns needs an IP address, got nope 77.2.0.192.in-addr.arpa\n") (+ "resolver output: " (show r.out)))
 q=log[1..]
 (assert (has q "v6.test 28 udp") "AAAA is asked")
 (assert (&& (has q "big.test 1 udp") (has q "big.test 1 tcp") (has q "big.test 28 tcp")) (+ "a truncated answer is repeated over TCP: " (show q)))

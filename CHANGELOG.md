@@ -8,6 +8,26 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.31 (2026-10-24)
+
+### Added
+- `lib/inflate.aklang`: gzip, zlib and raw DEFLATE decoding with checksums and an output limit; `lib/http` option `{:gzip true}` asks for and decodes compressed bodies (#162)
+
+## 0.7.30 (2026-10-24)
+
+### Added
+- `(rdns ip)` returns the names of an address from `/etc/hosts` or PTR records (IPv4 and IPv6), `(arpa ip)` the reverse-lookup name (#161)
+
+## 0.7.29 (2026-10-24)
+
+### Added
+- The TLS server picks its certificate by server name: `t.creds {:names {"a.test" {..} "*.b.test" {..}} :default {..}}`; an unknown name without a default gets an `unrecognized_name` alert (#160)
+
+## 0.7.28 (2026-10-24)
+
+### Added
+- `lib/http` connection reuse: `pool=h.session()` and `{:pool pool}` keep keep-alive connections between requests; `(h.release pool)` closes them (#159)
+
 ## 0.7.27 (2026-10-24)
 
 ### Changed
