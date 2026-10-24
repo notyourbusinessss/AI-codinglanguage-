@@ -205,12 +205,25 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
      (: out=[[] []] (for i n (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out[(? i<nr 0 1)] (? i<nr rd[i] wr[i-nr])))) out)))
 
 ; ---- UDP and DNS ----
-(= (udp) fd=($syscall 41 2 2 0) (? fd<0 (netfail "socket failed")) fd)        ; a UDP socket (IPv4)
-(= (udpto fd ip port s)                 ; send one datagram to ip (a [a b c d] list or dotted string) : port
-  ip=(? (isstr ip) (dotted ip) ip)
-  (? (|| (! (islist ip)) (!= #ip 4) (! (all (\ (v) (&& ($isnum v) (isint v) v>=0 v<=255)) ip))) (netfail "udpto needs an IPv4 address like 127.0.0.1"))
-  (needport port 1) d=(? (islist s) (frombytes s) (tostr s)) sa=(sockaddr ip port)
-  r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) 16)
+(= (udp)                                ; a UDP socket: dual-stack IPv6 (IPv4 destinations are sent as ::ffff:a.b.c.d) where the machine has IPv6, else IPv4
+  fd=($syscall 41 10 2 0)
+  (? fd<0 (: fd=($syscall 41 2 2 0) (? fd<0 (netfail "socket failed")))
+     (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))
+  fd)
+(= (sockdom fd)                         ; 2 (AF_INET) or 10 (AF_INET6): the family of a socket
+  v=($newb 1 4 4) ln=($newb 1 4 4) ($stb ln 0 4)
+  (? (< ($syscall 55 fd 1 39 ($addr v) ($addr ln)) 0) 2 ($ldb v 0)))
+(= (udpaddr fd ip port)                 ; ip (4 or 16 numbers) -> the sockaddr and its length for a UDP socket fd
+  d=(sockdom fd)
+  (? (&& (== d 2) (== #ip 16)) (netfail "this UDP socket is IPv4 only: this machine has no IPv6"))
+  ip=(? (&& (== d 10) (== #ip 4)) [0 0 0 0 0 0 0 0 0 0 255 255 ..ip] ip)
+  [(sockaddr ip port) (socklen ip)])
+(= (udpto fd ip port s)                 ; send one datagram to ip (a [a b c d] or 16-number list, an IPv4 or IPv6 string, or a host name) : port
+  ip=(? (isstr ip) (hostip ip) ip)
+  (? ($isnil ip) (netfail "udpto: cannot resolve the address"))
+  (? (|| (! (islist ip)) (&& (!= #ip 4) (!= #ip 16)) (! (all (\ (v) (&& ($isnum v) (isint v) v>=0 v<=255)) ip))) (netfail "udpto needs an address like 127.0.0.1 or ::1, or a host name"))
+  (needport port 1) d=(? (islist s) (frombytes s) (tostr s)) [sa n]=(udpaddr fd ip port)
+  r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) n)
   (? r<0 (netfail "send failed")) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
   n=(needlen (?? n 65536) 2147483647) (needfd fd)
@@ -218,21 +231,26 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
         (? r<0 (netfail "receive failed") (strslice b 0 r)))))
-(= (udpl port host="0.0.0.0")           ; a UDP socket bound to host:port (port 0 picks a free one; see tcpp), to serve with udpfrom2 and udpto
-  (needport (?? port 0) 0) ip=(hostip4 host)
+(= (udpl port host="0.0.0.0")           ; a UDP socket bound to host:port (port 0 picks a free one; see tcpp), to serve with udpfrom2 and udpto; an IPv6 host ("::1", "::" for both families) makes an IPv6 socket
+  (needport (?? port 0) 0) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
-  fd=($syscall 41 2 2 0)
-  (? fd<0 (netfail "socket failed"))
+  fd=($syscall 41 (sockfam ip) 2 0)
+  (? fd<0 (netfail (? (== #ip 16) "no IPv6 support on this machine" "socket failed")))
+  (? (== #ip 16) (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))
   sa=(sockaddr ip (?? port 0))
-  (? (< ($syscall 49 fd ($addr sa) 16) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot bind UDP port " (tostr port)))))
+  (? (< ($syscall 49 fd ($addr sa) (socklen ip)) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot bind UDP port " (tostr port)))))
   fd)
-(= (udpfrom2 fd n=nil ms=nil)           ; like udpfrom, but returns [data ip port] of the sender (ip as [a b c d]), so a server can answer with udpto
+(= (udpfrom2 fd n=nil ms=nil)           ; like udpfrom, but returns [data ip port] of the sender, so a server can answer with udpto: ip is [a b c d] for IPv4 (also from a dual-stack socket), 16 numbers for IPv6
   n=(needlen (?? n 65536) 2147483647) (needfd fd)
   (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
-     (: b=(rdbuf n) sa=($newb 1 16 16) ln=($newb 1 4 4) ($stb ln 0 16) r=-4
+     (: b=(rdbuf n) sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 ($addr sa) ($addr ln)))
         (? r<0 (netfail "receive failed")
-           [(strslice b 0 r) [($ldb sa 4) ($ldb sa 5) ($ldb sa 6) ($ldb sa 7)] (+ (* 256 ($ldb sa 2)) ($ldb sa 3))]))))
+           (: v6=(~ i=>($ldb sa 8+i) 0..16)
+              ip=(? (!= ($ldb sa 0) 10) [($ldb sa 4) ($ldb sa 5) ($ldb sa 6) ($ldb sa 7)]
+                    (&& (all (\ (x) (== x 0)) v6[..10]) (== v6[10] 255) (== v6[11] 255)) v6[12..]
+                    v6)
+              [(strslice b 0 r) ip (+ (* 256 ($ldb sa 2)) ($ldb sa 3))])))))
 (= (randbytes n) b=($newb 1 n n) ($syscall 318 ($addr b) n 0) (bytes (strslice b 0 n)))
 (= (be16 b i) (+ (* 256 ($ldb b i)) ($ldb b i+1)))
 (= (dnsskip r i)                        ; offset after the (possibly compressed) name at i

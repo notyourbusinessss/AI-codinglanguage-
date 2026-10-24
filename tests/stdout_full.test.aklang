@@ -1,0 +1,14 @@
+; stdout write errors are reported, not ignored (#138): redirect to /dev/full and expect exit 1 with "write failed"
+(use "lib/run.aklang" as t)
+(? (! (ex "/dev/full")) (fdw 2 "stdout_full.test: SKIPPED, this machine has no /dev/full\n")
+   (: n=0
+      (for c ["(p \"a\")" "(pr \"a\")" "(p (rpt \"x\" 200000))" "(p 1) (exit 0)" "(fdw 1 \"hello\\n\")"]
+        r=(t.run (+ "bin/ak -e '" c "' >/dev/full") nil)
+        n+=1
+        (assert (&& (== r.code 1) (has r.err "write failed")) (+ c ": exit " r.code ", stderr " (show r.err))))
+      r=(t.run "bin/ak fmt tests/lib/ticks.aklang >/dev/full" nil)
+      (assert (&& (== r.code 1) (has r.err "write failed")) (+ "ak fmt: exit " r.code ", stderr " (show r.err)))
+      ; normal output, also past the 64 KB buffer, is unchanged
+      r=(t.run "bin/ak -e '(p (rpt \"y\" 200000))' | wc -c" nil)
+      (assert (== (trim r.out) "200001") (+ "large output: " (show r.out)))
+      (assert (== (trim (t.run "bin/ak -e '(p 1)'" nil).out) "1") "plain output")))

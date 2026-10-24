@@ -480,7 +480,7 @@
      (: (? ($ldb m 0)!=11 (tfail "expected the client Certificate"))
         th+=m ders=(parse_certs m)
         (? #ders
-           (: leaf=(try (k.check_chain ders nil cr.cas (flr (/ (now) 1000))) e=>(sfail conn 42 (++ "client " e)))
+           (: leaf=(try (k.check_chain ders nil cr.cas (flr (/ (now) 1000)) "client") e=>(sfail conn 42 (++ "client " e)))
               hf0=(hf th)
               m=(hs_next conn)
               (? ($ldb m 0)!=15 (tfail "expected the client CertificateVerify"))

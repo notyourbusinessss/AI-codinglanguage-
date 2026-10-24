@@ -1,5 +1,6 @@
 ; Fake HTTP servers for the HTTP client tests: ak http_fake.aklang mode [n] [log] -> prints its port, then serves n connections (default 1) on 127.0.0.1.
 ;   inf      200 with a body that never ends          big      200 with 500000 bytes of "x" (Content-Length)
+; badstatus, badlen, neglen, dup (Content-Length: 2, 2), loop (302 to itself): malformed or looping replies
 ;   chunked  200 chunked, 3 chunks of 100000 bytes    proxy    an HTTP proxy: appends each request head to the file log, answers "ok", or tunnels a CONNECT
 [mode n log]=(args)
 l=(tcpl 0 "127.0.0.1")
@@ -21,6 +22,11 @@ l=(tcpl 0 "127.0.0.1")
     "inf" (: (fdw c "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n") (wh true (fdw c (rpt "x" 100000))))
     "big" (fdw c (++ "HTTP/1.1 200 OK\r\nContent-Length: 500000\r\nConnection: close\r\n\r\n" (rpt "x" 500000)))
     "chunked" (fdw c (++ "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" (join (~ i=>(++ "186a0\r\n" (rpt "y" 100000) "\r\n") 0..3) "") "0\r\n\r\n"))
+    "badstatus" (fdw c "garbage\r\n\r\nhi")
+    "badlen" (fdw c "HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\nhi")
+    "neglen" (fdw c "HTTP/1.1 200 OK\r\nContent-Length: -5\r\n\r\nhi")
+    "dup" (fdw c "HTTP/1.1 200 OK\r\nContent-Length: 2, 2\r\n\r\nhiXX")
+    "loop" (fdw c "HTTP/1.1 302 Found\r\nLocation: /\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
     "proxy" (: line=(split h "\r\n")[0] (app log (++ h "\n--\n"))
                (? (starts line "CONNECT ") (tunnel c line)
                   (fdw c "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")))

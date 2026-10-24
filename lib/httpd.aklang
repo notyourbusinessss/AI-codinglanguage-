@@ -8,7 +8,8 @@
 ; A malformed request gets 400, an unsupported version 505, a handler that raises 500 (the error goes to stderr); none of them stops the server.
 ; Persistent connections work for HTTP/1.1 (and HTTP/1.0 with Keep-Alive); request bodies may be Content-Length or chunked; "Expect: 100-continue" is answered.
 ; (s.router routes) builds a handler from [[method pattern handler] ..]: patterns like "/user/:id" put the segment in req.params, a trailing "/*" puts the rest in req.params.rest; 404 for no path match, 405 (with Allow) for a wrong method.
-; Not supported: TLS (put the server behind a TLS terminator), HTTP/2, Upgrade (see lib/ws.aklang for WebSocket), request timeouts for idle connections.
+; Timeouts (ms): :headms (30000: a request head must be complete this long after its first byte, and a connection must send its first byte this fast), :idlems (60000: a keep-alive connection may stay quiet), :bodyms (30000: the whole body); a half-sent request gets 408 and the connection closes, an idle one closes quietly. :maxconn limits open connections (503 beyond it).
+; Not supported: TLS (put the server behind a TLS terminator), HTTP/2, Upgrade (see lib/ws.aklang for WebSocket).
 (use "async.aklang" as a)
 (= (reason c)
   (sw c 100 "Continue" 200 "OK" 201 "Created" 202 "Accepted" 204 "No Content" 301 "Moved Permanently" 302 "Found" 303 "See Other" 304 "Not Modified" 307 "Temporary Redirect" 308 "Permanent Redirect"
@@ -67,13 +68,15 @@
      (islist r) {:status r[0] :headers {"content-type" r[1]} :body (tostr (?? r[2] ""))}
      (ismap r) {:status (?? r.status 200) :headers (?? r.headers {}) :body (tostr (?? r.body ""))}
      {:status 500 :headers {"content-type" "text/plain"} :body "handler returned nothing usable"}))
-(= (step c handler opts buf n)           ; handle the request at the start of buf; the bytes left over to carry on with, or nil to close the connection
+(= (step c handler opts buf n st)           ; handle the request at the start of buf; the bytes left over to carry on with, or nil to close the connection
   k=(idx buf "\r\n\r\n")
   (? (|| k<0 k>opts.maxhead) (: (a.write c (response 431 {"connection" "close"} "request head too large" false)) nil)
      (: rq=(parsehead buf[..k])
         (? (islist rq) (: (a.write c (response rq[0] {"connection" "close"} rq[1] false)) nil)
            (: (? (== (lo (?? rq.headers["expect"] "")) "100-continue") (a.write c "HTTP/1.1 100 Continue\r\n\r\n"))
+              st.deadline=(+ (now) opts.bodyms)
               bd=(readbody c rq buf[k+4..] opts.maxbody)
+              st.deadline=nil
               (? (isnum bd[0]) (: (a.write c (response bd[0] {"connection" "close"} bd[1] false)) nil)
                  (: rq=(set (set rq "body" bd[0]) "peer" (try (peer c) e=>nil))
                     res=(normalize (try (handler rq) e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) {:status 500 :headers {"content-type" "text/plain"} :body "internal server error"})))
@@ -81,17 +84,34 @@
                     keep=(&& (? (== rq.version "1.1") (!= cn "close") (== cn "keep-alive")) (!= rc "close") n+1<opts.maxreq)
                     (a.write c (response res.status (set res.headers "connection" (? keep "keep-alive" "close")) res.body (== rq.method "HEAD")))
                     (? keep bd[1] nil))))))))
+(= (watch c st)                         ; per connection: when the deadline passes, answer 408 if a request was half-sent, and end the read side so the connection loop finishes
+  (wh st.live
+    (? (&& st.deadline (> (now) st.deadline))
+       (: (? st.partial (: r=(response 408 {"connection" "close"} "request timeout" false) (try (fdwp c r 0 (len r)) e=>nil)))
+          st.live=false (try (shutr c) e=>nil))
+       (a.sleep (? st.deadline (max 20 (- st.deadline (now))) 1000)))))
 (= (conn c handler opts)                ; serve one connection until it closes
-  buf="" n=0
-  (wh (&& (!= buf nil) (< n opts.maxreq))
-    (wh (&& (!= buf nil) (! (has buf "\r\n\r\n")) (<= #buf opts.maxhead)) buf=(more c buf))
-    (? (!= buf nil) (: buf=(step c handler opts buf n) n+=1)))
+  buf="" n=0 st={:live true :deadline nil :partial false}
+  (a.spawn watch c st)
+  (wh (&& (!= buf nil) (< n opts.maxreq) st.live)
+    st.deadline=(+ (now) (? n==0 opts.headms opts.idlems)) st.partial=false
+    (wh (&& (!= buf nil) (! (has buf "\r\n\r\n")) (<= #buf opts.maxhead) st.live)
+      was=#buf buf=(more c buf)
+      (? (&& (!= buf nil) (== was 0) (> #buf 0)) (: st.partial=true st.deadline=(+ (now) opts.headms))))
+    (? (&& (!= buf nil) st.live) (: buf=(step c handler opts buf n st) n+=1)))
+  st.live=false
   (fdc c))
-(= (guarded c handler opts) (try (conn c handler opts) e=>(: (fdw 2 (++ "httpd: connection error: " e "\n")) (fdc c))))
+(= (guarded c handler opts)
+  (try (conn c handler opts) e=>(: (fdw 2 (++ "httpd: connection error: " e "\n")) (fdc c)))
+  opts.active=(- opts.active 1))
 (= (listen port handler opts=nil)
-  opts=(?? opts {}) o={:host (?? opts.host "127.0.0.1") :maxhead (?? opts.maxhead 16384) :maxbody (?? opts.maxbody 1048576) :maxreq (?? opts.maxreq 100)}
+  opts=(?? opts {}) o={:host (?? opts.host "127.0.0.1") :maxhead (?? opts.maxhead 16384) :maxbody (?? opts.maxbody 1048576) :maxreq (?? opts.maxreq 100) :headms (?? opts.headms 30000) :idlems (?? opts.idlems 60000) :bodyms (?? opts.bodyms 30000) :maxconn opts.maxconn :active 0}
   l=(tcpl port o.host)
-  (a.spawn ()=>(wh true (a.wait l) (a.spawn guarded (tcpa l) handler o)))
+  (a.spawn ()=>(wh true (a.wait l)
+    fd=(tcpa l)
+    (? (&& o.maxconn (>= o.active o.maxconn))
+       (: r=(response 503 {"connection" "close"} "too many connections" false) (try (fdwp fd r 0 (len r)) e=>nil) (fdc fd))
+       (: o.active=(+ o.active 1) (a.spawn guarded fd handler o)))))
   l)
 (= (run) a.run())                       ; run the tasks of this library (use this, not another copy of async.aklang's run: each use of that file keeps its own task queue)
 (= (serve port handler opts=nil) l=(listen port handler opts) a.run() l)
