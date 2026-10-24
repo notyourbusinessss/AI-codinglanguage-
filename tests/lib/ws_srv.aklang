@@ -1,0 +1,19 @@
+; Test server for lib/ws.aklang: ak ws_srv.aklang n [unix-socket-path] -> prints its TCP port, then serves n WebSocket connections one after the other on it
+; (or on the Unix socket when a path is given). Messages: "close" closes with 1000, "big" answers 70000 bytes, "frag" answers "abc" in three fragments,
+; "ping" pings and answers "pong-ok" after the pong, anything else is echoed (binary stays binary). Prints "done" or "ERR <message>" per connection.
+(use "../../lib/ws.aklang" as w)
+[n path]=(args)
+l=(? path (unixl path) (tcpl 0 "127.0.0.1"))
+(fdw 1 (++ (? path "unix" (tcpp l)) "\n"))
+(= (serve ws)
+  m=(w.recv ws)
+  (wh (!= m nil)
+    (? (== m "close") (: (w.close ws 1000 "bye") m=nil)
+       (: (? (== m "big") (w.send ws (rpt "x" 70000))
+              (== m "frag") (: ws.s.w((frombytes [1 3 97 98 99])) ws.s.w((frombytes [0 2 100 101])) ws.s.w((frombytes [128 1 102])))
+              (== m "ping") (: (w.ping ws "hi") (w.send ws "pong-ok"))
+              (? ws.bin (w.sendb ws m) (w.send ws m)))
+          m=(w.recv ws)))))
+(for i (num n)
+  fd=(tcpa l)
+  (fdw 1 (++ (try (: ws=(w.accept (w.fdstream fd) {:protocols ["chat" "echo"]}) (? ws (serve ws)) (fdc fd) "done") e=>(: (try (fdc fd) x=>nil) (++ "ERR " e))) "\n")))

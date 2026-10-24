@@ -1,0 +1,115 @@
+; An HTTP/1.1 server library (native only): one task per connection on lib/async.aklang, so handlers are plain sequential code and may wait (a.sleep, other sockets).
+;   (use "lib/httpd.aklang" as s)
+;   (s.serve 8080 handler)               listen on 127.0.0.1:8080 and serve until the process is stopped
+;   (s.listen port handler opts)         start serving and return the listening fd (tcpp gives the port); s.run() to run the tasks
+; handler: (req) -> a string (200 text/plain), [status type body], or {:status 200 :headers {"Content-Type" ".."} :body ".."}.
+; req: {:method "GET" :target "/a/b?x=1" :path "/a/b" :query {"x" "1"} :headers {"host" ".."} (lower-case names) :body ".." :version "1.1"}.
+; Options (map): :host ("127.0.0.1"), :maxhead (16384 bytes of request line + headers, else 431), :maxbody (1048576 bytes, else 413), :maxreq (100 requests per connection).
+; A malformed request gets 400, an unsupported version 505, a handler that raises 500 (the error goes to stderr); none of them stops the server.
+; Persistent connections work for HTTP/1.1 (and HTTP/1.0 with Keep-Alive); request bodies may be Content-Length or chunked; "Expect: 100-continue" is answered.
+; (s.router routes) builds a handler from [[method pattern handler] ..]: patterns like "/user/:id" put the segment in req.params, a trailing "/*" puts the rest in req.params.rest; 404 for no path match, 405 (with Allow) for a wrong method.
+; Not supported: TLS (put the server behind a TLS terminator), HTTP/2, Upgrade (see lib/ws.aklang for WebSocket), request timeouts for idle connections.
+(use "async.aklang" as a)
+(= (reason c)
+  (sw c 100 "Continue" 200 "OK" 201 "Created" 202 "Accepted" 204 "No Content" 301 "Moved Permanently" 302 "Found" 303 "See Other" 304 "Not Modified" 307 "Temporary Redirect" 308 "Permanent Redirect"
+        400 "Bad Request" 401 "Unauthorized" 403 "Forbidden" 404 "Not Found" 405 "Method Not Allowed" 408 "Request Timeout" 409 "Conflict" 411 "Length Required" 413 "Payload Too Large" 414 "URI Too Long"
+        415 "Unsupported Media Type" 422 "Unprocessable Entity" 429 "Too Many Requests" 431 "Request Header Fields Too Large" 500 "Internal Server Error" 501 "Not Implemented" 503 "Service Unavailable" 505 "HTTP Version Not Supported" ""))
+(= (urldec s plus=false)                ; %XX escapes (and + as a space when plus) -> bytes
+  out=[] d=(bytes s) i=0
+  (wh i<#d
+    c=d[i] v=(? (&& c==37 i+2<#d) (num (++ "0x" s[i+1..i+3])) nil)
+    (? (isnum v) (: (push out v) i+=3) (: (push out (? (&& plus c==43) 32 c)) i+=1)))
+  (frombytes out))
+(= (parsequery q)                       ; "a=1&b=x%20y&a=3" -> {"a" "3" "b" "x y"} (the last value of a repeated name wins)
+  m={} (for kv (split q "&") (? (!= kv "") (: j=(idx kv "=") m[(urldec (? j>=0 kv[..j] kv) true)]=(? j>=0 (urldec kv[j+1..] true) ""))))
+  m)
+(= (parsehead h)                        ; request line + headers (without the blank line) -> a request map, or [status message]
+  lines=(split h "\r\n") rl=(split lines[0] " ")
+  (? (|| (!= #rl 3) (== rl[0] "") (== rl[1] "")) [400 "bad request line"]
+     (! (starts rl[2] "HTTP/")) [400 "bad request line"]
+     (! (has ["HTTP/1.0" "HTTP/1.1"] rl[2])) [505 "only HTTP/1.0 and HTTP/1.1"]
+     (: hd={} ok=true
+        (for l lines[1..]
+          k=(idx l ":")
+          (? (|| k<=0 (has l[..k] " ")) ok=false
+             (: n=(lo l[..k]) v=(trim l[k+1..]) hd[n]=(? hd[n] (++ hd[n] ", " v) v))))
+        t=rl[1] i=(idx t "?") f=(idx t "#") t=(? f>=0 t[..f] t) i=(idx t "?")
+        (? (! ok) [400 "bad header line"]
+           (! (starts t "/")) [400 "request target must start with /"]
+           {:method rl[0] :target t :path (urldec (? i>=0 t[..i] t)) :query (parsequery (? i>=0 t[i+1..] "")) :headers hd :version rl[2][5..] :body ""}))))
+(= (more c buf)                           ; more bytes from c after the ones in buf, or nil when the peer hung up
+  (a.wait c) d=(fdr c 65536) (? d=="" nil (++ buf d)))
+(= (readbody c rq buf lim)              ; [body rest], or [status message]
+  te=(lo (?? rq.headers["transfer-encoding"] "")) cl=rq.headers["content-length"] err=nil
+  (? (has te "chunked")
+     (: out="" done=false
+        (wh (&& (! done) (! err))
+          (wh (&& (! err) (! (has buf "\r\n"))) b=(more c buf) (? (== b nil) err=[400 "truncated chunked body"] buf=b))
+          (? (! err)
+             (: k=(idx buf "\r\n") n=(num (++ "0x" (trim (split buf[..k] ";")[0]))) buf=buf[k+2..]
+                (? (! (&& (isnum n) n>=0)) err=[400 "bad chunk size"] (> (+ #out n) lim) err=[413 "body too large"]
+                   (: (wh (&& (! err) #buf<n+2) b=(more c buf) (? (== b nil) err=[400 "truncated chunked body"] buf=b))
+                      (? (! err) (: out+=buf[..n] buf=buf[n+2..] (? n==0 done=true))))))))
+        (? err err [out buf]))
+     cl (: n=(? (&& (all (\ (x) (&& x>=48 x<=57)) (bytes cl)) #cl<10) (num cl) -1)
+           (? (< n 0) [400 "bad Content-Length"] (> n lim) [413 "body too large"]
+              (: (wh (&& (! err) #buf<n) b=(more c buf) (? (== b nil) err=[400 "truncated body"] buf=b))
+                 (? err err [buf[..n] buf[n..]]))))
+     ["" buf]))
+(= (response code headers body head)    ; the bytes of a response (no body for HEAD, 1xx, 204, 304)
+  nob=(|| head (has [204 304] code) (&& code>=100 code<200))
+  hs={} (for [k v] headers hs[(lo k)]=v)
+  (? (! (has (keys hs) "content-length")) hs["content-length"]=#body)
+  (? (has [204 304] code) hs=(del hs "content-length"))
+  (++ "HTTP/1.1 " code " " (reason code) "\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n" (? nob "" body)))
+(= (normalize r)                        ; a handler's result -> {:status :headers :body}
+  (? (isstr r) {:status 200 :headers {"content-type" "text/plain; charset=utf-8"} :body r}
+     (islist r) {:status r[0] :headers {"content-type" r[1]} :body (tostr (?? r[2] ""))}
+     (ismap r) {:status (?? r.status 200) :headers (?? r.headers {}) :body (tostr (?? r.body ""))}
+     {:status 500 :headers {"content-type" "text/plain"} :body "handler returned nothing usable"}))
+(= (step c handler opts buf n)           ; handle the request at the start of buf; the bytes left over to carry on with, or nil to close the connection
+  k=(idx buf "\r\n\r\n")
+  (? (|| k<0 k>opts.maxhead) (: (a.write c (response 431 {"connection" "close"} "request head too large" false)) nil)
+     (: rq=(parsehead buf[..k])
+        (? (islist rq) (: (a.write c (response rq[0] {"connection" "close"} rq[1] false)) nil)
+           (: (? (== (lo (?? rq.headers["expect"] "")) "100-continue") (a.write c "HTTP/1.1 100 Continue\r\n\r\n"))
+              bd=(readbody c rq buf[k+4..] opts.maxbody)
+              (? (isnum bd[0]) (: (a.write c (response bd[0] {"connection" "close"} bd[1] false)) nil)
+                 (: rq=(set rq "body" bd[0])
+                    res=(normalize (try (handler rq) e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) {:status 500 :headers {"content-type" "text/plain"} :body "internal server error"})))
+                    cn=(lo (?? rq.headers.connection "")) rc=(lo (?? res.headers["connection"] ""))
+                    keep=(&& (? (== rq.version "1.1") (!= cn "close") (== cn "keep-alive")) (!= rc "close") n+1<opts.maxreq)
+                    (a.write c (response res.status (set res.headers "connection" (? keep "keep-alive" "close")) res.body (== rq.method "HEAD")))
+                    (? keep bd[1] nil))))))))
+(= (conn c handler opts)                ; serve one connection until it closes
+  buf="" n=0
+  (wh (&& (!= buf nil) (< n opts.maxreq))
+    (wh (&& (!= buf nil) (! (has buf "\r\n\r\n")) (<= #buf opts.maxhead)) buf=(more c buf))
+    (? (!= buf nil) (: buf=(step c handler opts buf n) n+=1)))
+  (fdc c))
+(= (guarded c handler opts) (try (conn c handler opts) e=>(: (fdw 2 (++ "httpd: connection error: " e "\n")) (fdc c))))
+(= (listen port handler opts=nil)
+  opts=(?? opts {}) o={:host (?? opts.host "127.0.0.1") :maxhead (?? opts.maxhead 16384) :maxbody (?? opts.maxbody 1048576) :maxreq (?? opts.maxreq 100)}
+  l=(tcpl port o.host)
+  (a.spawn ()=>(wh true (a.wait l) (a.spawn guarded (tcpa l) handler o)))
+  l)
+(= (run) a.run())                       ; run the tasks of this library (use this, not another copy of async.aklang's run: each use of that file keeps its own task queue)
+(= (serve port handler opts=nil) l=(listen port handler opts) a.run() l)
+(= (matchroute pat segs)                ; params map, or nil
+  ps=(split pat "/")[1..] ps=(? (&& #ps (== ps[#ps-1] "")) ps[..-1] ps) m={} ok=true i=0
+  (for p ps
+    (? (! ok) nil (== p "*") (: m["rest"]=(join segs[i..] "/") i=#segs)
+       (starts p ":") (? i<#segs (: m[p[1..]]=segs[i] i+=1) ok=false)
+       (&& i<#segs (== segs[i] p)) i+=1
+       ok=false))
+  (? (&& ok i==#segs) m nil))
+(= (router routes)
+  (\ (rq)
+    segs=(split rq.path "/")[1..] segs=(? (&& #segs (== segs[#segs-1] "")) segs[..-1] segs)
+    allowed=[] hit=nil
+    (for r routes
+      m=(matchroute r[1] segs)
+      (? (!= m nil) (: (push allowed r[0]) (? (&& (! hit) (|| (== r[0] rq.method) (&& (== r[0] "GET") (== rq.method "HEAD")))) hit=[r[2] m]))))
+    (? hit ((hit[0]) (set rq "params" hit[1]))
+       (> #allowed 0) {:status 405 :headers {"allow" (join allowed ", ")} :body "method not allowed"}
+       [404 "text/plain" "not found"])))

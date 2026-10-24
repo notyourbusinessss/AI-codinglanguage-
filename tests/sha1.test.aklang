@@ -1,0 +1,11 @@
+; SHA-1 in lib/crypto.aklang (for the WebSocket handshake) against known digests
+(use "../lib/crypto.aklang" as c)
+cases=[["" "da39a3ee5e6b4b0d3255bfef95601890afd80709"]
+       ["abc" "a9993e364706816aba3e25717850c26c9cd0d89d"]
+       ["abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq" "84983e441c3bd26ebaae4aa1f95129e5e54670f1"]
+       [(rpt "a" 1000) "291e9a6c66994949b57ba5e650361e98fc36b1ba"]
+       [(rpt "a" 55) "c1c8bbdc22796e28c0e15163d20899b65621d65a"]
+       [(rpt "a" 56) "c2db330f6083854c99d4b5bfb6e8f29f201be699"]
+       [(rpt "a" 64) "0098ba824b5c16427bd7a1122a5a442a25ec644d"]]
+(for [s want] cases
+  (assert (== (c.hex (c.sha1 s)) want) (+ "sha1 of " #s " bytes")))

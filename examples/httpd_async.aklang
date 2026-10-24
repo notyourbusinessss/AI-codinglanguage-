@@ -1,22 +1,11 @@
-; An HTTP server with one task per connection (native only): `ak examples/httpd_async.aklang [port]`.
-; Each connection is plain sequential code; /slow waits 2 seconds without holding up the other connections.
+; An HTTP server on lib/httpd.aklang (native only): `ak examples/httpd_async.aklang [port]`.
+; One task per connection; /slow waits 2 seconds without holding up the other connections.
+(use "../lib/httpd.aklang" as s)
 (use "../lib/async.aklang" as a)
-(= (route path)
-  (? path=="/" [200 "text/plain" "hello from Ak"]
-     path=="/slow" (: (a.sleep 2000) [200 "text/plain" "slow, but not blocking"])
-     (starts path "/echo/") [200 "text/plain" path[6..]]
-     [404 "text/plain" "not found"]))
-(= (request c)                            ; the request head, or nil if the client hung up first
-  rq=""
-  (wh (&& rq!=nil (! (has rq "\r\n\r\n"))) (a.wait c) d=(fdr c) rq=(? d=="" nil rq+d))
-  rq)
-(= (serve c)
-  rq=(request c)
-  (? rq (: [code type body]=(route (split (split rq "\r\n")[0] " ")[1])
-           (fdw c (++ "HTTP/1.0 " code " " (? code==200 "OK" "Not Found") "\r\nContent-Type: " type "\r\nContent-Length: " #body "\r\n\r\n" body))))
-  (fdc c))
-port=(num (?? (fst (args)) 8080))
-l=(tcpl port)
+(= (slow rq) (a.sleep 2000) "slow, but not blocking")
+h=(s.router [["GET" "/" (\ (rq) "hello from Ak")]
+             ["GET" "/slow" slow]
+             ["GET" "/echo/*" (\ (rq) rq.params.rest)]])
+l=(s.listen (num (?? (fst (args)) 8080)) h)
 (p "listening on" (tcpp l))
-(a.spawn ()=>(wh true (a.wait l) (a.spawn serve (tcpa l))))
-a.run()
+s.run()
