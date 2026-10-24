@@ -1,0 +1,113 @@
+; WebSocket (RFC 6455) client and server (native only), over any stream {:r n=>bytes ("" at the end) :w s=>nil :c ()=>nil}: a TCP/Unix socket, TLS (wss://) or your own.
+;   (use "lib/ws.aklang" as w)
+;   client:  ws=(w.connect "ws://host:port/path" opts)      wss:// goes through lib/tls.aklang; opts (map): :protocols ["chat"] :headers {"Origin" ".."} :maxsize :roots :ms :rms
+;   server:  ws=(w.accept (w.fdstream fd) opts)             reads the upgrade request from an accepted socket and answers it; nil (after a 400/426) when it is not a valid upgrade; opts: :protocols [..] (the first one the client offers wins) :maxsize
+;   (w.send ws text)  (w.sendb ws bytes)  (w.ping ws data)  (w.recv ws)  (w.close ws code reason)
+;   (w.recv ws) -> the next message as a string (ws.bin tells whether it was a binary message), or nil once the peer has closed; ping is answered with pong, pong is ignored, fragments are joined.
+;   (w.close ws) sends a close frame and closes the stream; after a close frame from the peer, recv answers it and returns nil (ws.closed, ws.code, ws.reason).
+;   ws.protocol = the subprotocol chosen, ws.path / ws.headers = the upgrade request (server side).
+; Violations (an unmasked client frame, reserved bits, a fragmented or oversized control frame, a message over :maxsize = 16 MB) send a close frame (1002, 1009) and raise an io error. A text message is not checked for UTF-8.
+; Not supported: extensions (permessage-deflate), the Origin check (look at ws.headers.origin yourself).
+(use "crypto.aklang" as c)
+(use "http.aklang" as h)
+GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+(= (wsfail ws code msg)                 ; close with a status code and raise
+  (try (: (sendframe ws 8 (++ (frombytes [(// code 256) (% code 256)]) msg)) ws.s.c()) e=>nil)
+  ws.closed=true
+  (raise "io" (++ "websocket: " msg) nil))
+(= (fdstream fd) {:r n=>(fdr fd n) :w s=>(fdw fd s) :c ()=>(fdc fd)})
+(= (accept_key key) (h.b64 (c.sha1 (++ key GUID))))
+(= (mkws s client opts)
+  {:s s :client client :buf "" :closed false :bin false :max (?? opts.maxsize 16777216) :protocol nil :code nil :reason nil})
+(= (more ws)                            ; read from the stream into ws.buf
+  d=ws.s.r(65536)
+  (? (== d "") (raise "io" "websocket: connection closed" nil))
+  ws.buf=ws.buf+d)
+(= (readn ws n)
+  (wh #ws.buf<n (more ws))
+  out=ws.buf[..n] ws.buf=ws.buf[n..] out)
+(= (sendframe ws op data)
+  n=#data hd=[(+ 128 op)] mk=(? ws.client 128 0)
+  (? n<126 (push hd mk+n) n<65536 (: (push hd mk+126) (push hd (// n 256)) (push hd (% n 256)))
+     (: (push hd mk+127) x=n lb=[0 0 0 0 0 0 0 0] (for i 8 lb[7-i]=(% x 256) x=(// x 256)) (for v lb (push hd v))))
+  body=(? ws.client
+          (: key=(randbytes 4) d=(bytes data) (for i n d[i]=(^ d[i] key[i%4])) (++ (frombytes key) (frombytes d)))
+          data)
+  ws.s.w((++ (frombytes hd) body)))
+(= (send ws text) (sendframe ws 1 (tostr text)))
+(= (sendb ws data) (sendframe ws 2 (? (islist data) (frombytes data) data)))
+(= (ping ws data="") (sendframe ws 9 data))
+(= (frame ws)                           ; one frame: [fin op payload]
+  hd=(bytes (readn ws 2)) b0=hd[0] b1=hd[1]
+  fin=b0>=128 rsv=(% (// b0 16) 8) op=(% b0 16) masked=b1>=128 n=(% b1 128)
+  (? (!= rsv 0) (wsfail ws 1002 "reserved bits set"))
+  (? (== n 126) (: e=(bytes (readn ws 2)) n=e[0]*256+e[1])
+     (== n 127) (: e=(bytes (readn ws 8)) n=0 (for x e (? n>=2**45 (wsfail ws 1009 "frame too large")) n=n*256+x)))
+  (? (&& (>= op 8) (|| n>125 (! fin))) (wsfail ws 1002 "bad control frame"))
+  (? (> n ws.max) (wsfail ws 1009 "message too big"))
+  (? (&& masked ws.client) (wsfail ws 1002 "masked frame from the server"))
+  (? (&& (! masked) (! ws.client)) (wsfail ws 1002 "unmasked frame from the client"))
+  key=(? masked (bytes (readn ws 4)) nil)
+  pl=(readn ws n)
+  (? masked (: d=(bytes pl) (for i n d[i]=(^ d[i] key[i%4])) pl=(frombytes d)))
+  [fin op pl])
+(= (recv ws)
+  (? ws.closed nil
+     (: out=nil done=false
+        (wh (&& (! done) (! ws.closed))
+          [fin op pl]=(frame ws)
+          (? (== op 8) (: ws.code=(? #pl>=2 ($ldb pl 0)*256+($ldb pl 1) 1005) ws.reason=(? #pl>2 pl[2..] "") ws.closed=true
+                          (try (: (sendframe ws 8 (? #pl>=2 pl[..2] "")) ws.s.c()) e=>nil))
+             (== op 9) (sendframe ws 10 pl)
+             (== op 10) nil
+             (== op 0) (? (== out nil) (wsfail ws 1002 "unexpected continuation frame")
+                          (: out+=pl (? (> #out ws.max) (wsfail ws 1009 "message too big")) (? fin done=true)))
+             (|| (== op 1) (== op 2)) (? (!= out nil) (wsfail ws 1002 "new message inside a fragmented one")
+                                         (: out=pl ws.bin=(== op 2) (? fin done=true)))
+             (wsfail ws 1002 "unknown opcode")))
+        (? done out nil))))
+(= (close ws code=1000 reason="")
+  (? (! ws.closed) (: ws.closed=true (try (sendframe ws 8 (++ (frombytes [(// code 256) (% code 256)]) reason)) e=>nil)))
+  (try ws.s.c() e=>nil) nil)
+(= (headparse text)                     ; [first-line headers] with lower-case header names
+  lines=(split text "\r\n") hd={}
+  (for l lines[1..] k=(idx l ":") (? k>0 hd[(lo l[..k])]=(trim l[k+1..])))
+  [lines[0] hd])
+(= (has_token v tok) (any (\ (x) (== (lo (trim x)) tok)) (split (?? v "") ",")))
+(= (client s host path opts)            ; the handshake over an open stream: a ws, or an io error
+  opts=(?? opts {}) key=(h.b64 (frombytes (randbytes 16)))
+  hs={"Host" host "Upgrade" "websocket" "Connection" "Upgrade" "Sec-WebSocket-Key" key "Sec-WebSocket-Version" "13"}
+  (? opts.protocols hs=(set hs "Sec-WebSocket-Protocol" (join opts.protocols ", ")))
+  (for [k v] (?? opts.headers {}) hs=(set hs k v))
+  s.w((++ "GET " path " HTTP/1.1\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n"))
+  [head rest]=(h.readhead s)
+  [st hd]=(headparse head)
+  code=(num (fst (drop 1 (split st " "))))
+  (? (!= code 101) (: s.c() (raise "io" (++ "websocket: upgrade refused: " st) nil)))
+  (? (|| (!= (lo (?? hd.upgrade "")) "websocket") (! (has_token hd.connection "upgrade")) (!= hd["sec-websocket-accept"] (accept_key key)))
+     (: s.c() (raise "io" "websocket: bad handshake answer" nil)))
+  ws=(mkws s true opts) ws.buf=rest
+  p=hd["sec-websocket-protocol"]
+  (? (&& p (! (has (?? opts.protocols []) p))) (: s.c() (raise "io" "websocket: server chose a protocol we did not offer" nil)))
+  ws.protocol=p ws)
+(= (connect url opts=nil)
+  opts=(?? opts {}) sch=(lo (?? (fst (split url "://")) ""))
+  (? (! (has ["ws" "wss"] sch)) (raise "io" (++ "websocket: unsupported URL: " url) nil))
+  [sec host port path user]=(h.parseurl (++ "http" url[2..]))
+  s=(h.open sec host port (set opts "rms" (?? opts.rms 60000)))
+  (try (client s (? port==(? sec 443 80) (h.hostpart host) (++ (h.hostpart host) ":" port)) path opts) e=>(: (try s.c() x=>nil) (raise "io" e nil))))
+(= (reply s code text extra)
+  (s.w (++ "HTTP/1.1 " code " " text "\r\n" extra "Content-Length: 0\r\nConnection: close\r\n\r\n")))
+(= (accept s opts=nil)
+  opts=(?? opts {}) buf="" k=-1
+  (wh (&& k<0 #buf<16384) d=s.r(65536) (? (== d "") (: s.c() k=-2) (: buf+=d k=(idx buf "\r\n\r\n"))))
+  (? k<0 (: (? k==-1 (reply s 431 "Request Header Fields Too Large" "")) s.c() nil)
+     (: [rl hd]=(headparse buf[..k]) rest=buf[k+4..] parts=(split rl " ")
+        (? (|| (!= #parts 3) (!= parts[0] "GET") (!= (lo (?? hd.upgrade "")) "websocket") (! (has_token hd.connection "upgrade")) (! hd["sec-websocket-key"]) (!= #hd["sec-websocket-key"] 24))
+           (: (reply s 400 "Bad Request" "") s.c() nil)
+           (!= hd["sec-websocket-version"] "13") (: (reply s 426 "Upgrade Required" "Sec-WebSocket-Version: 13\r\n") s.c() nil)
+           (: want=(~ x=>(trim x) (split (?? hd["sec-websocket-protocol"] "") ","))
+              pick=(fst (~? x=>(has want x) (?? opts.protocols [])))
+              (s.w (++ "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " (accept_key hd["sec-websocket-key"]) "\r\n" (? pick (++ "Sec-WebSocket-Protocol: " pick "\r\n") "") "\r\n"))
+              ws=(mkws s false opts) ws.buf=rest ws.protocol=pick ws.path=parts[1] ws.headers=hd
+              ws)))))

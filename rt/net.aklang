@@ -1,7 +1,38 @@
 ; Native runtime part 6: TCP sockets (IPv4) and descriptor I/O via Linux syscalls. Native target only.
-(= (sockaddr ip port)                    ; struct sockaddr_in: family (LE) port (BE) addr(4) zero(8)
-  s=($newb 1 16 16) ($stb s 0 2) ($stb s 2 (// port 256)) ($stb s 3 (% port 256))
-  (for i 4 ($stb s 4+i ip[i])) s)
+(= (sockaddr ip port)                    ; struct sockaddr_in (4-byte ip): family (LE) port (BE) addr(4) zero(8); sockaddr_in6 (16-byte ip): family flowinfo(4) addr(16) scope(4)
+  (? (== #ip 16)
+     (: s=($newb 1 28 28) ($stb s 0 10) ($stb s 2 (// port 256)) ($stb s 3 (% port 256)) (for i 16 ($stb s 8+i ip[i])) s)
+     (: s=($newb 1 16 16) ($stb s 0 2) ($stb s 2 (// port 256)) ($stb s 3 (% port 256)) (for i 4 ($stb s 4+i ip[i])) s)))
+(= (sockfam ip) (? (== #ip 16) 10 2))
+(= (socklen ip) (? (== #ip 16) 28 16))
+(= (hexgroup g) (? (&& #g>=1 #g<=4 (all (\ (c) (|| (&& c>=48 c<=57) (&& c>=97 c<=102) (&& c>=65 c<=70))) (bytes g))) (num (strcat2 "0x" g)) nil))
+(= (g6 s dotok)                         ; "a:b:1.2.3.4" -> 16-bit words, or nil (a dotted tail is only allowed last, when dotok)
+  (? (== s "") []
+     (: gs=(split s ":") out=[] bad=false n=#gs
+        (for i n
+          g=gs[i]
+          (? (has g ".") (? (&& dotok i==n-1 (dotted g)) (: d=(dotted g) (push out d[0]*256+d[1]) (push out d[2]*256+d[3])) bad=true)
+             (: v=(hexgroup g) (? ($isnil v) bad=true (push out v)))))
+        (? bad nil out))))
+(= (ip6 h)                              ; "2001:db8::1", "::1", "::ffff:1.2.3.4" -> 16 bytes, or nil (a zone id after % is ignored)
+  (? (! (has h ":")) nil
+     (: h=(? (has h "%") (strslice h 0 (idx h "%")) h) k=(idx h "::")
+        rr=(? k>=0 (strslice h k+2 #h) "")
+        (? (&& k>=0 (>= (idx rr "::") 0)) nil
+           (: left=(g6 (? k>=0 (strslice h 0 k) h) (< k 0)) right=(? k>=0 (g6 rr true) [])
+              (? (|| ($isnil left) ($isnil right)) nil
+                 (: total=(+ #left #right)
+                    (? (? k<0 (!= total 8) (> total 7)) nil
+                       (flat (~ w=>[(// w 256) (% w 256)] [..left ..(rpt [0] (- 8 total)) ..right]))))))))))
+(= (ip6fmt b)                           ; 16 bytes -> "2001:db8::1" (the longest run of zero words becomes ::)
+  w=(~ i=>(+ (* 256 b[2*i]) b[2*i+1]) 0..8) bs=-1 bl=0 i=0
+  (wh i<8
+    (? w[i]==0 (: j=i (wh (&& j<8 w[j]==0) j+=1) (? (&& j-i>bl j-i>1) (: bs=i bl=j-i)) i=j) i+=1))
+  (? bs<0 (join (~ x=>(hx x) w) ":")
+     (strcat2 (strcat2 (join (~ x=>(hx x) (take bs w)) ":") "::") (join (~ x=>(hx x) (drop (+ bs bl) w)) ":"))))
+(= (hx x) (? x<16 (strslice "0123456789abcdef" x x+1) (strcat2 (hx (// x 16)) (strslice "0123456789abcdef" (% x 16) (% x 16)+1))))
+(= (needport p lo)                      ; an integer port from lo to 65535, else "invalid port: p"
+  (? (|| (! ($isnum p)) (! (isint p)) p<lo p>65535) ($throwk 2 (strcat2 "invalid port: " (tostr p)))) p)
 (= (dotted h)                           ; "a.b.c.d" -> [a b c d], or nil
   p=(split h ".") ok=(== #p 4) r=[]
   (for x p
@@ -15,33 +46,35 @@
   (? (ex "/etc/hosts")
      (for l (split (rd "/etc/hosts") "\n")
        f=(split (trim l))
-       (? (&& #f>1 (! (starts (trim l) "#"))) (for i 1..#f (? (== f[i] h) (: d=(dotted f[0]) (? (&& d (! (has r d))) (push r d))))))))
-  r)
-(= (hostips h)                          ; all IPv4 addresses of a host: literal, localhost, /etc/hosts, then DNS
-  d=(dotted h)
-  (? d [d] (== h "localhost") [[127 0 0 1]]
+       (? (&& #f>1 (! (starts (trim l) "#"))) (for i 1..#f (? (== f[i] h) (: d=(?? (dotted f[0]) (ip6 f[0])) (? (&& d (! (has r d))) (push r d))))))))
+  (++ (~? a=>(== #a 4) r) (~? a=>(== #a 16) r)))
+(= (hostips h)                          ; all addresses of a host (IPv4 as 4 bytes, IPv6 as 16, IPv4 first): literal, localhost, /etc/hosts, then DNS
+  d=(dotted h) v6=(? d nil (ip6 h))
+  (? d [d] v6 [v6] (== h "localhost") [[127 0 0 1]]
      (: r=(hostsips h) (? #r r (dnsips h)))))
 (= (hostip h) r=(hostips h) (? #r r[0] nil))
+(= (hostip4 h) r=(~? a=>(== #a 4) (hostips h)) (? #r r[0] nil))
 (= (netfail what) ($throwk 4 what))
 (= (tcpl port host="0.0.0.0")           ; listening socket fd (port 0 picks a free one; see tcpp)
-  ip=(hostip host)
+  (needport (?? port 0) 0) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
-  fd=($syscall 41 2 1 0)
-  (? fd<0 (netfail "socket failed"))
+  fd=($syscall 41 (sockfam ip) 1 0)
+  (? fd<0 (netfail (? (== #ip 16) "no IPv6 support on this machine" "socket failed")))
   one=($newb 1 4 4) ($stb one 0 1) ($syscall 54 fd 1 2 ($addr one) 4)
+  (? (== #ip 16) (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))      ; IPV6_V6ONLY off: "::" also takes IPv4 connections
   sa=(sockaddr ip (?? port 0))
-  (? (|| (< ($syscall 49 fd ($addr sa) 16) 0) (< ($syscall 50 fd 128) 0))
+  (? (|| (< ($syscall 49 fd ($addr sa) (socklen ip)) 0) (< ($syscall 50 fd 128) 0))
      (: ($syscall 3 fd) (netfail (strcat2 "cannot listen on port " (tostr port)))))
   fd)
 (= (tcpp fd)                            ; local port of a socket
-  sa=($newb 1 16 16) ln=($newb 1 4 4) ($stb ln 0 16)
+  sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
   (? (< ($syscall 51 fd ($addr sa) ($addr ln)) 0) (netfail "getsockname failed"))
   (+ (* 256 ($ldb sa 2)) ($ldb sa 3)))
 (= (tcpa fd)                            ; accept one connection (blocks)
   r=-4 (wh r==-4 r=($syscall 43 fd 0 0))
   (? r<0 (netfail "accept failed")) r)
 (= (tcpc host port ms=nil)              ; connect to host:port; tries every address of the name; ms = connect timeout per address (default: the kernel's)
-  ips=(hostips host)
+  (needport port 1) ips=(hostips host)
   (? (! #ips) (netfail (strcat2 "cannot resolve " host)))
   fd=-1 why="refused"
   (for ip ips
@@ -54,10 +87,11 @@
   ($ldb er 0))
 (= (errwhy e) (? e==111 "refused" e==113 "no route" e==101 "network unreachable" e==110 "timed out" "failed"))
 (= (tryconn ip port ms)                 ; one connect attempt: the fd, or a reason string
-  fd=($syscall 41 2 (? ms 2049 1) 0)    ; SOCK_STREAM (| SOCK_NONBLOCK when there is a timeout)
-  (? fd<0 (netfail "socket failed"))
+  fd=($syscall 41 (sockfam ip) (? ms 2049 1) 0)    ; SOCK_STREAM (| SOCK_NONBLOCK when there is a timeout)
+  (? fd<0 (? (== #ip 16) "no IPv6 support" (netfail "socket failed")) (tryconn2 fd ip port ms)))
+(= (tryconn2 fd ip port ms)
   sa=(sockaddr ip port)
-  r=($syscall 42 fd ($addr sa) 16)
+  r=($syscall 42 fd ($addr sa) (socklen ip))
   why=nil
   (? r==-115
      (: pf=($newb 1 8 8) ($stb pf 0 fd) ($stb pf 4 4)           ; EINPROGRESS: wait until writable or the time is up
@@ -69,10 +103,38 @@
 (= (needfd fd) (? (|| (! ($isnum fd)) (! (isint fd)) fd<0) ($throwk 3 (strcat2 "expected a file descriptor, got " (ty fd)))) fd)
 RDBUF=nil                               ; one 64 KB buffer reused by fdr and udpfrom, so a small read does not allocate 64 KB (workers are forked copies, coroutines never switch inside a read)
 (= (rdbuf n) (? n>65536 (strnew n) (: (? ($isnil RDBUF) (<- RDBUF (strnew 65536))) RDBUF)))
-(= (fdr fd n=nil)                           ; read up to n (default 65536) bytes; "" at end of stream
-  n=(needlen (?? n 65536) 2147483647) (needfd fd) b=(rdbuf n) r=-4
-  (wh r==-4 r=($syscall 0 fd ($addr b) n))
-  (? r<0 (netfail "read failed") (strslice b 0 r)))
+LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, per fd (as a string key)
+(= (lget fd) (? LINEBUF (?? LINEBUF[(tostr fd)] "") ""))
+(= (lput fd b) (? ($isnil LINEBUF) (<- LINEBUF {})) (setdot LINEBUF (tostr fd) b))
+(= (fdraw fd n ms)                      ; one read from the socket itself (not the fdline buffer); nil on timeout
+  (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
+     (: b=(rdbuf n) r=-4
+        (wh r==-4 r=($syscall 0 fd ($addr b) n))
+        (? r<0 (netfail "read failed") (strslice b 0 r)))))
+(= (fdr fd n=nil ms=nil)                    ; read up to n (default 65536) bytes; "" at end of stream; with ms: nil if nothing arrives within ms milliseconds
+  n=(needlen (?? n 65536) 2147483647) (needfd fd)
+  b0=(lget fd)
+  (? (> #b0 0) (: (lput fd (strslice b0 (min n #b0) #b0)) (strslice b0 0 (min n #b0)))
+     (fdraw fd n ms)))
+(= (fdmore fd b ms end)                 ; b plus more bytes from fd; nil on timeout (ms nil: never), "" at end of stream
+  d=(fdraw fd 65536 (? ms (max 0 (- end (now))) nil))
+  (? ($isnil d) nil d))
+(= (fdline fd ms=nil)                   ; one line without its "\n" (and "\r"), buffered per fd; nil at end of stream; raises "read timed out" after ms (what arrived stays buffered)
+  (needfd fd) b=(lget fd) end=(+ (now) (?? ms 0)) k=(idx b "\n") eof=false
+  (wh (&& k<0 (! eof))
+    d=(fdmore fd b ms end)
+    (? ($isnil d) (: (lput fd b) (netfail "read timed out")))
+    (? (== d "") eof=true (: b=(++ b d) k=(idx b "\n"))))
+  (? k>=0 (: (lput fd (strslice b k+1 #b)) (strslice b 0 (? (&& k>0 ($ldb b k-1)==13) k-1 k)))
+     (> #b 0) (: (lput fd "") b)
+     nil))
+(= (fdreadn fd n ms=nil)                ; exactly n bytes (fewer only at end of stream); raises "read timed out" after ms
+  (needfd fd) n=(needlen n 2147483647) b=(lget fd) end=(+ (now) (?? ms 0)) eof=false
+  (wh (&& #b<n (! eof))
+    d=(fdmore fd b ms end)
+    (? ($isnil d) (: (lput fd b) (netfail "read timed out")))
+    (? (== d "") eof=true b=(++ b d)))
+  (lput fd (strslice b (min n #b) #b)) (strslice b 0 (min n #b)))
 (= (fdwn fd s off n)                    ; write n bytes of s (string, byte list or typed array) starting at byte offset off
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) k=0
   (flush)
@@ -81,9 +143,14 @@ RDBUF=nil                               ; one 64 KB buffer reused by fdr and udp
     (? r==-88 r=($syscall 1 fd ($addr d)+off+k n-k))
     (? r==-4 nil r<0 (netfail "write failed") k+=r))
   nil)
-(= (fdw fd s)                           ; write everything (string, byte list or u8 array)
-  d=(? (islist s) (frombytes s) (istyped s) s (tostr s))
-  (fdwn fd d 0 ($hlen d)))
+(= (fdw fd s ms=nil)                    ; write everything (string, byte list or u8 array); with ms: raises "write timed out" if the peer takes nothing for ms milliseconds
+  d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) n=($hlen d)
+  (? ($isnil ms) (fdwn fd d 0 n)
+     (: (needfd fd) k=0 end=(+ (now) ms)
+        (wh k<n
+          r=(fdwp fd d k n-k)
+          (? r>0 (: k+=r end=(+ (now) ms))
+             (: left=(- end (now)) (? left<=0 (netfail "write timed out")) (fdpoll [] [fd] left)))))))
 (= (unixc path)                         ; connect to a Unix-domain socket (a file path): the fd
   (needstr path)
   fd=($syscall 41 1 1 0)
@@ -92,7 +159,16 @@ RDBUF=nil                               ; one 64 KB buffer reused by fdr and udp
   (for i #path ($stb sa 2+i ($ldb path i)))
   (? (< ($syscall 42 fd ($addr sa) 3+#path) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot connect to " path))))
   fd)
-(= (fdc fd) ($syscall 3 fd) nil)
+(= (unixl path)                         ; listen on a Unix-domain socket (a file path that must not exist yet; remove it after use): the fd, to accept with tcpa
+  (needstr path)
+  (? (|| (== #path 0) (> #path 107)) (netfail (strcat2 "bad Unix socket path " path)))
+  fd=($syscall 41 1 1 0)
+  (? fd<0 (netfail "socket failed"))
+  sa=($newb 1 110 110) ($stb sa 0 1)
+  (for i #path ($stb sa 2+i ($ldb path i)))
+  (? (|| (< ($syscall 49 fd ($addr sa) 3+#path) 0) (< ($syscall 50 fd 128) 0)) (: ($syscall 3 fd) (netfail (strcat2 "cannot listen on " path))))
+  fd)
+(= (fdc fd) ($syscall 3 fd) (? LINEBUF (mapdel LINEBUF (tostr fd))) nil)
 (= (fdwait fds ms=nil)                      ; the fds that are readable (or hung up) within ms milliseconds (ms<0: wait forever)
   (needlist fds) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) n=#fds b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// fds[i] (** 256 k)) 256))) ($stb b 8*i+4 1))
@@ -116,7 +192,7 @@ RDBUF=nil                               ; one 64 KB buffer reused by fdr and udp
 (= (udpto fd ip port s)                 ; send one datagram to ip (a [a b c d] list or dotted string) : port
   ip=(? (isstr ip) (dotted ip) ip)
   (? (|| (! (islist ip)) (!= #ip 4) (! (all (\ (v) (&& ($isnum v) (isint v) v>=0 v<=255)) ip))) (netfail "udpto needs an IPv4 address like 127.0.0.1"))
-  d=(? (islist s) (frombytes s) (tostr s)) sa=(sockaddr ip port)
+  (needport port 1) d=(? (islist s) (frombytes s) (tostr s)) sa=(sockaddr ip port)
   r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) 16)
   (? r<0 (netfail "send failed")) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
@@ -126,7 +202,7 @@ RDBUF=nil                               ; one 64 KB buffer reused by fdr and udp
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
         (? r<0 (netfail "receive failed") (strslice b 0 r)))))
 (= (udpl port host="0.0.0.0")           ; a UDP socket bound to host:port (port 0 picks a free one; see tcpp), to serve with udpfrom2 and udpto
-  ip=(hostip host)
+  (needport (?? port 0) 0) ip=(hostip4 host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
   fd=($syscall 41 2 2 0)
   (? fd<0 (netfail "socket failed"))
@@ -146,31 +222,46 @@ RDBUF=nil                               ; one 64 KB buffer reused by fdr and udp
   c=($ldb r i)
   (wh (&& c>0 c<192) i+=c+1 c=($ldb r i))
   (? c==0 i+1 i+2))
-(= (dnsq name server port=53 timeout=2000)      ; ask one nameserver for the A records of name: [rcode addrs], or nil if it does not answer in time
-  q=(randbytes 2)
-  pk=[..q 1 0 0 1 0 0 0 0 0 0]
+(= (dnspk name qtype)                   ; [id packet] asking for the records of type qtype (1 = A, 28 = AAAA)
+  q=(randbytes 2) pk=[..q 1 0 0 1 0 0 0 0 0 0]
   (for l (split name ".")
     (? #l>63 (netfail "bad host name") #l (: (push pk #l) (for c (bytes l) (push pk c)))))
-  pk=[..pk 0 0 1 0 1]
+  [q [..pk 0 0 qtype 0 1]])
+(= (dnsparse r q qtype)                 ; a response -> [rcode addresses ttl truncated?], or nil if it does not answer query q
+  (? (&& r #r>=12 ($ldb r 0)==q[0] ($ldb r 1)==q[1] (>= ($ldb r 2) 128))
+     (: n=(be16 r 6) i=12 qd=(be16 r 4) (for k qd i=(dnsskip r i)+4)      ; the question
+        ips=[] ttl=3600
+        (for k n
+          i=(dnsskip r i)
+          t=(be16 r i) l=(be16 r i+8) j=i+10
+          (? (&& t==qtype (|| (&& t==1 l==4) (&& t==28 l==16)))
+             (: (push ips (~ x=>($ldb r x) j..j+l)) ttl=(min ttl (+ (* 65536 (be16 r i+4)) (be16 r i+6)))))
+          i=j+l)
+        [(& ($ldb r 3) 15) ips ttl (== (& ($ldb r 2) 2) 2)])
+     nil))
+(= (dnstcp name server port timeout qtype)      ; the same question over TCP (for answers that did not fit one datagram), or nil
+  [q pk]=(dnspk name qtype)
+  (try (: fd=(tryconn server port timeout)
+          (? (isnum fd)
+             (: res=(try (: (fdw fd [(// #pk 256) (% #pk 256) ..pk] timeout)
+                            n=(be16 (fdreadn fd 2 timeout) 0)
+                            (dnsparse (fdreadn fd n timeout) q qtype))
+                         e=>nil)
+                (fdc fd) res)
+             nil))
+       e=>nil))
+(= (dnsq name server port=53 timeout=2000 qtype=1)       ; ask one nameserver for the A (qtype 1) or AAAA (28) records of name: [rcode addrs ttl], or nil if it does not answer in time; a truncated answer is asked again over TCP
+  [q pk]=(dnspk name qtype)
   fd=(udp) out=nil
   (try
     (: (udpto fd server port pk)
        end=(+ (now) timeout)
        (wh (&& (! out) (> end (now)))
          r=(udpfrom fd 512 (- end (now)))
-         (? (&& r #r>=12 ($ldb r 0)==q[0] ($ldb r 1)==q[1] (>= ($ldb r 2) 128))
-            (: n=(be16 r 6) i=12
-               qd=(be16 r 4) (for k qd i=(dnsskip r i)+4)      ; the question
-               ips=[]
-               (for k n
-                 i=(dnsskip r i)
-                 t=(be16 r i) l=(be16 r i+8) j=i+10
-                 (? (&& t==1 l==4) (push ips [($ldb r j) ($ldb r j+1) ($ldb r j+2) ($ldb r j+3)]))
-                 i=j+l)
-               out=[(& ($ldb r 3) 15) ips]))))
+         out=(dnsparse r q qtype)))
     e=>(: ($syscall 3 fd) (raise "io" e)))
   ($syscall 3 fd)
-  out)
+  (? (&& out out[3]) (?? (dnstcp name server port timeout qtype) out) out))
 (= (nameservers)                        ; [ip port] pairs from /etc/resolv.conf (default: this machine); AK_DNS=ip[:port] overrides
   r=[] o=(env "AK_DNS")
   (? o (: f=(split o ":") d=(dotted f[0]) (? d (push r [d (? #f>1 (num f[1]) 53)]))))
@@ -179,13 +270,37 @@ RDBUF=nil                               ; one 64 KB buffer reused by fdr and udp
        f=(split (trim l))
        (? (&& #f>=2 f[0]=="nameserver") (: d=(dotted f[1]) (? d (push r [d 53]))))))
   (? #r r [[[127 0 0 1] 53]]))
-(= (dnsips name)                        ; all IPv4 addresses of name through the system's nameservers: [] if the name does not exist
-  res=nil
-  (for round 2
-    (for ns (nameservers)
-      (? (! res) res=(dnsq name ns[0] ns[1]))))
-  (? (&& res res[0]==0) res[1] []))
-(= (dns name)                           ; "example.com" -> ["93.184.216.34"] as dotted strings; raises if it cannot be resolved
+(= (resolvopts)                         ; [timeout-ms attempts] from "options timeout:N attempts:N" in /etc/resolv.conf (default 2 s, 2)
+  t=2000 a=2
+  (? (ex "/etc/resolv.conf")
+     (for l (split (rd "/etc/resolv.conf") "\n")
+       f=(split (trim l))
+       (? (&& #f>=2 f[0]=="options")
+          (for o f[1..]
+            kv=(split o ":")
+            (? (&& #kv==2 (all (\ (c) (&& c>=48 c<=57)) (bytes kv[1])) #kv[1]<3)
+               (: v=(num kv[1]) (? (== kv[0] "timeout") (? (&& v>=1 v<=30) t=v*1000) (== kv[0] "attempts") (? (&& v>=1 v<=5) a=v))))))))
+  [t a])
+DNSCACHE=nil                            ; name -> [expiry-ms addresses], honouring the TTLs of the answers
+(= (dnscached name)
+  e=(? DNSCACHE DNSCACHE[(lo name)] nil)
+  (? (&& e (> e[0] (now))) e[1] nil))
+(= (dnsips name)                        ; all addresses of name through the system's nameservers (IPv4 first, then IPv6): [] if the name does not exist
+  c=(dnscached name)
+  (? c c
+     (: o=(resolvopts) res=nil via=nil
+        (for round o[1]
+          (for ns (nameservers)
+            (? (! res) (: res=(dnsq name ns[0] ns[1] o[0] 1) (? res via=ns)))))
+        res6=nil
+        (? (&& res res[0]==0 via)           ; AAAA from the server that answered
+           (for round o[1] (? (! res6) res6=(dnsq name via[0] via[1] o[0] 28))))
+        ips=(? (&& res res[0]==0) [..res[1] ..(? res6 res6[1] [])] [])
+        (? #ips
+           (: ttl=(min res[2] (? res6 res6[2] 3600)) (? ($isnil DNSCACHE) (<- DNSCACHE {}))
+              (setdot DNSCACHE (lo name) [(+ (now) (* 1000 (min 3600 (max 1 ttl)))) ips])))
+        ips)))
+(= (dns name)                           ; "example.com" -> ["93.184.216.34" "2606:2800:220:1::1"] as strings, IPv4 first; raises if it cannot be resolved
   r=(hostips name)
   (? (! #r) (netfail (strcat2 "cannot resolve " name)))
-  (~ a=>(join a ".") r))
+  (~ a=>(? (== #a 16) (ip6fmt a) (join a ".")) r))

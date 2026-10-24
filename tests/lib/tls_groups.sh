@@ -12,7 +12,7 @@ stop() { kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; }
 # the Ak server: 6 connections
 rm -f srv.out; ( cd "$R" && exec $AK tests/lib/tls_serve.aklang "$D/srv.pem" "$D/srv.key" 6 ) > srv.out 2>&1 & SRV=$!
 i=0; while [ ! -s srv.out ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; PORT=$(head -1 srv.out)
-sc() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -a "^hello\|Server Temp Key\|alert" | tr '\n' ' ' | sed 's/closed *$//; s/ *$//'; }
+sc() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -a "^hello\|Server Temp Key\|alert" | tr '\n' ' ' | sed 's/closed *$//; s/ *$//; s/---$//'; }
 check "server: P-256 share" "$(sc -groups P-256)" "Server Temp Key: ECDH, prime256v1, 256 bits hello - alpn=- peer=no"
 check "server: P-384 share" "$(sc -groups P-384)" "Server Temp Key: ECDH, secp384r1, 384 bits hello - alpn=- peer=no"
 check "server: HelloRetryRequest to x25519" "$(sc -groups X448:X25519)" "Server Temp Key: X25519, 253 bits hello - alpn=- peer=no"

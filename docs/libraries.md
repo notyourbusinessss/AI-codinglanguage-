@@ -120,16 +120,18 @@ Built in, no `use` needed. Descriptors are plain numbers.
 
 | call | meaning |
 |---|---|
-| `(tcpl port host="0.0.0.0")` | listen; port 0 picks a free one, `(tcpp fd)` tells which |
+| `(tcpl port host="0.0.0.0")` | listen; port 0 picks a free one, `(tcpp fd)` tells which; `"::"` listens on IPv4 and IPv6, `"::1"` on the IPv6 loopback; a port outside 0-65535 raises `invalid port` |
 | `(tcpa fd)` | accept a connection |
-| `(tcpc host port ms=nil)` | connect; `host` may be an IPv4 address, `localhost`, a name in `/etc/hosts`, or any name DNS resolves |
-| `(fdr fd n=65536)` | read up to n bytes; `""` means the other side closed |
-| `(fdw fd s)` | write all of `s` (a string, byte list or `u8`) |
+| `(tcpc host port ms=nil)` | connect; `host` may be an IPv4 or IPv6 address, `localhost`, a name in `/etc/hosts`, or any name DNS resolves (IPv4 addresses are tried before IPv6) |
+| `(unixl path)` | listen on a Unix-domain socket (a file path that must not exist yet); accept with `tcpa`, connect with `unixc` |
+| `(fdr fd n=65536 ms=nil)` | read up to n bytes; `""` means the other side closed; with `ms`, nil if nothing arrives in time |
+| `(fdw fd s ms=nil)` | write all of `s` (a string, byte list or `u8`); with `ms`, raises `write timed out` if the peer takes nothing for that long |
+| `(fdline fd ms=nil)`, `(fdreadn fd n ms=nil)` | one line (without its line ending) or exactly n bytes, buffered per descriptor; nil / fewer bytes at the end of the stream, `read timed out` after `ms` (nothing is lost, call again) |
 | `(fdwp fd s off n)` | write without blocking: the number of bytes taken (0 when the buffer is full) |
 | `(fdc fd)` | close |
 | `(fdwait [fd ..] ms)` | the readable descriptors among them (`ms` < 0 waits forever) |
 | `(fdpoll [rfd ..] [wfd ..] ms)` | `[readable writable]`: which of the read and write descriptors are ready |
-| `(dns name)` | the IPv4 addresses of a name, as dotted strings |
+| `(dns name)` | the addresses of a name as strings, IPv4 first, then IPv6 |
 | `(udp)`, `(udpto fd ip port s)`, `(udpfrom fd n ms)` | UDP client sockets (`ip` is a dotted IPv4 string or `[a b c d]`) |
 | `(udpl port host)`, `(udpfrom2 fd n ms)` | UDP server: bind a socket (`tcpp` gives the port); `udpfrom2` returns `[data ip port]` so the server can reply with `udpto` |
 
@@ -152,7 +154,7 @@ pong
 ["127.0.0.1"]
 nil
 ```
-DNS asks the nameservers in `/etc/resolv.conf` over UDP (set `AK_DNS=ip[:port]` to use another). `examples/httpd.aklang` is a small web server using `fdwait`.
+DNS asks the nameservers in `/etc/resolv.conf` for A and AAAA records over UDP (set `AK_DNS=ip[:port]` to use another), repeats a truncated answer over TCP, honours `options timeout:N attempts:N` and caches answers in the process for their TTL (at most an hour). `examples/httpd.aklang` is a small web server using `fdwait`.
 
 ## HTTP client: `lib/http.aklang`
 `http://` and `https://` (TLS 1.3, certificate verified against the system CA bundle). Redirects are followed, and content-length, chunked and read-until-close bodies work. The result is `{:status :headers :body}` with lower-case header names.
@@ -166,7 +168,22 @@ p r.status r.body
 
 r=(try (h.get "https://expired.badssl.com/") e=>(++ "failed: " e))   ; certificate errors raise kind "io"
 ```
-`(h.req method url body headers opts)` is the general form; `opts` is `{:roots certs :ms connect-timeout}`; header names with a dash are written as strings: `{"content-type" "text/plain"}`.
+`(h.req method url body headers opts)` is the general form; `opts` is `{:roots certs :ms connect-timeout :rms read-stall-ms :wms write-stall-ms}` (a read or write that makes no progress for `:rms` / `:wms` milliseconds, 60 s by default, raises `read timed out` / `write timed out`). URLs follow RFC 3986: the scheme is case-insensitive, `http://user:pass@host/` sends `Authorization: Basic ...`, a `#fragment` is never sent, `http://host?x=1` requests `/?x=1`, `[::1]` hosts parse and a bad port raises `bad port in URL`; header names with a dash are written as strings: `{"content-type" "text/plain"}`.
+
+## HTTP server: `lib/httpd.aklang`
+One task per connection on `lib/async.aklang`, so a handler is plain sequential code and may wait (`a.sleep`, other sockets) without holding up the others. The handler gets the request as a map (`:method :target :path :query :headers :body :version`; header names are lower case, `:query` is decoded) and returns a string (a 200 text reply), `[status type body]` or `{:status :headers :body}`.
+```ak no-run
+(use "lib/httpd.aklang" as s)
+h=(s.router [["GET" "/" (\ (rq) "hello")]
+             ["GET" "/user/:id" (\ (rq) (++ "user " rq.params.id))]
+             ["POST" "/echo" (\ (rq) [201 "text/plain" rq.body])]])
+l=(s.listen 8080 h)        ; 127.0.0.1 by default, {:host "0.0.0.0"} to serve the network
+s.run()
+```
+The router answers 404 for an unknown path and 405 with an `Allow` header for a wrong method; `HEAD` falls back to `GET`. Keep-alive, `Expect: 100-continue` and chunked request bodies work; a malformed request gets 400, an oversized head 431 (`:maxhead`, default 16 KB), an oversized body 413 (`:maxbody`, default 1 MB), an unsupported version 505, and a handler that raises gets 500 (the error is printed to stderr) without stopping the server. There is no TLS (put it behind a TLS terminator) and no idle timeout. Use `s.run()` rather than another `lib/async.aklang` copy's `run`: each `use` of a file keeps its own task queue.
+
+## WebSocket: `lib/ws.aklang`
+RFC 6455 over any stream, client and server. `ws=(w.connect "ws://host:8080/chat" {:protocols ["chat"]})` (`wss://` goes through `lib/tls.aklang`), `(w.send ws text)`, `(w.sendb ws bytes)`, `(w.recv ws)` for the next message (nil after the peer has closed; `ws.bin` tells whether it was binary), `(w.ping ws)`, `(w.close ws 1000 "bye")`. A server accepts a socket from `tcpa` (or `unixl`): `ws=(w.accept (w.fdstream fd) {:protocols ["chat"]})` answers the upgrade (nil after a 400/426 reply when it is not one) and `ws.path`, `ws.headers` and `ws.protocol` describe it. Fragments are joined, pings answered, a message over `:maxsize` (16 MB) or a protocol violation (an unmasked client frame, reserved bits) closes with 1009 or 1002 and raises. Text is not checked for UTF-8, and there are no extensions (permessage-deflate) and no Origin check (read `ws.headers.origin`).
 
 ## Cryptography: `lib/crypto.aklang`
 Written in Ak, checked against Node's `crypto` on random inputs. Byte data is a string going in and coming out; `c.hex` and `c.unhex` convert to and from hex.
@@ -221,7 +238,7 @@ req=(t.read cn)
 (t.write cn "HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nhi")
 (t.close cn)
 ```
-`t.read` returns `""` at the end of the stream; `t.fd cn` gives the descriptor for `fdwait`. Failures raise `tls: ...`. Supported: x25519, the three TLS 1.3 cipher suites (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), RSA-PSS and ECDSA server signatures, KeyUpdate. The server signs with RSA-PSS or ECDSA, whichever the client offers. The client falls back to TLS 1.2 (ECDHE with x25519, AES-GCM or ChaCha20-Poly1305, RSA or ECDSA certificates) when the server has no TLS 1.3. Key exchange is x25519, P-256 or P-384 (HelloRetryRequest works in both directions). Not supported: TLS 1.1 and older, a TLS 1.2 server side, resumption, 0-RTT. It is tested against Node's TLS server and OpenSSL, not yet against public servers, so treat it as young code.
+`t.read` returns `""` at the end of the stream; `t.fd cn` gives the descriptor for `fdwait`. Failures raise `tls: ...`. Supported: x25519, the three TLS 1.3 cipher suites (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), RSA-PSS and ECDSA server signatures, KeyUpdate. The server signs with RSA-PSS or ECDSA, whichever the client offers. The client falls back to TLS 1.2 (ECDHE with x25519, AES-GCM or ChaCha20-Poly1305, RSA or ECDSA certificates) when the server has no TLS 1.3. Key exchange is x25519, P-256 or P-384 (HelloRetryRequest works in both directions). Session resumption (TLS 1.3): after a `t.read`, `(t.session cn)` is the newest session; pass it as `{:session s}` to the next `t.connect` to the same host and `cn.resumed` is true when the server accepted it, saving the certificate checks and signatures. The server issues tickets by itself; give `t.creds` a `:tkey` (32 bytes) to share them between processes. TLS 1.2 connections resume too: the same `(t.session cn)` and `{:session s}` work, the session then holds a TLS 1.2 ticket (RFC 5077). 0-RTT early data: give `t.creds` `:early 16384` (the most bytes it accepts) and the server announces it in its tickets and accepts it on a resumed connection, delivering it to the first `t.read` (`cn.early` is true); pass `{:early "GET / HTTP/1.0\r\n\r\n" :session s}` to the client to send a request in the first flight. 0-RTT data can be replayed by an attacker who records it, so send only requests that are safe to repeat; the server accepts each ticket for early data once and only when its age matches, and an early request that is refused is sent again as ordinary data (so `:early` data is always delivered). Not supported: TLS 1.1 and older, a TLS 1.2 server side, TLS 1.2 session ids. It is tested against Node's TLS server and OpenSSL, not yet against public servers, so treat it as young code.
 
 ## Windows and drawing
 Ak speaks the X11 protocol itself (`lib/x11.aklang`) and draws in software (`lib/canvas.aklang`): no GUI library, no browser. It needs a Linux X11 or XWayland display of depth 24; windows have a fixed size and text is ASCII.

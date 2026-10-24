@@ -1,0 +1,13 @@
+; Test server: ak http_echo.aklang n -> prints its port, then answers n HTTP requests on 127.0.0.1 with "<request line>|<Host>|<Authorization>" (a path /redir answers 302 to /landed#frag).
+[n]=(args)
+l=(tcpl 0 "127.0.0.1")
+(fdw 1 (++ (tcpp l) "\n"))
+(for i (num n)
+  fd=(tcpa l) d=""
+  (wh (! (has d "\r\n\r\n")) x=(fdr fd) (? x=="" d=(++ d "\r\n\r\n") d=(++ d x)))
+  ls=(split d "\r\n") hd={}
+  (for x ls[1..] k=(idx x ":") (? k>0 hd[(lo x[..k])]=(trim x[k+1..])))
+  body=(++ ls[0] "|" (?? hd.host "") "|" (?? hd.authorization ""))
+  (fdw fd (? (has ls[0] "/redir") "HTTP/1.1 302 Found\r\nLocation: /landed#frag\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+             (++ "HTTP/1.1 200 OK\r\nContent-Length: " #body "\r\nConnection: close\r\n\r\n" body)))
+  (fdc fd))

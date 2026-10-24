@@ -1,14 +1,14 @@
-; Test server for lib/tls.aklang's server side: ak tls_serve.aklang cert.pem key.pem n [alpn,alpn|- [clientca.pem|- [optional]]] -> prints its port, then serves n connections on 127.0.0.1 and exits.
+; Test server for lib/tls.aklang's server side: ak tls_serve.aklang cert.pem key.pem n [alpn,alpn|- [clientca.pem|- [optional [max-early-data]]]] -> prints its port, then serves n connections on 127.0.0.1 and exits.
 ; "GET /big" answers 300000 bytes of "abcdefghij"; any other GET answers "hello <sni> alpn=<protocol> peer=<yes|no>"; non-HTTP input is echoed as "echo:<data> alpn=.. peer=..". One line per connection: "ok <sni>" or "ERR <message>".
 (use "../../lib/tls.aklang" as t)
-[cert key n alpn ca opt]=(args)
-cr=(t.creds {:cert (rd cert) :key (rd key) :alpn (? (&& alpn (!= alpn "-")) (split alpn ",") nil) :clientca (? (&& ca (!= ca "-")) (rd ca) nil) :optional (? opt true false)})
+[cert key n alpn ca opt early]=(args)
+cr=(t.creds {:cert (rd cert) :key (rd key) :alpn (? (&& alpn (!= alpn "-")) (split alpn ",") nil) :clientca (? (&& ca (!= ca "-")) (rd ca) nil) :optional (? (&& opt (!= opt "-")) true false) :early (? (&& early (!= early "-")) (num early) 0)})
 l=(tcpl 0 "127.0.0.1")
 (= (say s) (fdw 1 (++ s "\n")))
 (say (tcpp l))
 (= (reply cn)
   d=(t.read cn)
-  info=(++ " alpn=" (?? cn.alpn "-") " peer=" (? cn.peer "yes" "no"))
+  info=(++ " alpn=" (?? cn.alpn "-") " peer=" (? cn.peer "yes" "no") (? cn.resumed " resumed=yes" "") (? cn.early " early=yes" ""))
   body=(? (starts d "GET /big") (rpt "abcdefghij" 30000) (starts d "GET ") (++ "hello " (?? cn.sni "-") info) (++ "echo:" d info))
   (t.write cn (? (starts d "GET ") (++ "HTTP/1.0 200 OK\r\nContent-Length: " #body "\r\nConnection: close\r\n\r\n" body) body)))
 (for i (num n)

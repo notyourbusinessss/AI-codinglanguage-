@@ -3,18 +3,45 @@
 ;   (h.get url)   (h.post url body)   (h.req method url body headers)  ->  {:status 200 :headers {"content-type" ..} :body "..."}
 ; Header names in the result are lower case. Content-Length, chunked and read-until-close bodies work; 301/302/303/307/308 are followed (at most 5).
 ; An error (kind "io") is raised for unresolvable hosts, refused connections, certificate or handshake failures and truncated replies.
-; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds.
+; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds, :rms / :wms = how long a read / write may stall before it raises (default 60000).
 (use "tls.aklang" as t)
-(= (parseurl u)                         ; "http(s)://host:port/path?q" -> [secure host port path]
-  sec=(starts u "https://")
-  (? (! (|| sec (starts u "http://"))) (netfail (++ "unsupported URL: " u)))
-  rest=u[(? sec 8 7)..] i=(idx rest "/")
-  hp=(? i>=0 rest[..i] rest) path=(? i>=0 rest[i..] "/")
-  j=(idx hp ":")
-  [sec (? j>=0 hp[..j] hp) (? j>=0 (num hp[j+1..]) (? sec 443 80)) path])
-(= (open sec host port opts)            ; a stream: {:r (n)=>bytes :w s=>nil :c ()=>nil}
-  (? sec (: cn=(t.connect host port opts) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn)})
-     (: fd=(tcpc host port opts.ms) {:r n=>(fdr fd n) :w s=>(fdw fd s) :c ()=>(fdc fd)})))
+(= (b64 s)                              ; base64 of a string (for Basic authentication)
+  al="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" d=(bytes s) out=""
+  i=0
+  (wh i<#d
+    n=#d-i x=d[i]*65536+(? n>1 d[i+1]*256 0)+(? n>2 d[i+2] 0)
+    out+=(++ al[(// x 262144)] al[(% (// x 4096) 64)] (? n>1 al[(% (// x 64) 64)] "=") (? n>2 al[(% x 64)] "=")) i+=3)
+  out)
+(= (pctdec s)                           ; %XX escapes of userinfo -> bytes
+  out=[] d=(bytes s) i=0
+  (wh i<#d
+    (? (&& d[i]==37 i+2<#d) (: v=(num (++ "0x" s[i+1..i+3])) (? (isnum v) (: (push out v) i+=3) (: (push out 37) i+=1)))
+       (: (push out d[i]) i+=1)))
+  (frombytes out))
+(= (parseurl u)                         ; "http(s)://[user:pass@]host[:port][/path][?q][#frag]" -> [secure host port path userinfo]; the fragment is dropped, an IPv6 host comes without brackets
+  i=(idx u "://") sch=(? i>=0 (lo u[..i]) "")
+  (? (! (has ["http" "https"] sch)) (netfail (++ "unsupported URL: " u)))
+  sec=(== sch "https") rest=u[i+3..]
+  f=(idx rest "#") rest=(? f>=0 rest[..f] rest)
+  a=(idx rest "/") q=(idx rest "?") e=(? (&& a>=0 q>=0) (min a q) a>=0 a q>=0 q #rest)
+  auth=rest[..e] tail=rest[e..]
+  path=(? (== tail "") "/" (starts tail "?") (++ "/" tail) tail)
+  parts=(split auth "@") hp=parts[#parts-1] user=(? #parts>1 (pctdec (join parts[..-1] "@")) nil)
+  (? (starts hp "[")
+     (: k=(idx hp "]") (? k<0 (netfail (++ "bad host in URL: " u)))
+        host=hp[1..k] ps=hp[k+1..] (? (&& (!= ps "") (! (starts ps ":"))) (netfail (++ "bad host in URL: " u)))
+        ps=(? (== ps "") "" ps[1..]))
+     (: j=(idx hp ":") host=(? j>=0 hp[..j] hp) ps=(? j>=0 hp[j+1..] "")))
+  (? (== host "") (netfail (++ "no host in URL: " u)))
+  port=(? (== ps "") (? sec 443 80)
+         (: ok=(all (\ (c) (&& c>=48 c<=57)) (bytes ps)) v=(? (&& ok #ps<6) (num ps) nil)
+            (? (&& v v>=1 v<=65535) v (netfail (++ "bad port in URL: " u)))))
+  [sec host port path user])
+(= (hostpart host) (? (has host ":") (++ "[" host "]") host))   ; as written in a URL or a Host header
+(= (open sec host port opts)            ; a stream: {:r (n)=>bytes :w s=>nil :c ()=>nil}; a read or write that stalls for opts.rms / opts.wms ms (default 60000) raises
+  rms=(?? opts.rms 60000) wms=(?? opts.wms 60000)
+  (? sec (: cn=(t.connect host port (set opts "rms" rms)) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn)})
+     (: fd=(tcpc host port opts.ms) {:r n=>(: d=(fdr fd n rms) (? (== d nil) (netfail "read timed out") d)) :w s=>(fdw fd s wms) :c ()=>(fdc fd)})))
 (= (readhead c)                         ; bytes up to and including the blank line, plus anything read after it
   buf="" k=-1
   (wh k<0
@@ -35,16 +62,17 @@
     (? n>0 (: (wh #have<n+2 d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d) out+=have[..n] have=have[n+2..])))
   out)
 (= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path
-  origin=(++ (? sec "https://" "http://") host (? port==(? sec 443 80) "" (++ ":" port)))
+  origin=(++ (? sec "https://" "http://") (hostpart host) (? port==(? sec 443 80) "" (++ ":" port)))
   dir=(join (split (split path "?")[0] "/")[..-1] "/")
   (? (|| (starts loc "http://") (starts loc "https://")) loc
      (starts loc "//") (++ (? sec "https:" "http:") loc)
      (starts loc "/") (++ origin loc)
      (++ origin dir "/" loc)))
 (= (req method url body=nil headers=nil opts=nil hops=0)
-  [sec host port path]=(parseurl url) opts=(?? opts {})
+  [sec host port path user]=(parseurl url) opts=(?? opts {})
   c=(open sec host port opts)
-  h={:Host (? port==(? sec 443 80) host (++ host ":" port)) :Connection "close" "User-Agent" "ak"}
+  h={:Host (? port==(? sec 443 80) (hostpart host) (++ (hostpart host) ":" port)) :Connection "close" "User-Agent" "ak"}
+  (? user h.Authorization=(++ "Basic " (b64 user)))
   (? body (: h["Content-Length"]=#body))
   (for [k v] (?? headers {}) h[k]=v)
   head=(++ method " " path " HTTP/1.1\r\n" (join (~ k=>(++ k ": " h[k]) (keys h)) "\r\n") "\r\n\r\n")
@@ -58,7 +86,7 @@
         (readall c rest))
   c.c()
   (? (&& (has [301 302 303 307 308] st) hd.location hops<5)
-     (: next=(resolve sec host port path hd.location) [nsec nhost nport npath]=(parseurl next)
+     (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)
         ; credentials stay with the host they were meant for
         hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))
         (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) next (? st>=307 body) hs opts hops+1))
