@@ -22,7 +22,7 @@
 (= (tfail msg) (raise "io" (++ "tls: " msg) nil))
 (= (rdn conn n eof_ok=false)            ; exactly n bytes from the socket; nil if the peer closed cleanly before the first byte and eof_ok is set
   buf=conn.inbuf eof=false
-  (wh (&& #buf<n (! eof)) d=(fdr conn.fd 65536) (? d=="" eof=true buf+=d))
+  (wh (&& #buf<n (! eof)) d=(fdr conn.fd 65536 conn.rms) (? ($isnil d) (tfail "read timed out")) (? d=="" eof=true buf+=d))
   (? eof (? (&& eof_ok #buf==0) nil (tfail "connection closed during the handshake or in the middle of a record"))
      (: conn.inbuf=buf[n..] buf[..n])))
 (= (rec_send conn type body)            ; one record, encrypted when keys are installed
@@ -156,7 +156,7 @@
 (= (connect host port opts=nil)
   opts=(?? opts {})
   fd=(tcpc host port opts.ms)
-  conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0}
+  conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :rms opts.rms}
   (try (handshake conn host opts) e=>(: (fdc fd) (raise "io" e nil)))
   conn)
 (= (handshake conn host opts)

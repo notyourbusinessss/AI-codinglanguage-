@@ -1,0 +1,30 @@
+; lib/http.aklang URL parsing (#136): offline through parseurl, then end to end against a local Ak server
+(use "../lib/http.aklang" as h)
+(use "lib/run.aklang" as t)
+cases=[["http://127.0.0.1:8765/a#frag" [false "127.0.0.1" 8765 "/a" nil]]
+       ["http://127.0.0.1:8765?x=1" [false "127.0.0.1" 8765 "/?x=1" nil]]
+       ["http://u:p@127.0.0.1:8765/a" [false "127.0.0.1" 8765 "/a" "u:p"]]
+       ["http://a%40b:pw@h/" [false "h" 80 "/" "a@b:pw"]]
+       ["HTTP://H.example/a" [false "H.example" 80 "/a" nil]]
+       ["Https://h" [true "h" 443 "/" nil]]
+       ["http://[::1]:8080/p" [false "::1" 8080 "/p" nil]]
+       ["http://h?q#f" [false "h" 80 "/?q" nil]]
+       ["http://h:/" [false "h" 80 "/" nil]]]
+(for [u want] cases
+  got=(h.parseurl u)
+  (assert (== got want) (++ u ": " (show got))))
+(for u ["http://example.com:80x/" "http://h:0/" "http://h:65536/" "http:///x" "ftp://h" "http://[::1/"]
+  (assert (== (try (: (h.parseurl u) "no error") e=>(errkind e)) "io") (++ u " should raise an io error")))
+(assert (== (h.b64 "u:p") "dTpw") "b64")
+(assert (== (h.b64 "ab") "YWI=") "b64 padding")
+r=(t.run "sh tests/lib/http_url.sh" nil)
+lines=(split (trim r.out) "\n")
+(assert (== #lines 6) (+ "http_url.sh printed " #lines " lines, expected 6: " (show r.out) r.err))
+bad=(~? l=>(! (starts l "ok ")) lines)
+(assert (== #bad 0) (+ "http url checks failed:\n" (join bad "\n")))
+; a server that accepts and then says nothing cannot hang the client (#57)
+l=(tcpl 0 "127.0.0.1")
+t0=(now)
+m=(try (: (h.get (++ "http://127.0.0.1:" (tcpp l) "/") nil {:rms 300}) "no error") e=>e)
+(assert (== m "read timed out") (++ "stalled server: " m))
+(assert (< (- (now) t0) 5000) "stalled read took too long")
