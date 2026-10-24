@@ -3,6 +3,9 @@
 ;   (h.get url)   (h.post url body)   (h.req method url body headers)  ->  {:status 200 :headers {"content-type" ..} :body "..."}
 ; Header names in the result are lower case. Content-Length, chunked and read-until-close bodies work; 301/302/303/307/308 are followed (at most 5).
 ; An error (kind "io") is raised for unresolvable hosts, refused connections, certificate or handshake failures and truncated replies.
+;   (h.download url path)  streams a 2xx body into the file path ({:status .. :size n}); other statuses keep their body in :body
+; Request, header and URL text with CR, LF or NUL is refused (no request injection). A body over :max bytes (default 64 MiB, 1 TiB with download) or a head over 1 MiB raises.
+; Proxies: HTTP_PROXY / HTTPS_PROXY (and lower case) are used unless NO_PROXY lists the host (names, .suffix, *) or it is loopback; opts :proxy "http://[user:pass@]host:port" forces one, :proxy false none. https goes through CONNECT; https:// proxies are not supported.
 ; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds, :rms / :wms = how long a read / write may stall before it raises (default 60000).
 (use "tls.aklang" as t)
 (= (b64 s)                              ; base64 of a string (for Basic authentication)
@@ -38,29 +41,63 @@
             (? (&& v v>=1 v<=65535) v (netfail (++ "bad port in URL: " u)))))
   [sec host port path user])
 (= (hostpart host) (? (has host ":") (++ "[" host "]") host))   ; as written in a URL or a Host header
+(= (chk what s bad)                     ; s itself, or an error when it holds CR, LF, NUL or a character of bad (request injection)
+  (? (|| (has s "\r") (has s "\n") (has s "\x00") (any c=>(has s c) bad)) (netfail (++ "illegal character in the " what)) s))
+(= (tlsstream host port opts rms)       ; opts.fd = a connected socket to run TLS over (a CONNECT tunnel)
+  cn=(t.connect host port (set opts "rms" rms)) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn)})
 (= (open sec host port opts)            ; a stream: {:r (n)=>bytes :w s=>nil :c ()=>nil}; a read or write that stalls for opts.rms / opts.wms ms (default 60000) raises
   rms=(?? opts.rms 60000) wms=(?? opts.wms 60000)
-  (? sec (: cn=(t.connect host port (set opts "rms" rms)) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn)})
+  (? sec (tlsstream host port opts rms)
      (: fd=(tcpc host port opts.ms) {:r n=>(: d=(fdr fd n rms) (? (== d nil) (netfail "read timed out") d)) :w s=>(fdw fd s wms) :c ()=>(fdc fd)})))
+(= (noproxy host)                       ; is host listed in NO_PROXY (names, .suffixes, *), or a loopback address?
+  lh=(lo host)
+  es=(~ (\ (e) (: e=(trim (lo e)) e=(? (starts e "*.") e[2..] (starts e ".") e[1..] e) (? (&& (has e ":") (! (starts e "["))) (split e ":")[0] e)))
+        (split (?? (env "NO_PROXY") (?? (env "no_proxy") "")) ","))
+  (|| (== lh "localhost") (starts lh "127.") (== lh "::1") (ends lh ".localhost")
+      (any (\ (e) (|| (== e "*") (== e lh) (ends lh (++ "." e)))) es)))
+(= (proxyfor sec host opts)             ; the proxy URL for a request: opts.proxy (false = none), else HTTPS_PROXY / HTTP_PROXY unless NO_PROXY or loopback; nil = direct
+  p=(? (!= opts.proxy nil) opts.proxy
+       (noproxy host) nil
+       sec (?? (env "HTTPS_PROXY") (env "https_proxy")) (?? (env "HTTP_PROXY") (env "http_proxy")))
+  (? (|| (== p nil) (== p false) (== p "")) nil p))
+(= (tunnel px host port opts)           ; CONNECT through the proxy px (a URL), then TLS inside: a stream
+  [psec phost pport ppath puser]=(parseurl px)
+  (? psec (netfail "https:// proxies are not supported"))
+  rms=(?? opts.rms 60000) fd=(tcpc phost pport opts.ms) au=(++ (hostpart host) ":" port) buf="" k=-1
+  (fdw fd (++ "CONNECT " au " HTTP/1.1\r\nHost: " au "\r\n" (? puser (++ "Proxy-Authorization: Basic " (b64 puser) "\r\n") "") "\r\n") (?? opts.wms 60000))
+  (wh k<0
+    d=(fdr fd 4096 rms)
+    (? (|| (== d nil) (== d "")) (: (fdc fd) (netfail "proxy closed the connection during CONNECT")))
+    buf+=d k=(idx buf "\r\n\r\n")
+    (? (&& k<0 #buf>65536) (: (fdc fd) (netfail "proxy reply too long"))))
+  st=(split (split buf "\r\n")[0] " ")
+  (? (!= (?? st[1] "") "200") (: (fdc fd) (netfail (++ "proxy refused CONNECT: " (split buf "\r\n")[0]))))
+  (tlsstream host port (set opts "fd" fd) rms))
 (= (readhead c)                         ; bytes up to and including the blank line, plus anything read after it
   buf="" k=-1
   (wh k<0
     d=c.r(65536)
     (? d=="" (netfail "connection closed before the response head"))
-    buf+=d k=(idx buf "\r\n\r\n"))
+    buf+=d k=(idx buf "\r\n\r\n")
+    (? (&& k<0 #buf>1048576) (netfail "response head over 1 MiB")))
   [buf[..k] buf[k+4..]])
-(= (readn c have n)                     ; have + more until n bytes
-  (wh #have<n d=c.r(65536) (? d=="" (netfail "response body truncated")) have+=d)
-  have[..n])
-(= (readall c have) d=nil (wh d!="" d=c.r(65536) have+=d) have)
-(= (readchunks c have)
-  out="" n=-1
+(= (feed bs d)                          ; one piece of body: counted against bs.max, then handed to bs.sink
+  bs.n=bs.n+#d
+  (? bs.n>bs.max (netfail (++ "response body over the limit of " bs.max " bytes (option :max)")))
+  (bs.sink d) nil)
+(= (readn c have n bs)                  ; n body bytes: have first, then more from c
+  (? n>bs.max (netfail (++ "response body over the limit of " bs.max " bytes (option :max)")))
+  (feed bs have[..n]) got=(min #have n)
+  (wh got<n d=c.r(65536) (? d=="" (netfail "response body truncated")) d=d[..n-got] (feed bs d) got+=#d))
+(= (readall c have bs) d=nil (? have!="" (feed bs have)) (wh d!="" d=c.r(65536) (? d!="" (feed bs d))))
+(= (readchunks c have bs)
+  n=-1
   (wh n!=0
     (wh (! (has have "\r\n")) d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d)
     k=(idx have "\r\n") n=(num (++ "0x" (trim (split have[..k] ";")[0]))) have=have[k+2..]
     (? (! (&& (isnum n) n>=0)) (netfail "bad chunk size"))
-    (? n>0 (: (wh #have<n+2 d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d) out+=have[..n] have=have[n+2..])))
-  out)
+    (? bs.n+n>bs.max (netfail (++ "response body over the limit of " bs.max " bytes (option :max)")))
+    (? n>0 (: (wh #have<n+2 d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d) (feed bs have[..n]) have=have[n+2..]))))
 (= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path
   origin=(++ (? sec "https://" "http://") (hostpart host) (? port==(? sec 443 80) "" (++ ":" port)))
   dir=(join (split (split path "?")[0] "/")[..-1] "/")
@@ -70,26 +107,37 @@
      (++ origin dir "/" loc)))
 (= (req method url body=nil headers=nil opts=nil hops=0)
   [sec host port path user]=(parseurl url) opts=(?? opts {})
-  c=(open sec host port opts)
-  h={:Host (? port==(? sec 443 80) (hostpart host) (++ (hostpart host) ":" port)) :Connection "close" "User-Agent" "ak"}
+  (chk "method" method " :/") (chk "URL" url "") (chk "host" host "")
+  px=(proxyfor sec host opts)
+  pp=(? px (parseurl px) nil)
+  auth=(? port==(? sec 443 80) (hostpart host) (++ (hostpart host) ":" port))
+  h={:Host auth :Connection "close" "User-Agent" "ak"}
   (? user h.Authorization=(++ "Basic " (b64 user)))
+  (? (&& px (! sec) pp[4]) h["Proxy-Authorization"]=(++ "Basic " (b64 pp[4])))
   (? body (: h["Content-Length"]=#body))
-  (for [k v] (?? headers {}) h[k]=v)
-  head=(++ method " " path " HTTP/1.1\r\n" (join (~ k=>(++ k ": " h[k]) (keys h)) "\r\n") "\r\n\r\n")
+  (for [k v] (?? headers {}) (: (chk "header name" k " :") (chk "header value" (tostr v) "") h[k]=v))
+  head=(++ method " " (? (&& px (! sec)) (++ "http://" auth path) path) " HTTP/1.1\r\n" (join (~ k=>(++ k ": " h[k]) (keys h)) "\r\n") "\r\n\r\n")
+  c=(? (&& px sec) (tunnel px host port opts) px (open pp[0] pp[1] pp[2] opts) (open sec host port opts))
   c.w((++ head (?? body "")))
   [rh rest]=(readhead c)
   lines=(split rh "\r\n") st=(num (split lines[0] " ")[1])
   hd={} (for l lines[1..] k=(idx l ":") (? k>0 hd[(lo l[..k])]=(trim l[k+1..])))
-  out=(? (|| (== (up method) "HEAD") st==204 st==304 (&& st>=100 st<200)) ""        ; these replies have no body, whatever Content-Length says
-        (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest)
-        hd["content-length"] (readn c rest (num hd["content-length"]))
-        (readall c rest))
+  bs={:n 0 :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil}
+  to=(? (&& opts.to st>=200 st<300) opts.to nil)
+  (? to (wr to ""))
+  bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
+  (? (|| (== (up method) "HEAD") st==204 st==304 (&& st>=100 st<200)) nil        ; these replies have no body, whatever Content-Length says
+     (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest bs)
+     hd["content-length"] (readn c rest (num hd["content-length"]) bs)
+     (readall c rest bs))
+  out=bs.out
   c.c()
   (? (&& (has [301 302 303 307 308] st) hd.location hops<5)
      (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)
         ; credentials stay with the host they were meant for
         hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))
         (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) next (? st>=307 body) hs opts hops+1))
-     {:status st :headers hd :body out}))
+     (? to {:status st :headers hd :body "" :size bs.n} {:status st :headers hd :body out})))
 (= (get url headers=nil opts=nil) (req "GET" url nil headers opts))
 (= (post url body headers=nil opts=nil) (req "POST" url body headers opts))
+(= (download url path opts=nil) (req "GET" url nil nil (set (?? opts {}) "to" path))) ; body of a 2xx reply -> file path, not held in memory; :size = bytes written

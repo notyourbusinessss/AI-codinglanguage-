@@ -1,0 +1,4 @@
+; Resolver client for the search-domain test (AK_DNS and AK_RESOLV point at the fake nameserver and a resolv.conf with "search lab.test other.test", ndots:2)
+(p (dns "db") (dns "a.b") (dns "a.b.lab.test") (dns "db.lab.test."))
+(p (try (dns "db.") e=>e) (try (dns "zzz") e=>e))
+(p (searchnames "x.y" 1 ["d"]) (searchnames "x" 1 ["d" "e"]) (searchnames "x.y" 2 ["d"]) (searchnames "x." 1 ["d"]))

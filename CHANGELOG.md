@@ -8,6 +8,36 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.21 (2026-10-24)
+
+### Added
+- The resolver applies `search` / `domain` and `options ndots:N` of `/etc/resolv.conf`: short names are tried under each search domain, a trailing dot is absolute; `AK_RESOLV=path` reads another file (#149)
+
+## 0.7.20 (2026-10-24)
+
+### Added
+- `lib/http` honours `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` (`https://` through `CONNECT`, proxy credentials), `{:proxy url}` / `{:proxy false}`; loopback hosts never use a proxy (#148)
+
+## 0.7.19 (2026-10-24)
+
+### Added
+- `(peer fd)`, `(sockname fd)`, `(shutw fd)`, `(shutr fd)` and `(sockopt fd name on)` for native sockets; `lib/httpd` requests carry `req.peer` (#147)
+
+## 0.7.18 (2026-10-24)
+
+### Added
+- `lib/http`: bodies over `:max` bytes (default 64 MiB) and response heads over 1 MiB raise; `(h.download url path)` streams a 2xx body to a file (#146)
+
+## 0.7.17 (2026-10-24)
+
+### Fixed
+- `lib/pki`: IPv6 `subjectAltName` entries were read as 16 dotted numbers, so a certificate for `::1` never matched; they are IPv6 text now and an IPv6 literal host is matched in any notation (#145)
+
+## 0.7.16 (2026-10-24)
+
+### Fixed
+- `lib/http` refuses CR, LF and NUL in the method, URL and headers (and a space or colon in a header name) instead of sending them, closing a request-injection hole (#144)
+
 ## 0.7.15 (2026-10-24)
 
 ### Added

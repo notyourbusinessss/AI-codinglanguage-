@@ -20,3 +20,16 @@ cases=[["::1" "::1"] ["::" "::"] ["2001:db8::1" "2001:db8::1"] ["fe80::1%eth0" "
 (for [h want] cases
   got=(? (ip6 h) (ip6fmt (ip6 h)) nil)
   (assert (== got want) (+ "ip6 " h ": " (show got))))
+; search domains and ndots of resolv.conf (#149): "db" -> db.lab.test; "a.b" has 1 dot < ndots 2 so a.b.lab.test comes first; a trailing dot is absolute
+pid=(trim (sh (+ "bin/ak tests/lib/dns_fake.aklang >" base ".out 2>&1 & echo $!")))
+(wh (|| (! (ex (+ base ".out"))) (! (has (rd (+ base ".out")) "\n"))) (sleep 50))
+port=(trim (fst (split (rd (+ base ".out")) "\n")))
+(wr (+ base ".resolv") "# comment\nnameserver 127.0.0.1\nsearch old.test\nsearch lab.test other.test\noptions ndots:2\n")
+r=(t.run (+ "AK_DNS=127.0.0.1:" port " AK_RESOLV=" base ".resolv bin/ak tests/lib/dns_search.aklang") nil)
+log=(split (trim (rd (+ base ".out"))) "\n")
+(sh (+ "kill " pid " 2>/dev/null; rm -f " base ".out " base ".resolv"))
+(assert (== r.code 0) (+ "dns_search failed: " r.err))
+(assert (== r.out "[\"192.0.2.60\"] [\"192.0.2.61\"] [\"192.0.2.61\"] [\"192.0.2.60\"]\ncannot resolve db. cannot resolve zzz\n[\"x.y\" \"x.y.d\"] [\"x.d\" \"x.e\" \"x\"] [\"x.y.d\" \"x.y\"] [\"x\"]\n") (+ "search output: " (show r.out)))
+q=(~? x=>(has x " 1 udp") log[1..])
+(assert (== (fst q) "db.lab.test 1 udp") (+ "db is tried under the first search domain: " (show q)))
+(assert (== q[1] "a.b.lab.test 1 udp") (+ "a.b: search domain first (ndots 2): " (show q)))

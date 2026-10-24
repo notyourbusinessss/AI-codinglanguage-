@@ -3,7 +3,7 @@
 ;   (s.serve 8080 handler)               listen on 127.0.0.1:8080 and serve until the process is stopped
 ;   (s.listen port handler opts)         start serving and return the listening fd (tcpp gives the port); s.run() to run the tasks
 ; handler: (req) -> a string (200 text/plain), [status type body], or {:status 200 :headers {"Content-Type" ".."} :body ".."}.
-; req: {:method "GET" :target "/a/b?x=1" :path "/a/b" :query {"x" "1"} :headers {"host" ".."} (lower-case names) :body ".." :version "1.1"}.
+; req: {:method "GET" :target "/a/b?x=1" :path "/a/b" :query {"x" "1"} :headers {"host" ".."} (lower-case names) :body ".." :version "1.1" :peer {:ip "127.0.0.1" :port 51234} (the client)}.
 ; Options (map): :host ("127.0.0.1"), :maxhead (16384 bytes of request line + headers, else 431), :maxbody (1048576 bytes, else 413), :maxreq (100 requests per connection).
 ; A malformed request gets 400, an unsupported version 505, a handler that raises 500 (the error goes to stderr); none of them stops the server.
 ; Persistent connections work for HTTP/1.1 (and HTTP/1.0 with Keep-Alive); request bodies may be Content-Length or chunked; "Expect: 100-continue" is answered.
@@ -75,7 +75,7 @@
            (: (? (== (lo (?? rq.headers["expect"] "")) "100-continue") (a.write c "HTTP/1.1 100 Continue\r\n\r\n"))
               bd=(readbody c rq buf[k+4..] opts.maxbody)
               (? (isnum bd[0]) (: (a.write c (response bd[0] {"connection" "close"} bd[1] false)) nil)
-                 (: rq=(set rq "body" bd[0])
+                 (: rq=(set (set rq "body" bd[0]) "peer" (try (peer c) e=>nil))
                     res=(normalize (try (handler rq) e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) {:status 500 :headers {"content-type" "text/plain"} :body "internal server error"})))
                     cn=(lo (?? rq.headers.connection "")) rc=(lo (?? res.headers["connection"] ""))
                     keep=(&& (? (== rq.version "1.1") (!= cn "close") (== cn "keep-alive")) (!= rc "close") n+1<opts.maxreq)
