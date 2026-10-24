@@ -159,7 +159,7 @@
   (sw v 2052 "rsa_pss_sha256" 2053 "rsa_pss_sha384" 1027 "ecdsa_sha256" 1283 "ecdsa_sha384" nil))
 (= (connect host port opts=nil)
   opts=(?? opts {})
-  fd=(tcpc host port opts.ms)
+  fd=(?? opts.fd (tcpc host port opts.ms))
   conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :rms opts.rms}
   (try (handshake conn host opts) e=>(: (fdc fd) (raise "io" e nil)))
   conn)

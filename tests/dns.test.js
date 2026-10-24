@@ -29,7 +29,7 @@ server.on('message', (m, rinfo) => {
 });
 (async () => {
   await new Promise(r => server.bind(0, '127.0.0.1', r));
-  const env = { AK_DNS: '127.0.0.1:' + server.address().port };
+  const env = { AK_DNS: '127.0.0.1:' + server.address().port, AK_RESOLV: '/nonexistent' };   // no search domains of the host
   let r = await run('(p (dns "a.test"))', env);
   t('resolves A records past a CNAME', r.out === '["192.0.2.1" "127.0.0.1"]\n', r);
   r = await run('(p (dns "one.test"))', env);

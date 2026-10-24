@@ -1,0 +1,62 @@
+; lib/http.aklang: no request injection (#144), body size limit and downloads (#146), proxies (#148)
+(use "../lib/http.aklang" as h)
+(use "../lib/pki.aklang" as k)
+(use "lib/run.aklang" as t)
+base=(+ "/tmp/akhs-" ($ (now)) "-" ($ (rand 1000000000)))
+n=0
+(= (is name got want) (<- n n+1) (assert (== got want) (+ name ": got " (show got) " want " (show want))))
+(= (waitline f) (wh (|| (! (ex f)) (! (has (rd f) "\n"))) (sleep 50)) (split (trim (rd f)) "\n"))
+pids=[]
+(= (srv mode count log)
+  f=(+ base "." (len pids))
+  (<- pids (+> pids (trim (sh (+ "bin/ak tests/lib/http_fake.aklang " mode " " count " " log " >" f " 2>&1 & echo $!")))))
+  (num (waitline f)[0]))
+(= (url p) (+ "http://127.0.0.1:" p "/"))
+(= (finish) (sh (+ "kill " (join pids " ") " 2>/dev/null; rm -rf " base "*")))
+r=(try (:
+  ; --- injection: refused before anything is connected
+  (for [what u m hd] [["URL" "http://127.0.0.1:9/a\r\nX: y" "GET" {}] ["method" "http://127.0.0.1:9/" "GET\r\nX: y" {}]
+                      ["header value" "http://127.0.0.1:9/" "GET" {"X-A" "1\r\nX-I: y"}] ["header name" "http://127.0.0.1:9/" "GET" {"X-A\r\nX-I" "1"}]
+                      ["header name" "http://127.0.0.1:9/" "GET" {"X A" "1"}] ["header value" "http://127.0.0.1:9/" "GET" {"X-A" "a\x00b"}]]
+    (is (+ what " with a control character") (try (: (h.req m u nil hd {:rms 300}) "no error") e=>e) (+ "illegal character in the " what)))
+  ; --- size limit
+  p=(srv "inf" "1" "")
+  (is "endless body hits the limit" (try (: (h.get (url p) nil {:max 1000000 :rms 3000}) "no error") e=>e) "response body over the limit of 1000000 bytes (option :max)")
+  p=(srv "big" "4" "")
+  (is "big body under the default limit" (len (h.get (url p)).body) 500000)
+  (is "Content-Length over :max fails at once" (try (: (h.get (url p) nil {:max 1000}) "no error") e=>e) "response body over the limit of 1000 bytes (option :max)")
+  ; --- download
+  f=(+ base ".dl")
+  d=(h.download (url p) f)
+  (is "download status and size" [d.status d.size d.body] [200 500000 ""])
+  (is "download file" (rd f) (rpt "x" 500000))
+  (is "download keeps the limit when asked" (try (: (h.download (url p) f {:max 100}) "no error") e=>e) "response body over the limit of 100 bytes (option :max)")
+  p=(srv "chunked" "2" "")
+  (is "chunked body" (len (h.get (url p)).body) 300000)
+  (is "chunked over the limit" (try (: (h.get (url p) nil {:max 150000}) "no error") e=>e) "response body over the limit of 150000 bytes (option :max)")
+  ; --- proxies
+  log=(+ base ".log")
+  pp=(srv "proxy" "6" log)
+  px=(+ "http://u:pw@127.0.0.1:" pp)
+  rr=(h.get "http://example.invalid/a?b=1" {"X-T" "1"} {:proxy px})
+  (is "http through the proxy" [rr.status rr.body] [200 "ok"])
+  lg=(rd log)
+  (is "absolute-form request line" (fst (split lg "\r\n")) "GET http://example.invalid/a?b=1 HTTP/1.1")
+  (is "Host header" (has lg "Host: example.invalid\r\n") true)
+  (is "proxy credentials" (has lg "Proxy-Authorization: Basic dTpwdw==\r\n") true)
+  (is ":proxy false goes direct" (try (: (h.get "http://127.0.0.1:9/" nil {:proxy false :rms 300}) "no error") e=>(starts e "cannot connect")) true)
+  (is "loopback bypasses the proxy" [(h.noproxy "127.0.0.1") (h.noproxy "localhost") (h.noproxy "::1") (h.noproxy "example.com")] [true true true false])
+  x=(t.run (+ "env -u HTTPS_PROXY -u https_proxy -u http_proxy -u no_proxy HTTP_PROXY=" px " NO_PROXY=.corp,other.test bin/ak -e '(use \"lib/http.aklang\" as h) (p (h.proxyfor false \"x.example\" {}) (h.proxyfor false \"a.corp\" {}) (h.proxyfor false \"other.test\" {}) (h.proxyfor true \"x.example\" {}))'") nil)
+  (is "env proxy" x.out (+ px " nil nil nil\n"))
+  ; https through CONNECT: a TLS server (tests/lib/tls_serve.aklang) behind the proxy, reached as "localhost"
+  d=(+ base ".d/") (sh (+ "mkdir " d "; cd " d "; openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout ca.key -out ca.pem -subj /CN=ca -days 3 -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign 2>/dev/null; printf 'basicConstraints=CA:FALSE\\nsubjectAltName=DNS:localhost\\n' > ext; openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out s.key 2>/dev/null; openssl req -new -key s.key -subj /CN=s -out s.csr; openssl x509 -req -in s.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 3 -extfile ext -out s.pem 2>/dev/null"))
+  tp=(num (waitline (: f=(+ base ".tls") (<- pids (+> pids (trim (sh (+ "bin/ak tests/lib/tls_serve.aklang " d "s.pem " d "s.key 1 >" f " 2>&1 & echo $!"))))) f))[0])
+  roots=(~ x=>(k.cert_parse x) (k.pem_certs (rd (+ d "ca.pem"))))
+  rr=(h.get (+ "https://localhost:" tp "/") nil {:roots roots :proxy px})
+  (is "https through CONNECT" [rr.status (starts rr.body "hello")] [200 true])
+  lg=(rd log)
+  (is "CONNECT request" (has lg (+ "CONNECT localhost:" tp " HTTP/1.1\r\nHost: localhost:" tp "\r\nProxy-Authorization: Basic dTpwdw==\r\n\r\n")) true)
+  true) e=>e)
+(finish)
+(assert (== r true) (+ "http_safe: " (show r)))
+(assert (> n 15) (+ "too few checks ran: " n))

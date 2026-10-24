@@ -73,6 +73,23 @@
 (= (tcpa fd)                            ; accept one connection (blocks)
   r=-4 (wh r==-4 r=($syscall 43 fd 0 0))
   (? r<0 (netfail "accept failed")) r)
+(= (sockend call fd what)               ; getsockname (51) / getpeername (52) -> {:ip "127.0.0.1" :port 80}, or {:ip "::1" ..}; a Unix socket gives {:ip nil :port 0}
+  sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
+  (? (< ($syscall call fd ($addr sa) ($addr ln)) 0) (netfail (strcat2 what " failed")))
+  f=($ldb sa 0) port=(+ (* 256 ($ldb sa 2)) ($ldb sa 3))
+  (? (== f 2) {:ip (join (~ i=>(tostr ($ldb sa 4+i)) 0..4) ".") :port port}
+     (== f 10) {:ip (ip6fmt (~ i=>($ldb sa 8+i) 0..16)) :port port}
+     {:ip nil :port 0}))
+(= (sockname fd) (sockend 51 fd "getsockname"))   ; the local address of a socket: {:ip :port}
+(= (peer fd) (sockend 52 fd "getpeername"))       ; the remote address of a connected socket (an accepted or connected TCP fd): {:ip :port}
+(= (shutw fd) (? (< ($syscall 48 fd 1) 0) (netfail "shutdown failed")) nil)    ; half-close: no more writing, the peer reads end-of-file and can still answer
+(= (shutr fd) (? (< ($syscall 48 fd 0) 0) (netfail "shutdown failed")) nil)
+(= (sockopt fd name on=true)            ; "nodelay" (TCP_NODELAY), "keepalive", "reuseaddr", "reuseport", "broadcast": on is true/false (or an integer)
+  lo=(sw name "nodelay" [6 1] "keepalive" [1 9] "reuseaddr" [1 2] "reuseport" [1 15] "broadcast" [1 6] nil)
+  (? ($isnil lo) (netfail (strcat2 "unknown socket option: " (tostr name))))
+  v=($newb 1 4 4) ($stb v 0 (? (== on true) 1 (== on false) 0 on))
+  (? (< ($syscall 54 fd lo[0] lo[1] ($addr v) 4) 0) (netfail (strcat2 "cannot set " name)))
+  nil)
 (= (tcpc host port ms=nil)              ; connect to host:port; tries every address of the name; ms = connect timeout per address (default: the kernel's)
   (needport port 1) ips=(hostips host)
   (? (! #ips) (netfail (strcat2 "cannot resolve " host)))
@@ -262,18 +279,19 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
     e=>(: ($syscall 3 fd) (raise "io" e)))
   ($syscall 3 fd)
   (? (&& out out[3]) (?? (dnstcp name server port timeout qtype) out) out))
+(= (resolvconf) (?? (env "AK_RESOLV") "/etc/resolv.conf"))   ; the resolver configuration file (AK_RESOLV=path overrides, for tests)
 (= (nameservers)                        ; [ip port] pairs from /etc/resolv.conf (default: this machine); AK_DNS=ip[:port] overrides
   r=[] o=(env "AK_DNS")
   (? o (: f=(split o ":") d=(dotted f[0]) (? d (push r [d (? #f>1 (num f[1]) 53)]))))
-  (? (&& (! #r) (ex "/etc/resolv.conf"))
-     (for l (split (rd "/etc/resolv.conf") "\n")
+  (? (&& (! #r) (ex (resolvconf)))
+     (for l (split (rd (resolvconf)) "\n")
        f=(split (trim l))
        (? (&& #f>=2 f[0]=="nameserver") (: d=(dotted f[1]) (? d (push r [d 53]))))))
   (? #r r [[[127 0 0 1] 53]]))
 (= (resolvopts)                         ; [timeout-ms attempts] from "options timeout:N attempts:N" in /etc/resolv.conf (default 2 s, 2)
   t=2000 a=2
-  (? (ex "/etc/resolv.conf")
-     (for l (split (rd "/etc/resolv.conf") "\n")
+  (? (ex (resolvconf))
+     (for l (split (rd (resolvconf)) "\n")
        f=(split (trim l))
        (? (&& #f>=2 f[0]=="options")
           (for o f[1..]
@@ -285,7 +303,24 @@ DNSCACHE=nil                            ; name -> [expiry-ms addresses], honouri
 (= (dnscached name)
   e=(? DNSCACHE DNSCACHE[(lo name)] nil)
   (? (&& e (> e[0] (now))) e[1] nil))
-(= (dnsips name)                        ; all addresses of name through the system's nameservers (IPv4 first, then IPv6): [] if the name does not exist
+(= (searchlist)                         ; [ndots search-domains] from "search a b" / "domain a" (the last one wins) and "options ndots:N" of resolv.conf (default 1, none)
+  nd=1 sl=[]
+  (? (ex (resolvconf))
+     (for l (split (rd (resolvconf)) "\n")
+       f=(split (trim l))
+       (? (&& #f>=2 (|| f[0]=="search" f[0]=="domain")) sl=(? f[0]=="search" f[1..] [f[1]])
+          (&& #f>=2 f[0]=="options")
+          (for o f[1..] (? (&& (starts o "ndots:") (all (\ (c) (&& c>=48 c<=57)) (bytes o[6..])) (> #o 6) #o<9) nd=(min 15 (num o[6..])))))))
+  [nd sl])
+(= (searchnames name nd sl)             ; the names to try, in order: a trailing dot means absolute; a name with at least nd dots is tried as is first, otherwise after the search domains
+  (? (ends name ".") [name[..-1]]
+     (: dots=(len (~? c=>(== c 46) (bytes name))) full=(~ d=>(strcat2 (strcat2 name ".") d) sl)
+        (? dots>=nd [name ..full] [..full name]))))
+(= (dnsips name)                        ; all addresses of name (search domains of resolv.conf applied) through the system's nameservers, IPv4 first, then IPv6: [] if no candidate exists
+  sn=(searchlist) res=[]
+  (for c (searchnames name sn[0] sn[1]) (? (! #res) res=(dnsone c)))
+  res)
+(= (dnsone name)                        ; all addresses of the exact name through the system's nameservers (IPv4 first, then IPv6): [] if the name does not exist
   c=(dnscached name)
   (? c c
      (: o=(resolvopts) res=nil via=nil
