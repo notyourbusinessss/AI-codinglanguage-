@@ -8,6 +8,26 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.35 (2026-10-24)
+
+### Added
+- `lib/h2.aklang`: an HTTP/2 client with HPACK (static and dynamic tables, Huffman), flow control and SETTINGS/PING/GOAWAY handling; `lib/http` option `{:h2 true}` offers `h2` by ALPN and uses it when the server picks it (#167)
+
+## 0.7.34 (2026-10-24)
+
+### Added
+- `lib/httpd` serves https: `(s.listen port handler {:tls {:cert pem :key pem}})` (or a `t.creds` result with several names); the handshake runs on the connection's task under `:headms`, `req.sni` is the client's server name, a failed handshake is logged; `t.accept fd cr stream` reads and writes through a stream (#165)
+
+## 0.7.33 (2026-10-24)
+
+### Added
+- `lib/ws` follows `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` and `{:proxy ..}` like `lib/http`: `ws://` and `wss://` go through `CONNECT`; `h.dial sec host port opts` gives any raw protocol the same (#166)
+
+## 0.7.32 (2026-10-24)
+
+### Added
+- `https://` proxies: `lib/http` talks TLS to the proxy, `CONNECT`s through it and runs TLS to the target inside; `t.connect host port {:stream s}` runs TLS over any byte stream (#164)
+
 ## 0.7.31 (2026-10-24)
 
 ### Added

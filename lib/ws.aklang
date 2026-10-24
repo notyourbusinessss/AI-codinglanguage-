@@ -94,7 +94,7 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   opts=(?? opts {}) sch=(lo (?? (fst (split url "://")) ""))
   (? (! (has ["ws" "wss"] sch)) (raise "io" (++ "websocket: unsupported URL: " url) nil))
   [sec host port path user]=(h.parseurl (++ "http" url[2..]))
-  s=(h.open sec host port (set opts "rms" (?? opts.rms 60000)))
+  s=(h.dial sec host port (set opts "rms" (?? opts.rms 60000)))
   (try (client s (? port==(? sec 443 80) (h.hostpart host) (++ (h.hostpart host) ":" port)) path opts) e=>(: (try s.c() x=>nil) (raise "io" e nil))))
 (= (reply s code text extra)
   (s.w (++ "HTTP/1.1 " code " " text "\r\n" extra "Content-Length: 0\r\nConnection: close\r\n\r\n")))
