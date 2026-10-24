@@ -1,0 +1,25 @@
+; Test HTTPS proxy (#164): ak tls_proxy.aklang cert.pem key.pem n -> prints its port, then serves n TLS connections on 127.0.0.1.
+; CONNECT host:port is tunnelled to host:port after answering 200; "GET http://.." is answered "proxied <request line>". One line per connection: "CONNECT host:port", "GET <url>" or "ERR <message>".
+(use "../../lib/tls.aklang" as t)
+[cert key n]=(args)
+cr=(t.creds {:cert (rd cert) :key (rd key)})
+l=(tcpl 0 "127.0.0.1")
+(= (say s) (fdw 1 (++ s "\n")))
+(say (tcpp l))
+(= (head cn) buf="" (wh (! (has buf "\r\n\r\n")) d=(t.read cn) (? d=="" (raise "io" "closed" nil)) buf+=d) buf)
+(= (pipe cn up)
+  done=false
+  (wh (! done)
+    ready=(fdwait [(t.fd cn) up] 20000)
+    (? (== #ready 0) done=true)
+    (? (|| #cn.inbuf>0 (has ready (t.fd cn))) (: d=(t.read cn 65536) (? d=="" done=true (fdw up d))))
+    (? (has ready up) (: d=(fdr up 65536) (? d=="" done=true (t.write cn d))))))
+(for i (num n)
+  fd=(tcpa l)
+  (say (try (:
+    cn=(t.accept fd cr) line=(split (head cn) "\r\n")[0] f=(split line " ")
+    (? (== f[0] "CONNECT")
+       (: hp=(split f[1] ":") up=(tcpc hp[0] (num hp[1])) (say (++ "CONNECT " f[1]))
+          (t.write cn "HTTP/1.1 200 Connection established\r\n\r\n") (pipe cn up) (fdc up))
+       (: b=(++ "proxied " line) (t.write cn (++ "HTTP/1.1 200 OK\r\nContent-Length: " #b "\r\nConnection: close\r\n\r\n" b))))
+    (t.close cn) (? (== f[0] "CONNECT") "done" (++ "GET " f[1]))) e=>(++ "ERR " e))))

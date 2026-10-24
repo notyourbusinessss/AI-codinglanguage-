@@ -5,10 +5,10 @@
 ;   (t.read conn n=16384)                 up to n plain bytes; "" at end of stream (close_notify or the peer closed)
 ;   (t.write conn s)  (t.close conn)  (t.fd conn)   (t.fd is the socket, for fdwait)
 ; (t.read) returns "" at the end; conn.truncated is true when the peer hung up without close_notify (many servers do), so data without its own length framing may be cut short.
-; opts also take :alpn ["h2" "http/1.1"] (offered protocols; conn.alpn is the one the server chose, or nil) and :cert/:key (PEM; a client certificate for servers that ask for one, see t.creds). conn.peer is the other side's verified certificate (parsed) after mutual TLS.
+; opts also take :stream {:r (n)=>bytes :w s=>nil :c ()=>nil} (run TLS inside another byte stream instead of a socket, as an https:// proxy tunnel does; r returns "" at the end and nil on a stall; t.fd is then nil), :alpn ["h2" "http/1.1"] (offered protocols; conn.alpn is the one the server chose, or nil) and :cert/:key (PEM; a client certificate for servers that ask for one, see t.creds). conn.peer is the other side's verified certificate (parsed) after mutual TLS.
 ; TLS 1.3 and TLS 1.2 (client only; ECDHE x25519 with AES-GCM or ChaCha20-Poly1305, RSA or ECDSA certificates, extended master secret), x25519 key exchange, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and TLS_CHACHA20_POLY1305_SHA256; no session resumption, no 0-RTT.
 ; Server side: cr=(t.creds {:cert chain_pem :key key_pem})   load a certificate chain (leaf first) and its unencrypted private key once (RSA, or EC P-256/P-384)
-;   conn=(t.accept fd cr)   handshake on a socket from (tcpa l); cr may also be the {:cert :key} map itself. Several names on one port: cr=(t.creds {:names {"example.com" {:cert .. :key ..} "*.example.org" {..}} :default {..}}) picks the certificate by the client's server name (exact, then wildcard, then :default; none fails with an unrecognized_name alert); build it once and reuse it for every accept. Same conn as t.connect (read, write, close, fd), plus conn.sni (the client's server name, or nil).
+;   conn=(t.accept fd cr)   handshake on a socket from (tcpa l) (a third argument st is a {:r :w :c} stream over fd to read and write through); cr may also be the {:cert :key} map itself. Several names on one port: cr=(t.creds {:names {"example.com" {:cert .. :key ..} "*.example.org" {..}} :default {..}}) picks the certificate by the client's server name (exact, then wildcard, then :default; none fails with an unrecognized_name alert); build it once and reuse it for every accept. Same conn as t.connect (read, write, close, fd), plus conn.sni (the client's server name, or nil).
 ;   On failure it closes fd and raises. Signs with rsa_pss_rsae or ECDSA, picking what the client offered.
 ;   cr options: :alpn ["h2" "http/1.1"] (server preference; conn.alpn is the pick, nil if the client offered none; no overlap is an error)
 ;     :clientca PEM text of trusted CA certificates: ask the client for a certificate and verify it against them (conn.peer is its parsed leaf); with :optional true a client may send none (conn.peer nil)
@@ -20,9 +20,13 @@
       (sw n 10 " (unexpected_message)" 20 " (bad_record_mac)" 40 " (handshake_failure)" 42 " (bad_certificate)" 43 " (unsupported_certificate)" 44 " (certificate_revoked)" 45 " (certificate_expired)" 46 " (certificate_unknown)" 47 " (illegal_parameter)" 48 " (unknown_ca)" 50 " (decode_error)" 51 " (decrypt_error)"
           70 " (protocol_version): the server does not support TLS 1.3" 71 " (insufficient_security)" 80 " (internal_error)" 109 " (missing_extension)" 112 " (unrecognized_name)" 116 " (certificate_required)" 120 " (no_application_protocol)" "")))
 (= (tfail msg) (raise "io" (++ "tls: " msg) nil))
+(= (rawr conn)                        ; next bytes from the transport: the socket, or opts.stream (TLS inside another stream); nil on a stall
+  (? conn.st (conn.st.r 65536) (fdr conn.fd 65536 conn.rms)))
+(= (raww conn s) (? conn.st (conn.st.w s) (fdw conn.fd s)))
+(= (rawc conn) (? conn.st conn.st.c() (fdc conn.fd)))
 (= (rdn conn n eof_ok=false)            ; exactly n bytes from the socket; nil if the peer closed cleanly before the first byte and eof_ok is set
   buf=conn.inbuf eof=false
-  (wh (&& #buf<n (! eof)) d=(fdr conn.fd 65536 conn.rms) (? ($isnil d) (tfail "read timed out")) (? d=="" eof=true buf+=d))
+  (wh (&& #buf<n (! eof)) d=(rawr conn) (? ($isnil d) (tfail "read timed out")) (? d=="" eof=true buf+=d))
   (? eof (? (&& eof_ok #buf==0) nil (tfail "connection closed during the handshake or in the middle of a record"))
      (: conn.inbuf=buf[n..] buf[..n])))
 (= (rec_send conn type body)            ; one record, encrypted when keys are installed
@@ -31,14 +35,14 @@
         ex=(? (== conn.suite "aes") (be conn.wseq 8) "")
         ct=(? (== conn.suite "aes") (c.aes_gcm_seal conn.wkey (++ conn.wiv ex) hdr body) (c.chacha_seal conn.wkey (nonce conn.wiv conn.wseq) hdr body))
         conn.wseq=conn.wseq+1
-        (fdw conn.fd (++ (frombytes [type]) "\x03\x03" (be (+ #ex #ct) 2) ex ct)))
+        (raww conn (++ (frombytes [type]) "\x03\x03" (be (+ #ex #ct) 2) ex ct)))
   conn.wkey
      (: inner=(++ body (frombytes [type]))
         hdr=(++ "\x17\x03\x03" (be #inner+16 2))
         ct=(aead_seal conn conn.wkey conn.wiv conn.wseq hdr inner)
         conn.wseq=conn.wseq+1
-        (fdw conn.fd (++ hdr ct)))
-     (fdw conn.fd (++ (frombytes [type]) (? (&& (== type 22) (! conn.v12)) "\x03\x01" "\x03\x03") (be #body 2) body))))
+        (raww conn (++ hdr ct)))
+     (raww conn (++ (frombytes [type]) (? (&& (== type 22) (! conn.v12)) "\x03\x01" "\x03\x03") (be #body 2) body))))
 (= (nonce iv seq) (c.xor iv (++ (rpt "\0" 4) (be seq 8))))
 (= (aead_seal conn key iv seq aad data)
   n=(nonce iv seq)
@@ -159,9 +163,9 @@
   (sw v 2052 "rsa_pss_sha256" 2053 "rsa_pss_sha384" 1027 "ecdsa_sha256" 1283 "ecdsa_sha384" nil))
 (= (connect host port opts=nil)
   opts=(?? opts {})
-  fd=(?? opts.fd (tcpc host port opts.ms))
-  conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :rms opts.rms}
-  (try (handshake conn host opts) e=>(: (fdc fd) (raise "io" e nil)))
+  fd=(? opts.stream nil (?? opts.fd (tcpc host port opts.ms)))
+  conn={:fd fd :st opts.stream :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :rms opts.rms}
+  (try (handshake conn host opts) e=>(: (rawc conn) (raise "io" e nil)))
   conn)
 (= (handshake conn host opts)
   priv=(c.random 32) pub=(c.x25519_base priv) sid=(c.random 32) rnd=(c.random 32)
@@ -300,7 +304,7 @@
   nil)
 (= (close conn)
   (try (rec_send conn 21 "\x01\x00") e=>nil)
-  (fdc conn.fd) nil)
+  (rawc conn) nil)
 (= (fd conn) conn.fd)
 ; ---- ALPN and client certificates (client side)
 (= (parse_ee conn m offered)
@@ -376,10 +380,10 @@
           (wh j<4+il+bl b1=(by1 eb j) (push h.binders eb[j+1..j+1+b1]) j+=1+b1)))
     i+=4+el)
   h)
-(= (accept fd opts)
+(= (accept fd opts st=nil)               ; st: an optional stream over fd for the reads and writes (lib/httpd.aklang waits cooperatively that way)
   cr=(creds opts)
-  conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :early false}
-  (try (srv_handshake conn cr) e=>(: (fdc fd) (raise "io" e nil)))
+  conn={:fd fd :st st :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :early false}
+  (try (srv_handshake conn cr) e=>(: (rawc conn) (raise "io" e nil)))
   conn)
 (= (pick_share h)                       ; [group key] of the first usable key share (x25519, then P-256, then P-384), or nil
   (k.first (~? x=>(has [29 23 24] x[0]) (~? x=>(== #x[1] (sw x[0] 29 32 23 65 24 97 0)) (sort_by_pref h.shares)))))
