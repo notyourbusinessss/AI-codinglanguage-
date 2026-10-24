@@ -7,3 +7,4 @@
 (p (dns "ttl.test"))
 (p (try (dns "nx.test") e=>e))
 (p (dns "::1") (dns "2001:db8::1") (dns "127.0.0.1"))
+(p (rdns "192.0.2.77") (rdns "2001:db8::7") (rdns "192.0.2.78") (has (rdns "127.0.0.1") "localhost") (try (rdns "nope") e=>e) (arpa "192.0.2.77"))

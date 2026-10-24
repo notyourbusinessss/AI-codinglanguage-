@@ -48,6 +48,28 @@
        f=(split (trim l))
        (? (&& #f>1 (! (starts (trim l) "#"))) (for i 1..#f (? (== f[i] h) (: d=(?? (dotted f[0]) (ip6 f[0])) (? (&& d (! (has r d))) (push r d))))))))
   (++ (~? a=>(== #a 4) r) (~? a=>(== #a 16) r)))
+(= (arpa ip)                            ; the reverse-lookup name of an address (text, 4 or 16 bytes), or nil
+  b=(? (isstr ip) (?? (dotted ip) (ip6 ip)) ip)
+  (? ($isnil b) nil
+     (== #b 4) (strcat2 (join (~ x=>(tostr x) (rev b)) ".") ".in-addr.arpa")
+     (strcat2 (join (~~ x=>[(strslice "0123456789abcdef" (% x 16) (+ (% x 16) 1)) (strslice "0123456789abcdef" (// x 16) (+ (// x 16) 1))] (rev b)) ".") ".ip6.arpa")))
+(= (hostnames ip)                       ; the names /etc/hosts gives to an address (bytes)
+  r=[]
+  (? (ex "/etc/hosts")
+     (for l (split (rd "/etc/hosts") "\n")
+       f=(split (trim l))
+       (? (&& #f>1 (! (starts (trim l) "#")) (== (?? (dotted f[0]) (ip6 f[0])) ip)) (for n f[1..] (? (! (has r n)) (push r n))))))
+  r)
+(= (rdns ip)                            ; the names of an address (a string like "8.8.8.8" or "2001:db8::1"): /etc/hosts, then PTR records; [] if it has none
+  b=(? (isstr ip) (?? (dotted ip) (ip6 ip)) ip)
+  (? ($isnil b) (netfail (strcat2 "rdns needs an IP address, got " (tostr ip))))
+  hn=(hostnames b)
+  (? #hn hn
+     (: o=(resolvopts) res=nil name=(arpa b)
+        (for round o[1]
+          (for ns (nameservers)
+            (? (! res) (: res=(dnsq name ns[0] ns[1] o[0] 12)))))
+        (? (&& res res[0]==0) res[1] []))))
 (= (hostips h)                          ; all addresses of a host (IPv4 as 4 bytes, IPv6 as 16, IPv4 first): literal, localhost, /etc/hosts, then DNS
   d=(dotted h) v6=(? d nil (ip6 h))
   (? d [d] v6 [v6] (== h "localhost") [[127 0 0 1]]
@@ -257,6 +279,13 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   c=($ldb r i)
   (wh (&& c>0 c<192) i+=c+1 c=($ldb r i))
   (? c==0 i+1 i+2))
+(= (dnsname r i)                        ; the name at offset i as text, following compression pointers
+  out=[] jumps=0 c=($ldb r i)
+  (wh (&& c>0 jumps<20)
+    (? c>=192 (: i=(+ (* 256 (- c 192)) ($ldb r i+1)) jumps+=1)
+       (: (push out (strslice r i+1 i+1+c)) i+=c+1))
+    c=($ldb r i))
+  (join out "."))
 (= (dnspk name qtype)                   ; [id packet] asking for the records of type qtype (1 = A, 28 = AAAA)
   q=(randbytes 2) pk=[..q 1 0 0 1 0 0 0 0 0 0]
   (for l (split name ".")
@@ -270,7 +299,9 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
           i=(dnsskip r i)
           t=(be16 r i) l=(be16 r i+8) j=i+10
           (? (&& t==qtype (|| (&& t==1 l==4) (&& t==28 l==16)))
-             (: (push ips (~ x=>($ldb r x) j..j+l)) ttl=(min ttl (+ (* 65536 (be16 r i+4)) (be16 r i+6)))))
+             (: (push ips (~ x=>($ldb r x) j..j+l)) ttl=(min ttl (+ (* 65536 (be16 r i+4)) (be16 r i+6))))
+             (&& t==qtype t==12)
+             (push ips (dnsname r j)))
           i=j+l)
         [(& ($ldb r 3) 15) ips ttl (== (& ($ldb r 2) 2) 2)])
      nil))
