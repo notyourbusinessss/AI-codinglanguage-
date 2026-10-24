@@ -80,13 +80,13 @@
 ; ---- handshake messages
 (= (ext type body) (++ (be type 2) (be #body 2) body))
 (= (alpn_ext names) (? #names (ext 16 (let (l (join (~ n=>(++ (frombytes [#n]) n) names) "")) (++ (be #l 2) l))) ""))
-(= (client_hello host ks random sid alpn cookie psk pre)   ; ks: the key_share entry (group, length, key); psk: a session to resume (binder over pre + the ClientHello up to the binders)
+(= (client_hello host ks random sid alpn cookie psk pre tk12=nil)   ; ks: the key_share entry (group, length, key); psk: a session to resume (binder over pre + the ClientHello up to the binders)
   exts=(++
     (? (dotted host) "" (ext 0 (let (nm (++ "\x00" (be #host 2) host)) (++ (be #nm 2) nm))))
     (ext 10 "\x00\x06\x00\x1d\x00\x17\x00\x18")   ; x25519 first; P-256 and P-384 are listed so servers accept ECDSA certificates on those curves
     (ext 13 (let (sa (c.unhex "0804080508060403050306030401050106010201")) (++ (be #sa 2) sa)))
     (ext 43 "\x04\x03\x04\x03\x03")
-    (ext 11 "\x01\x00") (ext 23 "") (ext 65281 "\x00")
+    (ext 11 "\x01\x00") (ext 23 "") (ext 65281 "\x00") (ext 35 (?? tk12 ""))
     (alpn_ext alpn)
     (ext 51 (++ (be #ks 2) ks))
     (? cookie (ext 44 (++ (be #cookie 2) cookie)) "")
@@ -163,10 +163,11 @@
   priv=(c.random 32) pub=(c.x25519_base priv) sid=(c.random 32) rnd=(c.random 32)
   cc=(? opts.ders opts (? opts.cert (creds opts) nil))
   ses=(? (&& opts.session (== opts.session.host host) (< (- (now) opts.session.at) 1000*opts.session.life)) opts.session nil)
-  ch=(client_hello host (++ "\x00\x1d\x00\x20" pub) rnd sid opts.alpn nil ses "")
+  ses12=(? (&& ses ses.v12) ses nil) ses=(? (&& ses (! ses.v12)) ses nil)
+  ch=(client_hello host (++ "\x00\x1d\x00\x20" pub) rnd sid opts.alpn nil ses "" (? ses12 ses12.ticket nil))
   (rec_send conn 22 ch)
   sh=(hs_next conn)
-  (? (any e=>e[0]==43 (sh_parse sh).exts) (hs13 conn host opts cc ch sh priv [host rnd sid opts.alpn ses]) (hs12 conn host opts cc ch sh priv pub)))
+  (? (any e=>e[0]==43 (sh_parse sh).exts) (hs13 conn host opts cc ch sh priv [host rnd sid opts.alpn ses]) (hs12 conn host opts cc ch sh priv pub [sid ses12])))
 (= (hs13 conn host opts cc ch sh priv ctx)
   (rec_send conn 20 "\x01")             ; compatibility ChangeCipherSpec
   conn.hash="sha256"
@@ -482,17 +483,50 @@
   (wh i<total+3 cl=65536*(by1 b i)+(by2 b i+1) (push out b[i+3..i+3+cl]) i+=3+cl)
   out)
 (= (snd conn x) (rec_send conn 22 x) x)
-(= (hs12 conn host opts cc ch sh priv pub)
+(= (hs12 conn host opts cc ch sh priv pub ctx)
   s=(sh_parse sh)
   (? (has ["DOWNGRD\x01" "DOWNGRD\x00"] s.random[24..]) (tfail "downgrade attack detected: the server supports TLS 1.3 but answered with 1.2"))
   su=(suite12 s.suite)
   (? ($isnil su) (tfail "server chose a cipher suite that was not offered"))
   [aead klen ivlen hname ktype]=su
   conn.v12=true
-  hf=(c.hashfn hname) cr=ch[6..38]
+  cr=ch[6..38]
   ems=(any e=>e[0]==23 s.exts)
   alpn=(k.first (~? e=>e[0]==16 s.exts))
   (? alpn (: conn.alpn=alpn[1][3..3+(by1 alpn[1] 2)] (? (! (has (?? opts.alpn []) conn.alpn)) (tfail "the server chose an ALPN protocol that was not offered"))))
+  tick=(any e=>e[0]==35 s.exts) ses=ctx[1]
+  sl=(by1 sh 38)
+  resumed=(&& ses (> sl 0) (== sh[39..39+sl] ctx[0]))
+  (? (&& resumed (|| (!= s.suite ses.suite) (!= ems ses.ems))) (tfail "the server resumed the session with different parameters"))
+  (? resumed (hs12r conn host opts ch sh s su ems tick ses) (hs12f conn host opts cc ch sh priv pub s su ems tick)))
+(= (tkt12 conn m host ems s leaf master)     ; NewSessionTicket (TLS 1.2) -> a resumable session kept on the connection
+  hint=65536*(by2 m 4)+(by2 m 6) tl=(by2 m 8)
+  (? ($isnil conn.sessions) conn.sessions=[])
+  conn.sessions=(+> conn.sessions {:v12 true :ticket m[10..10+tl] :master master :suite s.suite :ems ems :at (now) :life (min 604800 (? hint>0 hint 3600)) :host host :peer leaf :alpn conn.alpn})
+  (? #conn.sessions>8 conn.sessions=conn.sessions[1..]))
+(= (hs12r conn host opts ch sh s su ems tick ses)       ; the abbreviated handshake: the server answers first with its Finished
+  [aead klen ivlen hname ktype]=su
+  hf=(c.hashfn hname) cr=ch[6..38] master=ses.master
+  th=(++ ch sh) conn.sessions=[ses]
+  kb=(prf hname master "key expansion" (++ s.random cr) 2*klen+2*ivlen)
+  (? tick (: m=(hs_next conn) (? ($ldb m 0)!=4 (tfail "expected NewSessionTicket")) th+=m (tkt12 conn m host ems s ses.peer master)))
+  r=(rec_recv conn)
+  (? r[0]==21 (tfail (alert_text ($ldb r[1] 1))))
+  (? r[0]!=20 (tfail "expected ChangeCipherSpec"))
+  conn.suite=aead
+  conn.rkey=kb[klen..2*klen] conn.riv=kb[2*klen+ivlen..2*klen+2*ivlen] conn.rseq=0
+  m=(hs_next conn)
+  (? ($ldb m 0)!=20 (tfail "expected Finished"))
+  (? (! (c.ct_eq m[4..] (prf hname master "server finished" (hf th) 12))) (tfail "server Finished does not verify"))
+  th+=m
+  (rec_send conn 20 "\x01")
+  conn.wkey=kb[..klen] conn.wiv=kb[2*klen..2*klen+ivlen] conn.wseq=0
+  (snd conn (hmsg 20 (prf hname master "client finished" (hf th) 12)))
+  conn.peer=ses.peer conn.resumed=true conn.open=true
+  conn)
+(= (hs12f conn host opts cc ch sh priv pub s su ems tick)
+  [aead klen ivlen hname ktype]=su
+  hf=(c.hashfn hname) cr=ch[6..38]
   th=(++ ch sh)
   m=(hs_next conn)
   (? ($ldb m 0)!=11 (tfail "expected Certificate"))
@@ -534,6 +568,7 @@
   conn.suite=aead
   conn.wkey=kb[..klen] conn.wiv=kb[2*klen..2*klen+ivlen] conn.wseq=0
   th+=(snd conn (hmsg 20 (prf hname master "client finished" (hf th) 12)))
+  (? tick (: m=(hs_next conn) (? ($ldb m 0)!=4 (tfail "expected NewSessionTicket")) th+=m (tkt12 conn m host ems s leaf master)))
   r=(rec_recv conn)
   (? r[0]==21 (tfail (alert_text ($ldb r[1] 1))))
   (? r[0]!=20 (tfail "expected ChangeCipherSpec"))
@@ -541,5 +576,6 @@
   m=(hs_next conn)
   (? ($ldb m 0)!=20 (tfail "expected Finished"))
   (? (! (c.ct_eq m[4..] (prf hname master "server finished" (hf th) 12))) (tfail "server Finished does not verify"))
+  conn.resumed=false
   conn.open=true
   conn)

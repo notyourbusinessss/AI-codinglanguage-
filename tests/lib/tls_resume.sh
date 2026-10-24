@@ -36,3 +36,13 @@ case "$(akr)" in "false "*" | true "*" | true "*) echo "ok client: resumes after
 kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
 aksrv d 3
 check "client: resumes with the Ak server" "$(akr)" "false hello localhost alpn=- peer=no | true hello localhost alpn=- peer=no resumed=yes | true hello localhost alpn=- peer=no resumed=yes"
+srv -tls1_2
+case "$(akr)" in "false "*" | true "*" | true "*) echo "ok client: TLS 1.2 session ticket resumption with openssl s_server";; *) echo "FAIL TLS 1.2 resumption: $(akr)";; esac
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+srv -tls1_2 -no_ticket
+case "$(akr)" in "false "*" | false "*" | false "*) echo "ok client: a server without tickets gives full handshakes";; *) echo "FAIL TLS 1.2 without tickets: $(akr)";; esac
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out rsa.key 2>/dev/null; openssl req -new -key rsa.key -subj /CN=rsa -out rsa.csr; openssl x509 -req -in rsa.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 -extfile leaf.ext -out rsa.pem 2>/dev/null
+srv -tls1_2 -cipher ECDHE-RSA-AES256-GCM-SHA384 -cert rsa.pem -key rsa.key
+case "$(akr)" in "false "*" | true "*" | true "*) echo "ok client: TLS 1.2 resumption with an RSA certificate and AES-256";; *) echo "FAIL TLS 1.2 RSA resumption: $(akr)";; esac
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
