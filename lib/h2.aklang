@@ -1,0 +1,163 @@
+; An HTTP/2 client (RFC 9113) with HPACK (RFC 7541), over any stream {:r (n)=>bytes :w s=>nil :c ()=>nil} that ALPN made "h2" (native only). lib/http.aklang uses it for the option {:h2 true}.
+;   (use "lib/h2.aklang" as z)
+;   (z.request c method scheme authority path headers body hooks)   one request on a new connection: the preface and SETTINGS, HEADERS (+ DATA), then frames until the reply ends;
+;       headers = {name value} (lower-case names; connection-specific ones are dropped); hooks = {:head (status headers)=>nil called with the final reply head, :data (bytes)=>nil for each piece of body}
+;       returns {:status 200 :headers {..}} (a repeated header is joined with ", ").  Raises "http2: ..." on a protocol error, RST_STREAM, GOAWAY before the reply, or an early close.
+;   (z.hdecode st block) (z.hencode headers)   HPACK, st = (z.hstate)
+; One request per connection (no multiplexing, no server push: ENABLE_PUSH is 0 and a PUSH_PROMISE is an error); flow control is kept up with WINDOW_UPDATE as data arrives and respected when sending a body.
+STATIC=[
+  [":authority" ""] [":method" "GET"] [":method" "POST"] [":path" "/"]
+  [":path" "/index.html"] [":scheme" "http"] [":scheme" "https"] [":status" "200"]
+  [":status" "204"] [":status" "206"] [":status" "304"] [":status" "400"]
+  [":status" "404"] [":status" "500"] ["accept-charset" ""] ["accept-encoding" "gzip, deflate"]
+  ["accept-language" ""] ["accept-ranges" ""] ["accept" ""] ["access-control-allow-origin" ""]
+  ["age" ""] ["allow" ""] ["authorization" ""] ["cache-control" ""]
+  ["content-disposition" ""] ["content-encoding" ""] ["content-language" ""] ["content-length" ""]
+  ["content-location" ""] ["content-range" ""] ["content-type" ""] ["cookie" ""]
+  ["date" ""] ["etag" ""] ["expect" ""] ["expires" ""]
+  ["from" ""] ["host" ""] ["if-match" ""] ["if-modified-since" ""]
+  ["if-none-match" ""] ["if-range" ""] ["if-unmodified-since" ""] ["last-modified" ""]
+  ["link" ""] ["location" ""] ["max-forwards" ""] ["proxy-authenticate" ""]
+  ["proxy-authorization" ""] ["range" ""] ["referer" ""] ["refresh" ""]
+  ["retry-after" ""] ["server" ""] ["set-cookie" ""] ["strict-transport-security" ""]
+  ["transfer-encoding" ""] ["user-agent" ""] ["vary" ""] ["via" ""]
+  ["www-authenticate" ""]]
+HLEN="13 23 28 28 28 28 28 28 28 24 30 28 28 30 28 28 28 28 28 28 28 28 30 28 28 28 28 28 28 28 28 28 6 10 10 12 13 6 8 11 10 10 8 11 8 6 6 6 5 5 5 6 6 6 6 6 6 6 7 8 15 6 12 10 13 6 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 8 7 8 13 19 13 14 6 15 5 6 5 6 5 6 6 6 5 7 7 6 6 6 5 6 7 6 5 5 6 7 7 7 7 7 15 11 14 13 28 20 22 20 20 22 22 22 23 22 23 23 23 23 23 24 23 24 24 22 23 24 23 23 23 23 21 22 23 22 23 23 24 22 21 20 22 22 23 23 21 23 22 22 24 21 22 23 23 21 21 22 21 23 22 23 23 20 22 22 22 23 22 22 23 26 26 20 19 22 23 22 25 26 26 26 27 27 26 24 25 19 21 26 27 27 26 27 24 21 21 26 26 28 27 27 27 20 24 20 21 22 21 21 23 22 22 25 25 24 24 26 23 26 27 26 26 27 27 27 27 27 28 27 27 27 27 27 26 30"
+HCODE="1ff8 7fffd8 fffffe2 fffffe3 fffffe4 fffffe5 fffffe6 fffffe7 fffffe8 ffffea 3ffffffc fffffe9 fffffea 3ffffffd fffffeb fffffec fffffed fffffee fffffef ffffff0 ffffff1 ffffff2 3ffffffe ffffff3 ffffff4 ffffff5 ffffff6 ffffff7 ffffff8 ffffff9 ffffffa ffffffb 14 3f8 3f9 ffa 1ff9 15 f8 7fa 3fa 3fb f9 7fb fa 16 17 18 0 1 2 19 1a 1b 1c 1d 1e 1f 5c fb 7ffc 20 ffb 3fc 1ffa 21 5d 5e 5f 60 61 62 63 64 65 66 67 68 69 6a 6b 6c 6d 6e 6f 70 71 72 fc 73 fd 1ffb 7fff0 1ffc 3ffc 22 7ffd 3 23 4 24 5 25 26 27 6 74 75 28 29 2a 7 2b 76 2c 8 9 2d 77 78 79 7a 7b 7ffe 7fc 3ffd 1ffd ffffffc fffe6 3fffd2 fffe7 fffe8 3fffd3 3fffd4 3fffd5 7fffd9 3fffd6 7fffda 7fffdb 7fffdc 7fffdd 7fffde ffffeb 7fffdf ffffec ffffed 3fffd7 7fffe0 ffffee 7fffe1 7fffe2 7fffe3 7fffe4 1fffdc 3fffd8 7fffe5 3fffd9 7fffe6 7fffe7 ffffef 3fffda 1fffdd fffe9 3fffdb 3fffdc 7fffe8 7fffe9 1fffde 7fffea 3fffdd 3fffde fffff0 1fffdf 3fffdf 7fffeb 7fffec 1fffe0 1fffe1 3fffe0 1fffe2 7fffed 3fffe1 7fffee 7fffef fffea 3fffe2 3fffe3 3fffe4 7ffff0 3fffe5 3fffe6 7ffff1 3ffffe0 3ffffe1 fffeb 7fff1 3fffe7 7ffff2 3fffe8 1ffffec 3ffffe2 3ffffe3 3ffffe4 7ffffde 7ffffdf 3ffffe5 fffff1 1ffffed 7fff2 1fffe3 3ffffe6 7ffffe0 7ffffe1 3ffffe7 7ffffe2 fffff2 1fffe4 1fffe5 3ffffe8 3ffffe9 ffffffd 7ffffe3 7ffffe4 7ffffe5 fffec fffff3 fffed 1fffe6 3fffe9 1fffe7 1fffe8 7ffff3 3fffea 3fffeb 1ffffee 1ffffef fffff4 fffff5 3ffffea 7ffff4 3ffffeb 7ffffe6 3ffffec 3ffffed 7ffffe7 7ffffe8 7ffffe9 7ffffea 7ffffeb ffffffe 7ffffec 7ffffed 7ffffee 7ffffef 7fffff0 3ffffee 3fffffff"
+HMAP={}
+hl=(~ x=>(num x) (split HLEN " ")) hc=(~ x=>(num (++ "0x" x)) (split HCODE " "))
+(for i 257 HMAP[(tostr hl[i]*1073741824+hc[i])]=i)
+(= (h2fail msg) (raise "io" (++ "http2: " msg) nil))
+(= (be n w) (frombytes (~ i=>(& (>>> n (* 8 (- w 1 i))) 255) 0..w)))
+(= (hstate) {:dyn [] :dsize 0 :dmax 4096})
+; ---- HPACK
+(= (dint s i m)                         ; an integer with an (m+1)-valued prefix at s[i]: [value next-index]
+  (? i>=#s (h2fail "header block cut short"))
+  v=(& ($ldb s i) m) i+=1
+  (? v==m (: sh=1 more=true
+             (wh more (? i>=#s (h2fail "header block cut short")) (? sh>34359738368 (h2fail "header integer too large"))
+               b=($ldb s i) i+=1 v=v+(* (& b 127) sh) sh=sh*128 more=(>= b 128))))
+  [v i])
+(= (hint v m first)                     ; the integer v with an (m+1)-valued prefix; first = the bits above the prefix
+  (? v<m (frombytes [first+v])
+     (: out=[first+m] v-=m (wh v>=128 (push out (+ (% v 128) 128)) v=(flr (/ v 128))) (push out v) (frombytes out))))
+(= (huff s)                             ; Huffman-decoded bytes of s
+  out=[] code=0 len=0
+  (for b (bytes s)
+    (for k 8
+      code=code*2+(& (>>> b (- 7 k)) 1) len+=1
+      (? (> len 30) (h2fail "bad Huffman code"))
+      sym=(? len>=5 HMAP[(tostr len*1073741824+code)] nil)
+      (? (!= sym nil) (: (? sym==256 (h2fail "Huffman EOS in a string")) (push out sym) code=0 len=0))))
+  (? (|| len>7 code!=(- (** 2 len) 1)) (h2fail "bad Huffman padding"))
+  (frombytes out))
+(= (dstr s i)                           ; a string literal at s[i]: [text next-index]
+  (? i>=#s (h2fail "header block cut short"))
+  hf=(>= ($ldb s i) 128) [n j]=(dint s i 127)
+  (? (> j+n #s) (h2fail "header block cut short"))
+  raw=s[j..j+n] [(? hf (huff raw) raw) j+n])
+(= (evict st) (wh (&& st.dsize>st.dmax #st.dyn>0) e=st.dyn[0] st.dsize-=#e[0]+#e[1]+32 st.dyn=st.dyn[1..]))
+(= (hadd st n v)                        ; insert as the newest dynamic table entry (the list is oldest first), evicting old entries
+  sz=#n+#v+32
+  (? sz>st.dmax (: st.dyn=[] st.dsize=0) (: (push st.dyn [n v]) st.dsize+=sz (evict st))))
+(= (hget st i)
+  (? (|| i<1 i>61+#st.dyn) (h2fail "bad header table index"))
+  (? i<=61 STATIC[i-1] st.dyn[#st.dyn-1-(i-62)]))
+(= (hname st ix s i)                    ; the name of a literal: indexed (ix>0) or spelled out at s[i]: [name next-index]
+  (? ix==0 (dstr s i) [(fst (hget st ix)) i]))
+(= (hdecode st s)                       ; a header block -> [[name value] ..] (names as the peer sends them)
+  out=[] i=0 total=0
+  (wh i<#s
+    b=($ldb s i) n0=#out
+    (? b>=128 (: [ix i]=(dint s i 127) (push out (hget st ix)))
+       b>=64 (: [ix i]=(dint s i 63) [n i]=(hname st ix s i) [v i]=(dstr s i) (hadd st n v) (push out [n v]))
+       b>=32 (: [sz i]=(dint s i 31) (? sz>4096 (h2fail "header table size over the limit")) st.dmax=sz (evict st))
+       (: [ix i]=(dint s i 15) [n i]=(hname st ix s i) [v i]=(dstr s i) (push out [n v])))
+    (? #out>n0 (: e=out[#out-1] total+=#e[0]+#e[1]))
+    (? total>1048576 (h2fail "header list over 1 MiB")))
+  out)
+(= (hencode hs)                         ; [[name value] ..] -> a header block of literals (no table, no Huffman; secrets are never indexed)
+  (join (~ e=>(++ (hint 0 15 (? (has ["authorization" "cookie" "proxy-authorization" "set-cookie"] e[0]) 16 0)) (hint #e[0] 127 0) e[0] (hint #e[1] 127 0) e[1]) hs) ""))
+; ---- frames
+(= (take st n)                          ; exactly n bytes from the stream
+  cc=st.c
+  (wh #st.buf<n d=cc.r(65536) (? (|| (== d nil) (== d "")) (h2fail "connection closed before the reply was complete")) st.buf+=d)
+  out=st.buf[..n] st.buf=st.buf[n..] out)
+(= (readframe st)                       ; [type flags stream-id payload]
+  hd=(take st 9) len=65536*($ldb hd 0)+256*($ldb hd 1)+($ldb hd 2)
+  (? len>16384 (h2fail "frame over the size announced in SETTINGS"))
+  [($ldb hd 3) ($ldb hd 4) (% (+ (* 16777216 ($ldb hd 5)) (* 65536 ($ldb hd 6)) (* 256 ($ldb hd 7)) ($ldb hd 8)) 2147483648) (take st len)])
+(= (wf st type flags sid payload) cc=st.c cc.w((++ (be #payload 3) (frombytes [type flags]) (be sid 4) payload)))
+(= (unpad p fl)                         ; the frame payload without its padding (PADDED flag 8)
+  (? (> (& fl 8) 0)
+     (: (? #p<1 (h2fail "bad padding")) pl=($ldb p 0) (? pl>#p-1 (h2fail "bad padding")) p[1..#p-pl])
+     p))
+(= (settings st fl pl)
+  (? (> (& fl 1) 0) nil
+     (: (? (% #pl 6) (h2fail "bad SETTINGS frame"))
+        (for k 0..(/ #pl 6)
+          id=256*($ldb pl 6*k)+($ldb pl 6*k+1) v=(+ (* 16777216 ($ldb pl 6*k+2)) (* 65536 ($ldb pl 6*k+3)) (* 256 ($ldb pl 6*k+4)) ($ldb pl 6*k+5))
+          (? id==4 (: (? v>2147483647 (h2fail "bad initial window size")) st.swin=st.swin+v-st.iw st.iw=v)
+             id==5 (: (? (|| v<16384 v>16777215) (h2fail "bad maximum frame size")) st.maxout=v)))
+        (wf st 4 1 0 ""))))
+(= (finish_block st hooks)              ; the complete header block of the reply (or of its trailers) has arrived
+  hs=(hdecode st st.hdr) st.hdr="" st.cont=false
+  (? (== st.status nil)
+     (: stat=nil hd={}
+        (for e hs
+          (? (starts e[0] ":") (? (== e[0] ":status") stat=e[1])
+             (: n=e[0] hd[n]=(? (!= hd[n] nil) (++ hd[n] ", " e[1]) e[1]))))
+        (? (|| (== stat nil) #stat!=3 (! (all (\ (x) (&& x>=48 x<=57)) (bytes stat)))) (h2fail "reply without a valid :status"))
+        (? (starts stat "1") nil          ; 1xx: informational, the real reply follows
+           (: st.status=(num stat) st.headers=hd (hooks.head (num stat) hd)))))
+  (? st.hend st.done=true))
+(= (onframe st fr hooks)
+  [ty fl sid pl]=fr
+  (? (&& st.cont (!= ty 9)) (h2fail "a header block was interrupted")
+     ty==4 (settings st fl pl)
+     ty==6 (: (? (!= #pl 8) (h2fail "bad PING frame")) (? (== (& fl 1) 0) (wf st 6 1 0 pl)))
+     ty==8 (: (? (!= #pl 4) (h2fail "bad WINDOW_UPDATE frame"))
+              inc=(% (+ (* 16777216 ($ldb pl 0)) (* 65536 ($ldb pl 1)) (* 256 ($ldb pl 2)) ($ldb pl 3)) 2147483648)
+              (? inc==0 (h2fail "WINDOW_UPDATE of 0"))
+              (? sid==0 st.cwin=st.cwin+inc sid==1 st.swin=st.swin+inc))
+     ty==7 (: code=(? #pl>=8 (+ (* 16777216 ($ldb pl 4)) (* 65536 ($ldb pl 5)) (* 256 ($ldb pl 6)) ($ldb pl 7)) 0)
+              (h2fail (++ "the server closed the connection (GOAWAY, error " code ")")))
+     ty==3 (: code=(? #pl>=4 (+ (* 16777216 ($ldb pl 0)) (* 65536 ($ldb pl 1)) (* 256 ($ldb pl 2)) ($ldb pl 3)) 0)
+              (? sid==1 (h2fail (++ "the stream was reset (RST_STREAM, error " code ")"))))
+     ty==5 (h2fail "unexpected PUSH_PROMISE")
+     (&& ty==1 sid==1) (: p=(unpad pl fl)
+                          (? (> (& fl 32) 0) (: (? #p<5 (h2fail "bad HEADERS frame")) p=p[5..]))
+                          st.hdr=(++ st.hdr p) st.hend=(> (& fl 1) 0)
+                          (? (> (& fl 4) 0) (finish_block st hooks) st.cont=true))
+     (&& ty==9 sid==1) (: (? (! st.cont) (h2fail "unexpected CONTINUATION")) st.hdr=(++ st.hdr pl)
+                          (? #st.hdr>1048576 (h2fail "header list over 1 MiB"))
+                          (? (> (& fl 4) 0) (finish_block st hooks)))
+     (&& ty==0 sid==1) (: (? (== st.status nil) (h2fail "DATA before the reply head"))
+                          p=(unpad pl fl)
+                          (? #pl>0 (: (wf st 8 0 0 (be #pl 4)) (? (! (> (& fl 1) 0)) (wf st 8 0 1 (be #pl 4)))))
+                          (? #p>0 (hooks.data p))
+                          (? (> (& fl 1) 0) st.done=true))
+     nil))
+(= (request c method scheme authority path headers body hooks)
+  st={:c c :buf "" :dyn [] :dsize 0 :dmax 4096 :cwin 65535 :swin 65535 :iw 65535 :maxout 16384 :status nil :headers nil :hdr "" :cont false :hend false :done false}
+  body=(?? body "")
+  hs=[[":method" method] [":scheme" scheme] [":authority" authority] [":path" path]]
+  (for k (keys headers) (? (! (has ["host" "connection" "keep-alive" "proxy-connection" "transfer-encoding" "upgrade"] k)) (push hs [k (tostr headers[k])])))
+  blk=(hencode hs)
+  cc=c
+  cc.w((++ "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"))
+  (wf st 4 0 0 (++ (be 2 2) (be 0 4) (be 4 2) (be 1048576 4)))       ; no server push, a 1 MiB window per stream
+  (wf st 8 0 0 (be 983041 4))                                         ; ... and for the connection (65535 + 983041)
+  mo=st.maxout first=true i=0
+  (wh (|| first i<#blk)
+    n=(min mo #blk-i) last=(>= i+n #blk)
+    (wf st (? first 1 9) (+ (? last 4 0) (? (&& first #body==0) 1 0)) 1 blk[i..i+n])
+    first=false i+=n)
+  i=0
+  (wh (&& i<#body (! st.done))
+    (wh (&& (|| st.cwin<=0 st.swin<=0) (! st.done)) (onframe st (readframe st) hooks))
+    n=(min (min st.maxout #body-i) (min st.cwin st.swin))
+    (? (&& n>0 (! st.done)) (: (wf st 0 (? i+n>=#body 1 0) 1 body[i..i+n]) st.cwin-=n st.swin-=n i+=n)))
+  (wh (! st.done) (onframe st (readframe st) hooks))
+  (try (wf st 7 0 0 (++ (be 0 4) (be 0 4))) e=>nil)
+  {:status st.status :headers st.headers})

@@ -5,12 +5,14 @@
 ; An error (kind "io") is raised for unresolvable hosts, refused connections, certificate or handshake failures and truncated replies.
 ;   (h.download url path)  streams a 2xx body into the file path ({:status .. :size n}); other statuses keep their body in :body
 ; Request, header and URL text with CR, LF or NUL is refused (no request injection). A body over :max bytes (default 64 MiB, 1 TiB with download) or a head over 1 MiB raises.
-; Proxies: HTTP_PROXY / HTTPS_PROXY (and lower case) are used unless NO_PROXY lists the host (names, .suffix, *) or it is loopback; opts :proxy "http://[user:pass@]host:port" forces one, :proxy false none. https goes through CONNECT; https:// proxies are not supported.
+; Proxies: HTTP_PROXY / HTTPS_PROXY (and lower case) are used unless NO_PROXY lists the host (names, .suffix, *) or it is loopback; opts :proxy "http://[user:pass@]host:port" forces one, :proxy false none. https goes through CONNECT; the proxy itself may be http:// or https:// (TLS to the proxy, verified like any server).
 ; Compression: {:gzip true} sends Accept-Encoding: gzip, deflate and decodes gzip / deflate bodies (lib/inflate.aklang; :max also limits the decoded size). Not applied to h.download.
 ; Connection reuse: s=h.session() then {:pool s} in the options keeps keep-alive connections for the next request to the same host and port (a reply of unknown length or with Connection: close ends the connection); (h.release s) closes them.
+; HTTP/2: {:h2 true} offers h2 by ALPN on https:// (lib/h2.aklang, one request per connection, no pooling); a server that picks http/1.1 is served as usual. The reply has the same shape.
 ; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds, :rms / :wms = how long a read / write may stall before it raises (default 60000).
 (use "tls.aklang" as t)
 (use "inflate.aklang" as z)
+(use "h2.aklang" as x2)
 (= (b64 s)                              ; base64 of a string (for Basic authentication)
   al="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" d=(bytes s) out=""
   i=0
@@ -46,8 +48,8 @@
 (= (hostpart host) (? (has host ":") (++ "[" host "]") host))   ; as written in a URL or a Host header
 (= (chk what s bad)                     ; s itself, or an error when it holds CR, LF, NUL or a character of bad (request injection)
   (? (|| (has s "\r") (has s "\n") (has s "\x00") (any c=>(has s c) bad)) (netfail (++ "illegal character in the " what)) s))
-(= (tlsstream host port opts rms)       ; opts.fd = a connected socket to run TLS over (a CONNECT tunnel)
-  cn=(t.connect host port (set opts "rms" rms)) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn)})
+(= (tlsstream host port opts rms)       ; opts.stream = a stream to run TLS over (a CONNECT tunnel)
+  cn=(t.connect host port (set (? opts.h2 (set opts "alpn" ["h2" "http/1.1"]) opts) "rms" rms)) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn) :alpn cn.alpn})
 (= (open sec host port opts)            ; a stream: {:r (n)=>bytes :w s=>nil :c ()=>nil}; a read or write that stalls for opts.rms / opts.wms ms (default 60000) raises
   rms=(?? opts.rms 60000) wms=(?? opts.wms 60000)
   (? sec (tlsstream host port opts rms)
@@ -63,19 +65,21 @@
        (noproxy host) nil
        sec (?? (env "HTTPS_PROXY") (env "https_proxy")) (?? (env "HTTP_PROXY") (env "http_proxy")))
   (? (|| (== p nil) (== p false) (== p "")) nil p))
-(= (tunnel px host port opts)           ; CONNECT through the proxy px (a URL), then TLS inside: a stream
+(= (tunnel px host port opts sec=true)  ; CONNECT through the proxy px (a URL, http:// or https://), then TLS inside when sec: a stream
   [psec phost pport ppath puser]=(parseurl px)
-  (? psec (netfail "https:// proxies are not supported"))
-  rms=(?? opts.rms 60000) fd=(tcpc phost pport opts.ms) au=(++ (hostpart host) ":" port) buf="" k=-1
-  (fdw fd (++ "CONNECT " au " HTTP/1.1\r\nHost: " au "\r\n" (? puser (++ "Proxy-Authorization: Basic " (b64 puser) "\r\n") "") "\r\n") (?? opts.wms 60000))
+  rms=(?? opts.rms 60000) pc=(open psec phost pport opts) au=(++ (hostpart host) ":" port) buf="" k=-1
+  (try (pc.w (++ "CONNECT " au " HTTP/1.1\r\nHost: " au "\r\n" (? puser (++ "Proxy-Authorization: Basic " (b64 puser) "\r\n") "") "\r\n")) e=>(: pc.c() (raise "io" e nil)))
   (wh k<0
-    d=(fdr fd 4096 rms)
-    (? (|| (== d nil) (== d "")) (: (fdc fd) (netfail "proxy closed the connection during CONNECT")))
+    d=(try (pc.r 4096) e=>(: pc.c() (raise "io" e nil)))
+    (? (|| (== d nil) (== d "")) (: pc.c() (netfail "proxy closed the connection during CONNECT")))
     buf+=d k=(idx buf "\r\n\r\n")
-    (? (&& k<0 #buf>65536) (: (fdc fd) (netfail "proxy reply too long"))))
+    (? (&& k<0 #buf>65536) (: pc.c() (netfail "proxy reply too long"))))
   st=(split (split buf "\r\n")[0] " ")
-  (? (!= (?? st[1] "") "200") (: (fdc fd) (netfail (++ "proxy refused CONNECT: " (split buf "\r\n")[0]))))
-  (tlsstream host port (set opts "fd" fd) rms))
+  (? (!= (?? st[1] "") "200") (: pc.c() (netfail (++ "proxy refused CONNECT: " (split buf "\r\n")[0]))))
+  (? sec (tlsstream host port (set opts "stream" pc) rms) pc))
+(= (dial sec host port opts)            ; a stream to host:port, through the proxy of the environment or opts.proxy (CONNECT) when there is one (WebSocket and other raw protocols)
+  px=(proxyfor sec host opts)
+  (? px (tunnel px host port opts sec) (open sec host port opts)))
 (= (statusof line)                      ; "HTTP/1.1 200 OK" -> 200, or nil when it is not a status line
   f=(split line " ") v=(? (&& #f>=2 (starts f[0] "HTTP/1.") #f[0]==8 (all (\ (x) (&& x>=48 x<=57)) (bytes f[1])) #f[1]==3) (num f[1]) nil)
   (? (&& (isnum v) v>=100) v nil))
@@ -126,6 +130,32 @@
 (= (exchange c head body)               ; send a request, read the reply head: [head rest]
   c.w((++ head (?? body "")))
   (readhead c))
+(= (done method sec host port path st hd out bs to body headers opts hops)   ; decode the body, follow a redirect, shape the result
+  ce=(lo (trim (?? hd["content-encoding"] "")))
+  (? (&& opts.gzip (! to) (> #out 0) (has ["gzip" "x-gzip" "deflate"] ce))
+     out=(? (== ce "deflate") (try (z.zlib out bs.max) e=>(z.inflate out bs.max)) (z.gunzip out bs.max)))
+  (? (&& (has [301 302 303 307 308] st) hd.location hops>=5) (netfail "too many redirects"))
+  (? (&& (has [301 302 303 307 308] st) hd.location)
+     (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)
+        ; credentials stay with the host they were meant for
+        hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))
+        (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) next (? st>=307 body) hs opts hops+1))
+     (? to {:status st :headers hd :body "" :size bs.n} {:status st :headers hd :body out})))
+(= (sinkfor bs opts st)                 ; where the body goes once the status is known: the file opts.to for a 2xx reply, else bs.out
+  to=(? (&& opts.to st>=200 st<300) opts.to nil)
+  (? to (wr to ""))
+  bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
+  to)
+(= (h2req c method sec host port path auth h body headers opts hops)   ; the request over HTTP/2 on c (ALPN picked h2), then the common end
+  bs={:n 0 :rest "" :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil :to nil}
+  lh={} (for k (keys h) lh[(lo k)]=h[k])
+  hooks={:head (\ (st hd) bs.to=(sinkfor bs opts st)) :data (\ (d) (feed bs d))}
+  r=(try (x2.request c method (? sec "https" "http") auth path lh body hooks) e=>(: (try c.c() x=>nil) (netfail e)))
+  c.c()
+  st=r.status hd=r.headers cl=(? hd["content-length"] (clen hd["content-length"]) nil)
+  (? (&& hd["content-length"] (== cl nil)) (netfail "bad Content-Length in the response"))
+  (? (&& cl!=nil (! (|| (== (up method) "HEAD") st==204 st==304)) bs.n!=cl) (netfail "response body truncated"))
+  (done method sec host port path st hd bs.out bs bs.to body headers opts hops))
 (= (req method url body=nil headers=nil opts=nil hops=0)
   [sec host port path user]=(parseurl url) opts=(?? opts {})
   (chk "method" method " :/") (chk "URL" url "") (chk "host" host "")
@@ -143,6 +173,7 @@
   old=(? pool pool.conns[key] nil)
   (? old pool.conns=(del pool.conns key))
   c=(?? old (fresh px pp sec host port opts))
+  (? (== c.alpn "h2") (h2req c method sec host port path auth h body headers opts hops) (:
   ; a pooled connection the server has since closed fails before any reply byte: once more on a new one
   [rh rest]=(? old (try (exchange c head body) e=>(? (has ["read timed out" "write timed out"] e) (raise "io" e nil) (: (try c.c() e=>nil) c=(fresh px pp sec host port opts) (exchange c head body)))) (exchange c head body))
   lines=(split rh "\r\n") st=(statusof lines[0])
@@ -162,16 +193,7 @@
   nobody=(|| (== (up method) "HEAD") (has [204 304] st) (&& st>=100 st<200))
   keep=(&& pool (starts lines[0] "HTTP/1.1") (! (has (lo (?? hd.connection "")) "close")) (|| nobody (!= cl nil) (has (lo (?? hd["transfer-encoding"] "")) "chunked")) (== bs.rest ""))
   (? keep (: pool.conns[key]=c) c.c())
-  ce=(lo (trim (?? hd["content-encoding"] "")))
-  (? (&& opts.gzip (! to) (> #out 0) (has ["gzip" "x-gzip" "deflate"] ce))
-     out=(? (== ce "deflate") (try (z.zlib out bs.max) e=>(z.inflate out bs.max)) (z.gunzip out bs.max)))
-  (? (&& (has [301 302 303 307 308] st) hd.location hops>=5) (netfail "too many redirects"))
-  (? (&& (has [301 302 303 307 308] st) hd.location)
-     (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)
-        ; credentials stay with the host they were meant for
-        hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))
-        (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) next (? st>=307 body) hs opts hops+1))
-     (? to {:status st :headers hd :body "" :size bs.n} {:status st :headers hd :body out})))
+  (done method sec host port path st hd out bs to body headers opts hops))))
 (= (get url headers=nil opts=nil) (req "GET" url nil headers opts))
 (= (post url body headers=nil opts=nil) (req "POST" url body headers opts))
 (= (download url path opts=nil) (req "GET" url nil nil (set (?? opts {}) "to" path))) ; body of a 2xx reply -> file path, not held in memory; :size = bytes written

@@ -1,0 +1,8 @@
+; Driver for tests/h2.test.js: ak h2_client.aklang url roots.pem method [bodylen] -> one line "<status> <h2|h1> <body bytes> <x-got> <set-cookie> <x-big length> <body head>" or "ERR <message>"
+(use "../../lib/http.aklang" as h)
+(use "../../lib/pki.aklang" as k)
+[url roots method bl]=(args)
+rs=(~ x=>(k.cert_parse x) (k.pem_certs (rd roots)))
+b=(? bl (rpt "0123456789" (// (num bl) 10)) nil)
+(p (try (: r=(h.req method url b {"X-Test" "yes"} {:roots rs :h2 true :rms 5000})
+           (join [r.status (? (has r.headers "x-h2") "h2" "h1") #r.body (?? r.headers["x-got"] "-") (?? r.headers["set-cookie"] "-") #(?? r.headers["x-big"] "") (? #r.body<60 r.body "")] " ")) e=>(++ "ERR " e)))

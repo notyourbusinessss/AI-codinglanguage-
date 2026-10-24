@@ -1,0 +1,7 @@
+; Test server for lib/httpd.aklang over TLS (#165): ak httpd_tls_srv.aklang cert.pem key.pem -> prints its port, then serves forever (the test kills it).
+(use "../../lib/httpd.aklang" as s)
+[cert key]=(args)
+h=(\ (rq) (? (== rq.path "/slow") (: (sleep 10) "slow") (++ "hello " (?? rq.sni "-") " " rq.method ":" (?? rq.body ""))))
+l=(s.listen 0 h {:tls {:cert (rd cert) :key (rd key)} :headms 1500 :maxreq 3})
+(fdw 1 (++ (tcpp l) "\n"))
+s.run()
