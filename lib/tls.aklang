@@ -63,11 +63,14 @@
         [type pt])
   (&& conn.rkey (== type 23))
      (: pt=(aead_open conn conn.rkey conn.riv conn.rseq h body)
-        (? ($isnil pt) (tfail "bad record MAC"))
-        conn.rseq=conn.rseq+1
-        j=#pt-1 (wh (&& j>=0 ($ldb pt j)==0) j-=1)
-        (? j<0 (tfail "empty record"))
-        [($ldb pt j) pt[..j]])
+        (? ($isnil pt)
+           (? (> (?? conn.skip 0) 0) (: conn.skip=conn.skip-len [20 ""])      ; refused early data: drop the record
+              (tfail "bad record MAC"))
+           (: conn.rseq=conn.rseq+1
+              j=#pt-1 (wh (&& j>=0 ($ldb pt j)==0) j-=1)
+              (? j<0 (tfail "empty record"))
+              [($ldb pt j) pt[..j]])))
+  (&& (== type 23) (> (?? conn.skip 0) 0)) (: conn.skip=conn.skip-len [20 ""])      ; early data sent before our HelloRetryRequest: drop it
      [type body]))
 ; ---- key schedule
 (= (label hash lab ctx n) (++ (be n 2) (frombytes [6+#lab]) "tls13 " lab (frombytes [#ctx]) ctx))
@@ -80,7 +83,7 @@
 ; ---- handshake messages
 (= (ext type body) (++ (be type 2) (be #body 2) body))
 (= (alpn_ext names) (? #names (ext 16 (let (l (join (~ n=>(++ (frombytes [#n]) n) names) "")) (++ (be #l 2) l))) ""))
-(= (client_hello host ks random sid alpn cookie psk pre tk12=nil)   ; ks: the key_share entry (group, length, key); psk: a session to resume (binder over pre + the ClientHello up to the binders)
+(= (client_hello host ks random sid alpn cookie psk pre tk12=nil ed=false)   ; ks: the key_share entry (group, length, key); psk: a session to resume (binder over pre + the ClientHello up to the binders)
   exts=(++
     (? (dotted host) "" (ext 0 (let (nm (++ "\x00" (be #host 2) host)) (++ (be #nm 2) nm))))
     (ext 10 "\x00\x06\x00\x1d\x00\x17\x00\x18")   ; x25519 first; P-256 and P-384 are listed so servers accept ECDSA certificates on those curves
@@ -90,6 +93,7 @@
     (alpn_ext alpn)
     (ext 51 (++ (be #ks 2) ks))
     (? cookie (ext 44 (++ (be #cookie 2) cookie)) "")
+    (? ed (ext 42 "") "")
     (? psk (psk_ext psk) ""))
   suites=(c.unhex "130113021303c02bc02fc02cc030cca9cca8")
   body=(++ "\x03\x03" random (frombytes [#sid]) sid (be #suites 2) suites "\x01\x00" (be #exts 2) exts)
@@ -164,12 +168,19 @@
   cc=(? opts.ders opts (? opts.cert (creds opts) nil))
   ses=(? (&& opts.session (== opts.session.host host) (< (- (now) opts.session.at) 1000*opts.session.life)) opts.session nil)
   ses12=(? (&& ses ses.v12) ses nil) ses=(? (&& ses (! ses.v12)) ses nil)
-  ch=(client_hello host (++ "\x00\x1d\x00\x20" pub) rnd sid opts.alpn nil ses "" (? ses12 ses12.ticket nil))
+  early=(? opts.early (? (islist opts.early) (frombytes opts.early) (tostr opts.early)) nil)
+  ed=(&& ses early (> (?? ses.max_early 0) 0) (<= #early ses.max_early) (? ses.alpn (has (?? opts.alpn []) ses.alpn) (! opts.alpn)))
+  ch=(client_hello host (++ "\x00\x1d\x00\x20" pub) rnd sid opts.alpn nil ses "" (? ses12 ses12.ticket nil) ed)
   (rec_send conn 22 ch)
+  conn.early=false
+  (? ed (: (rec_send conn 20 "\x01") (set_suite13 conn ses.suite)       ; 0-RTT: the data goes out under the early traffic key before the server has answered
+           (install_write conn (derive ses.hash (c.hkdf_extract ses.hash "" ses.psk) "c e traffic" ((c.hashfn ses.hash) ch)))
+           (write conn early)))
   sh=(hs_next conn)
-  (? (any e=>e[0]==43 (sh_parse sh).exts) (hs13 conn host opts cc ch sh priv [host rnd sid opts.alpn ses]) (hs12 conn host opts cc ch sh priv pub [sid ses12])))
+  (? (any e=>e[0]==43 (sh_parse sh).exts) (hs13 conn host opts cc ch sh priv [host rnd sid opts.alpn ses ed]) (hs12 conn host opts cc ch sh priv pub [sid ses12]))
+  (? (&& early (! conn.early)) (write conn early)))      ; not sent as 0-RTT, or the server refused it: send it now, as ordinary data
 (= (hs13 conn host opts cc ch sh priv ctx)
-  (rec_send conn 20 "\x01")             ; compatibility ChangeCipherSpec
+  (? (! ctx[5]) (rec_send conn 20 "\x01"))             ; compatibility ChangeCipherSpec (already sent before 0-RTT data)
   conn.hash="sha256"
   hist=ch kx=[29 priv] psk=ctx[4]
   (? (is_hrr sh)
@@ -200,11 +211,13 @@
   hs=(c.hkdf_extract hash (derive hash early "derived" ((c.hashfn hash) "")) shared)
   chs=(derive hash hs "c hs traffic" ((c.hashfn hash) th))
   shs=(derive hash hs "s hs traffic" ((c.hashfn hash) th))
-  (install_read conn shs) (install_write conn chs)
+  (install_read conn shs) (? (! ctx[5]) (install_write conn chs))
   hf=(c.hashfn hash)
   m=(hs_next conn)
   (? ($ldb m 0)!=8 (tfail "expected EncryptedExtensions"))
+  conn.ee_early=false
   (parse_ee conn m opts.alpn)
+  (? (&& conn.ee_early (! (&& ctx[5] resumed))) (tfail "the server accepted early data that was not sent"))
   th+=m
   req=nil
   (? resumed conn.peer=psk.peer
@@ -234,6 +247,7 @@
   (? (! (c.ct_eq m[4..] want)) (tfail "server Finished does not verify"))
   th+=m
   ap_th=(hf th)
+  (? ctx[5] (: (? conn.ee_early (: eoed=(hmsg 5 "") (rec_send conn 22 eoed) th+=eoed conn.early=true)) (install_write conn chs)))
   master=(c.hkdf_extract hash (derive hash hs "derived" (hf "")) zeros)
   cap=(derive hash master "c ap traffic" ap_th)
   sap=(derive hash master "s ap traffic" ap_th)
@@ -273,7 +287,9 @@
     i+=4+l))
 (= (new_ticket conn b)                  ; NewSessionTicket -> a resumable session kept on the connection
   nl=(by1 b 8) tl=(by2 b 9+nl) hash=conn.hash
-  ses={:ticket b[11+nl..11+nl+tl] :psk (expand_label hash conn.resm "resumption" b[9..9+nl] (c.hashlen hash)) :age_add 65536*(by2 b 4)+(by2 b 6)
+  ep=11+nl+tl mx=0
+  (? ep+2<=#b (: j=ep+2 end=j+(by2 b ep) (wh j+4<=end (? (by2 b j)==42 mx=(by4 b j+4)) j+=4+(by2 b j+2))))
+  ses={:max_early mx :ticket b[11+nl..11+nl+tl] :psk (expand_label hash conn.resm "resumption" b[9..9+nl] (c.hashlen hash)) :age_add 65536*(by2 b 4)+(by2 b 6)
        :life (min 604800 65536*(by2 b 0)+(by2 b 2)) :hash hash :suite conn.sid13 :at (now) :host conn.host :peer conn.peer :alpn conn.alpn}
   (? ($isnil conn.sessions) conn.sessions=[])
   (? (> ses.life 0) (: conn.sessions=(+> conn.sessions ses) (? #conn.sessions>8 conn.sessions=conn.sessions[1..]))))
@@ -292,6 +308,7 @@
   (wh i<end
     et=(by2 b i) el=(by2 b i+2) eb=b[i+4..i+4+el]
     (? et==16 (: conn.alpn=eb[3..3+(by1 eb 2)] (? (! (has (?? offered []) conn.alpn)) (tfail "the server chose an ALPN protocol that was not offered"))))
+    (? et==42 conn.ee_early=true)
     i+=4+el))
 (= (client_cert conn req cc hf th)      ; answer a CertificateRequest with our chain and signature, or an empty Certificate; sends it, returns the bytes
   b=req[4..] cl=(by1 b 0) ctx=b[1..1+cl]
@@ -310,13 +327,13 @@
 (= (by2 s i) 256*(by1 s i)+(by1 s i+1))
 (= (by2s s i n) (~ j=>(by2 s i+2*j) 0..n//2))
 (= (by4 s i) 65536*(by2 s i)+(by2 s i+2))
-(= (seal_ticket cr suite psk)           ; stateless session ticket: nonce, then suite, issue time and PSK sealed with the server's ticket key
+(= (seal_ticket cr suite psk add)       ; stateless session ticket: nonce, then suite, issue time, ticket_age_add and PSK sealed with the server's ticket key
   nonce=(c.random 12)
-  (++ nonce (c.chacha_seal cr.tkey nonce "" (++ (be suite 2) (be (flr (/ (now) 1000)) 4) psk))))
-(= (open_ticket cr tk)                  ; -> [suite psk], or nil when it is not ours, damaged or older than two hours
-  (? #tk<34 nil
+  (++ nonce (c.chacha_seal cr.tkey nonce "" (++ (be suite 2) (be (flr (/ (now) 1000)) 4) add psk))))
+(= (open_ticket cr tk)                  ; -> [suite psk age_add issue-time], or nil when it is not ours, damaged or older than two hours
+  (? #tk<38 nil
      (: st=(c.chacha_open cr.tkey tk[..12] "" tk[12..])
-        (? (|| ($isnil st) (> (- (flr (/ (now) 1000)) (by4 st 2)) 7200)) nil [(by2 st 0) st[6..]]))))
+        (? (|| ($isnil st) (> (- (flr (/ (now) 1000)) (by4 st 2)) 7200)) nil [(by2 st 0) st[10..] st[6..10] (by4 st 2)]))))
 (= (hmsg ty body) (++ (frombytes [ty]) (be #body 3) body))
 (= (sfail conn n msg) (try (rec_send conn 21 (frombytes [2 n])) e=>nil) (tfail msg))
 (= (creds opts)
@@ -329,7 +346,7 @@
         (? (! (k.key_matches key leaf.key)) (tfail "the private key does not match the first certificate"))
         cas=(? opts.clientca (~ d=>(k.cert_parse d) (k.pem_certs opts.clientca)) nil)
         (? (&& opts.clientca (! #cas)) (tfail "no certificate in :clientca"))
-        {:ders ders :key key :algs (? (== key.type "rsa") [2052 2053] (== key.curve.name "P-256") [1027] [1283]) :alpn opts.alpn :cas cas :optional opts.optional :tkey (?? opts.tkey (c.random 32))})))
+        {:ders ders :key key :algs (? (== key.type "rsa") [2052 2053] (== key.curve.name "P-256") [1027] [1283]) :alpn opts.alpn :cas cas :optional opts.optional :tkey (?? opts.tkey (c.random 32)) :early (?? opts.early 0) :seen {}})))
 (= (parse_client_hello m)
   b=m[4..] i=34
   sid=b[i+1..i+1+(by1 b i)] i+=1+(by1 b i)
@@ -337,7 +354,7 @@
   i+=1+(by1 b i)
   end=i+2+(by2 b i) i+=2
   (? end>#b (tfail "malformed ClientHello"))
-  h={:sid sid :suites suites :versions [] :sigs [] :groups [] :shares [] :sni nil :alpn nil :psk nil :binders [] :pskmodes [] :trunc 0}
+  h={:sid sid :suites suites :versions [] :sigs [] :groups [] :shares [] :sni nil :alpn nil :psk nil :binders [] :pskmodes [] :trunc 0 :early false}
   (wh i<end
     et=(by2 b i) el=(by2 b i+2) eb=b[i+4..i+4+el]
     (? #eb<el (tfail "malformed ClientHello"))
@@ -348,6 +365,7 @@
     (? et==51
        (: j=2 (wh j<#eb kl=(by2 eb j+2) (push h.shares [(by2 eb j) eb[j+4..j+4+kl]]) j+=4+kl)))
     (? et==10 h.groups=(by2s eb 2 (by2 eb 0)))
+    (? et==42 h.early=true)
     (? et==45 h.pskmodes=(bytes eb[1..1+(by1 eb 0)]))
     (? et==41
        (: il=(by2 eb 0) h.psk=[] j=2 h.trunc=4+i+4+2+il
@@ -358,7 +376,7 @@
   h)
 (= (accept fd opts)
   cr=(creds opts)
-  conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0}
+  conn={:fd fd :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :early false}
   (try (srv_handshake conn cr) e=>(: (fdc fd) (raise "io" e nil)))
   conn)
 (= (pick_share h)                       ; [group key] of the first usable key share (x25519, then P-256, then P-384), or nil
@@ -373,8 +391,9 @@
   (? (&& h.psk (! cr.cas) (has h.pskmodes 1))
      (: n=0 (wh (&& ($isnil tk) n<#h.psk)
               st=(open_ticket cr h.psk[n][0])
-              (? (&& st (has [4865 4866 4867] st[0]) (has h.suites st[0])) tk=[n st[0] st[1]])
+              (? (&& st (has [4865 4866 4867] st[0]) (has h.suites st[0])) tk=[n st[0] st[1] st[2] st[3] h.psk[n]])
               n+=1)))
+  (? h.early conn.skip=(? (> cr.early 0) cr.early 16384))      ; if the early data is refused its records must be skipped, not decrypted
   suite=(? tk tk[1] (k.first (~? x=>(has [4865 4866 4867] x) h.suites)))
   (? ($isnil suite) (sfail conn 40 "no cipher suite in common"))
   alg=(k.first (~? x=>(has h.sigs x) cr.algs))
@@ -401,6 +420,13 @@
      (: (? (>= tk[0] #h.binders) (sfail conn 47 "PSK binder missing"))
         (? (! (c.ct_eq (binder hash tk[2] (++ pre chm[..h.trunc])) h.binders[tk[0]])) (sfail conn 51 "bad PSK binder"))
         psk=tk[2]))
+  edok=false
+  (? (&& psk h.early (> cr.early 0) (== tk[0] 0) (! ccs))
+     (: age=(% (+ (- tk[5][1] (by4 tk[3] 0)) 4294967296) 4294967296) real=(- (now) 1000*tk[4]) key=h.psk[0][0]
+        (? (&& (<= (abs (- age real)) 11000) ($isnil cr.seen[key]))
+           (: cr.seen[key]=(now) edok=true
+              (? (> (len (keys cr.seen)) 5000) (for kk (keys cr.seen) (? (> (- (now) cr.seen[kk]) 7200000) (mapdel cr.seen kk))))))))
+  (? edok conn.skip=0)
   (? (== sel[0] 29)
      (: priv=(c.random 32) pub=(c.x25519_base priv) shared=(c.x25519 priv sel[1])
         (? (== shared (rpt "\0" 32)) (sfail conn 47 "bad key share")))
@@ -414,12 +440,13 @@
   zeros=(rpt "\0" hl)
   hs=(c.hkdf_extract hash (derive hash (c.hkdf_extract hash "" (? psk psk zeros)) "derived" (hf "")) shared)
   chs=(derive hash hs "c hs traffic" (hf (++ hist sh))) shs=(derive hash hs "s hs traffic" (hf (++ hist sh)))
-  (install_write conn shs) (install_read conn chs)
+  early_s=(c.hkdf_extract hash "" (? psk psk zeros))
+  (install_write conn shs) (install_read conn (? edok (derive hash early_s "c e traffic" (hf chm)) chs))
   th=(++ hist sh)
   pick=(? h.alpn (k.first (~? x=>(has h.alpn x) (?? cr.alpn []))) nil)
   (? (&& cr.alpn h.alpn ($isnil pick)) (sfail conn 120 "no ALPN protocol in common"))
   conn.alpn=pick
-  ee=(hmsg 8 (let (x (alpn_ext (? pick [pick] []))) (++ (be #x 2) x)))
+  ee=(hmsg 8 (let (x (++ (alpn_ext (? pick [pick] [])) (? edok (ext 42 "") ""))) (++ (be #x 2) x)))
   (? psk
      (: th+=ee fin=(hmsg 20 (c.hmac hash (expand_label hash shs "finished" "" hl) (hf th))) th+=fin flight=(++ ee fin))
      (: creq=(? cr.cas (hmsg 13 (let (x (ext 13 (let (sa (c.unhex "0804080504030503")) (++ (be #sa 2) sa)))) (++ "\x00" (be #x 2) x))) "")
@@ -437,6 +464,17 @@
   master=(c.hkdf_extract hash (derive hash hs "derived" (hf "")) zeros)
   sap=(derive hash master "s ap traffic" (hf th)) cap=(derive hash master "c ap traffic" (hf th))
   (install_write conn sap)
+  (? edok                                 ; 0-RTT: application data under the early key, then EndOfEarlyData
+     (: done=false total=0
+        (wh (! done)
+          r=(rec_recv conn)
+          (sw r[0]
+            23 (: total+=#r[1] (? total>cr.early (sfail conn 10 "more early data than allowed")) conn.plain=(++ conn.plain r[1]))
+            20 nil
+            22 (: (? (!= r[1] "\x05\x00\x00\x00") (sfail conn 10 "expected EndOfEarlyData")) th+=r[1] done=true)
+            21 (tfail (alert_text ($ldb r[1] 1)))
+            (tfail "unexpected record")))
+        (install_read conn chs) conn.early=true))
   m=(hs_next conn)
   (? cr.cas
      (: (? ($ldb m 0)!=11 (tfail "expected the client Certificate"))
@@ -455,10 +493,11 @@
   (? ($ldb m 0)!=20 (tfail "expected the client Finished"))
   (? (! (c.ct_eq m[4..] (c.hmac hash (expand_label hash chs "finished" "" hl) (hf th)))) (sfail conn 51 "client Finished does not verify"))
   th+=m
-  (install_read conn cap)
+  (install_read conn cap) conn.skip=0
   (? (! cr.cas)
-     (: nonce=(c.random 8) tkt=(seal_ticket cr suite (expand_label hash (derive hash master "res master" (hf th)) "resumption" nonce hl))
-        (rec_send conn 22 (hmsg 4 (++ (be 7200 4) (c.random 4) (frombytes [8]) nonce (be #tkt 2) tkt "\x00\x00")))))
+     (: nonce=(c.random 8) add=(c.random 4) tkt=(seal_ticket cr suite (expand_label hash (derive hash master "res master" (hf th)) "resumption" nonce hl) add)
+        xs=(? (> cr.early 0) (ext 42 (be cr.early 4)) "")
+        (rec_send conn 22 (hmsg 4 (++ (be 7200 4) add (frombytes [8]) nonce (be #tkt 2) tkt (be #xs 2) xs)))))
   conn.sni=h.sni conn.open=true conn.resumed=(? psk true false)
   conn)
 ; ---- TLS 1.2 client
