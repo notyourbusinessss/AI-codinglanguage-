@@ -8,7 +8,7 @@ printf 'basicConstraints=CA:FALSE\nsubjectAltName=DNS:localhost\n' > leaf.ext
 leaf() { openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out $1.key 2>/dev/null; openssl req -new -key $1.key -subj /CN=$1 -out $1.csr; openssl x509 -req -in $1.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 -extfile leaf.ext -out $1.pem 2>/dev/null; }
 leaf srv; leaf client
 check() { if [ "$2" = "$3" ]; then echo "ok $1"; else echo "FAIL $1: got [$2] want [$3]"; fi; }
-aksrv() { rm -f $1.out; ( cd "$R" && exec $AK tests/lib/tls_serve.aklang "$D/srv.pem" "$D/srv.key" "$2" "${3:--}" "${4:--}" ) > $1.out 2>&1 & SRV=$!; i=0; while [ ! -s $1.out ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; PORT=$(head -1 $1.out); }
+aksrv() { rm -f $1.out; ( cd "$R" && exec $AK tests/lib/tls_serve.aklang "$D/srv.pem" "$D/srv.key" "$2" "${3:--}" "${4:--}" "${5:--}" "${6:--}" ) > $1.out 2>&1 & SRV=$!; i=0; while [ ! -s $1.out ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; PORT=$(head -1 $1.out); }
 # one s_client connection; $1 = extra arguments; prints "Reused|New" and the server's reply
 sc() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -a "^hello\|^Reused\|^New,\|alert" | sed 's/, TLSv1.3.*//; s/---$//; s/closed$//' | tr '\n' ' ' | sed 's/ *$//'; }
 aksrv a 8
@@ -45,4 +45,27 @@ kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out rsa.key 2>/dev/null; openssl req -new -key rsa.key -subj /CN=rsa -out rsa.csr; openssl x509 -req -in rsa.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 -extfile leaf.ext -out rsa.pem 2>/dev/null
 srv -tls1_2 -cipher ECDHE-RSA-AES256-GCM-SHA384 -cert rsa.pem -key rsa.key
 case "$(akr)" in "false "*" | true "*" | true "*) echo "ok client: TLS 1.2 resumption with an RSA certificate and AES-256";; *) echo "FAIL TLS 1.2 RSA resumption: $(akr)";; esac
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+# ---- 0-RTT early data
+printf 'GET /early HTTP/1.0\r\n\r\n' > early.txt
+ake() { (cd "$R" && $AK tests/lib/tls_early.aklang localhost $PORT "$D/ca.pem" "$@" 2>&1); }
+aksrv e 6 - - - 2000
+sce() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -a "^hello\|^Reused\|^New,\|alert\|arly data" | sed 's/, Cipher is .*//; s/---$//' | tr '\n' ' '; }
+rm -f sess3; sce -sess_out sess3 > /dev/null
+check "server: early data is accepted on a resumed connection" "$(sce -sess_in sess3 -early_data early.txt)" "Reused, TLSv1.3 Early data was accepted hello - alpn=- peer=no resumed=yes early=yes "
+check "server: the same ticket twice is a replay and is refused" "$(sce -sess_in sess3 -early_data early.txt)" "Reused, TLSv1.3 Early data was rejected hello - alpn=- peer=no resumed=yes "
+check "server: no early data without a ticket" "$(sce -early_data early.txt)" "New, TLSv1.3 Early data was not sent hello - alpn=- peer=no "
+rm -f sess3; sce -sess_out sess3 > /dev/null
+check "server: early data after a HelloRetryRequest is skipped" "$(sce -sess_in sess3 -groups X448:X25519 -early_data early.txt)" "Reused, TLSv1.3 Early data was rejected hello - alpn=- peer=no resumed=yes "
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+aksrv f 3 - - - 2000
+check "client: 0-RTT to the Ak server" "$(ake)" "false false hello localhost alpn=- peer=no | true true hello localhost alpn=- peer=no resumed=yes early=yes | true true hello localhost alpn=- peer=no resumed=yes early=yes"
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+aksrv g 3
+check "client: a server that offers no early data still gets the request" "$(ake)" "false false hello localhost alpn=- peer=no | false true hello localhost alpn=- peer=no resumed=yes | false true hello localhost alpn=- peer=no resumed=yes"
+kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+srv2() { rm -f ossl.out; ( (for i in $(seq 100); do echo hi; sleep 0.3; done) | openssl s_server -accept 0 -cert srv.pem -key srv.key "$@" > ossl.out 2>&1 ) & SRV=$!; i=0; while ! grep -q "ACCEPT" ossl.out && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done; PORT=$(sed -n 's/.*ACCEPT.*:\([0-9]*\).*/\1/p' ossl.out | head -1); }
+srv2 -tls1_3 -early_data -max_early_data 2000
+check "client: 0-RTT to openssl s_server" "$(ake once)" "false false hi | true true hi | true true hi"
+check "client: openssl received the early data" "$(grep -ac 'Early data received' ossl.out)" "2"
 kill $SRV 2>/dev/null; wait $SRV 2>/dev/null

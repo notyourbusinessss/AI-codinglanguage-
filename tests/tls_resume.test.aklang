@@ -2,6 +2,6 @@
 (use "lib/run.aklang" as t)
 r=(t.run "sh tests/lib/tls_resume.sh" nil)
 lines=(split (trim r.out) "\n")
-(assert (== #lines 12) (+ "tls_resume.sh printed " #lines " lines, expected 12: " (show r.out) r.err))
+(assert (== #lines 20) (+ "tls_resume.sh printed " #lines " lines, expected 20: " (show r.out) r.err))
 bad=(~? l=>(! (starts l "ok ")) lines)
 (assert (== #bad 0) (+ "tls resumption checks failed:\n" (join bad "\n")))
