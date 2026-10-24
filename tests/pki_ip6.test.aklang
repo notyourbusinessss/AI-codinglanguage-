@@ -1,0 +1,10 @@
+; IP subjectAltName entries of both families, and IPv6 literal host names (#145)
+(use "../lib/pki.aklang" as k)
+(use "lib/run.aklang" as t)
+d=(+ "/tmp/akpki6-" ($ (now)) "-" ($ (rand 1000000000)))
+(sh (+ "mkdir " d "; cd " d "; openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout k.pem -out c.pem -days 2 -subj /CN=x -addext 'subjectAltName=IP:::1,IP:2001:db8::5,IP:127.0.0.1,DNS:localhost' 2>/dev/null"))
+c=(k.cert_parse (k.pem_certs (rd (+ d "/c.pem")))[0])
+(sh (+ "rm -rf " d))
+(assert (== c.ips ["::1" "2001:db8::5" "127.0.0.1"]) (show c.ips))
+(for [h want] [["::1" true] ["2001:0DB8:0:0::5" true] ["2001:db8:0:0:0:0:0:5" true] ["127.0.0.1" true] ["::2" false] ["2001:db8::6" false] ["localhost" true] ["::ffff:127.0.0.1" false]]
+  (assert (== (k.host_match c h) want) (+ h " should be " want)))
