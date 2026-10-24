@@ -1,5 +1,5 @@
-; a UDP echo server and client in one process: udpl binds, udpfrom2 returns the sender, udpto answers; udpto refuses a name that is not an IPv4 address (#100)
+; a UDP echo server and client in one process: udpl binds, udpfrom2 returns the sender, udpto answers; udpto takes a host name (#152) and refuses a bad address (#100)
 (use "lib/run.aklang" as t)
 r=(t.run "bin/ak tests/lib/udp_echo.aklang" nil)
 (assert (== r.code 0) (+ "udp_echo failed: " r.err))
-(assert (== r.out "hello [127 0 0 1] true\nHELLO\nnil\nio\nio\n") (+ "udp_echo output: " (show r.out)))
+(assert (== r.out "hello [127 0 0 1] true\nHELLO\nnil\nnil\nio\n") (+ "udp_echo output: " (show r.out)))

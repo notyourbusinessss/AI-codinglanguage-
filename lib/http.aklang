@@ -73,6 +73,12 @@
   st=(split (split buf "\r\n")[0] " ")
   (? (!= (?? st[1] "") "200") (: (fdc fd) (netfail (++ "proxy refused CONNECT: " (split buf "\r\n")[0]))))
   (tlsstream host port (set opts "fd" fd) rms))
+(= (statusof line)                      ; "HTTP/1.1 200 OK" -> 200, or nil when it is not a status line
+  f=(split line " ") v=(? (&& #f>=2 (starts f[0] "HTTP/1.") #f[0]==8 (all (\ (x) (&& x>=48 x<=57)) (bytes f[1])) #f[1]==3) (num f[1]) nil)
+  (? (&& (isnum v) v>=100) v nil))
+(= (clen v)                             ; a Content-Length value -> its number (a repeated, agreeing "5, 5" is fine), or nil
+  ps=(~ x=>(trim x) (split v ","))
+  (? (&& (all (\ (x) (== x ps[0])) ps) (> #ps[0] 0) #ps[0]<16 (all (\ (x) (&& x>=48 x<=57)) (bytes ps[0]))) (num ps[0]) nil))
 (= (readhead c)                         ; bytes up to and including the blank line, plus anything read after it
   buf="" k=-1
   (wh k<0
@@ -120,19 +126,23 @@
   c=(? (&& px sec) (tunnel px host port opts) px (open pp[0] pp[1] pp[2] opts) (open sec host port opts))
   c.w((++ head (?? body "")))
   [rh rest]=(readhead c)
-  lines=(split rh "\r\n") st=(num (split lines[0] " ")[1])
+  lines=(split rh "\r\n") st=(statusof lines[0])
+  (? (== st nil) (: c.c() (netfail "bad status line in the response")))
   hd={} (for l lines[1..] k=(idx l ":") (? k>0 hd[(lo l[..k])]=(trim l[k+1..])))
+  cl=(? hd["content-length"] (clen hd["content-length"]) nil)
+  (? (&& hd["content-length"] (== cl nil)) (: c.c() (netfail "bad Content-Length in the response")))
   bs={:n 0 :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil}
   to=(? (&& opts.to st>=200 st<300) opts.to nil)
   (? to (wr to ""))
   bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
   (? (|| (== (up method) "HEAD") st==204 st==304 (&& st>=100 st<200)) nil        ; these replies have no body, whatever Content-Length says
      (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest bs)
-     hd["content-length"] (readn c rest (num hd["content-length"]) bs)
+     (!= cl nil) (readn c rest cl bs)
      (readall c rest bs))
   out=bs.out
   c.c()
-  (? (&& (has [301 302 303 307 308] st) hd.location hops<5)
+  (? (&& (has [301 302 303 307 308] st) hd.location hops>=5) (netfail "too many redirects"))
+  (? (&& (has [301 302 303 307 308] st) hd.location)
      (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)
         ; credentials stay with the host they were meant for
         hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))

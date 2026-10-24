@@ -164,7 +164,7 @@ p (?? (env "AK_UNSET_VARIABLE") "not set")
 42
 not set
 ```
-`rd` reads a file, `wr` writes (a string or a list of byte values), `app` appends, `ls` lists a directory, `mkdir`, `mv`, `rm`, `isdir`, `ex` tests that a file exists, `sh` runs a shell command and returns its output, `in` reads a line of standard input (`nil` at the end), `inall` reads all of it, `now` is the time in milliseconds, `exit` ends the program.
+`rd` reads a file, `wr` writes (a string or a list of byte values), `app` appends, `ls` lists a directory, `mkdir`, `mv`, `rm` (a file or a whole directory tree, no error for a missing path), `isdir`, `ex` tests that a file exists, `sh` runs a shell command and returns its output, `in` reads a line of standard input (`nil` at the end), `inall` reads all of it, `now` is the time in milliseconds, `exit` ends the program.
 
 ## Typed arrays and speed
 Ordinary lists hold anything. For numeric work use typed arrays: `(u8 n)`, `i32`, `f64` and friends. A sieve of 20 million numbers takes well under a second.
