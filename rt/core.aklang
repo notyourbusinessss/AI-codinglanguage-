@@ -26,15 +26,17 @@ OBN=0
     (? r==-4 nil r<=0 (: err=(? r<0 r -5) n=0) (: s=(substr s r n) n-=r)))
   err)
 (= (substr s a n) r=($newb 1 n n) ($copy r 0 s a n) r)
-(= (flush) (? OBN>0 (: n=OBN (<- OBN 0) (rawwrite 1 OBUF n))))
+(= (flush) (? OBN>0 (: n=OBN (<- OBN 0) (rawwrite 1 OBUF n))))                   ; before reads, forks and stderr: a failure is left for the next flushx
+(= (wcheck e) (? (&& ($isnum e) e<0) ($throwk 4 "write failed")) 0)       ; raise io "write failed" for a negative errno
+(= (flushx) (wcheck (flush)))
 (= (out s) n=($hlen s)
   (? OBUF==nil (<- OBUF ($newb 1 65536 65536)))
-  (? OBN+n>65536 (flush))
-  (? n>65536 (rawwrite 1 s n)
+  (? OBN+n>65536 (flushx))
+  (? n>65536 (wcheck (rawwrite 1 s n))
      (: ($copy OBUF OBN s 0 n) (<- OBN OBN+n))))
 (= (eout s) (flush) (rawwrite 2 s ($hlen s)))
-(= (finish) (flush) (? PROFH (profdump)) (? (env "AK_GCSTATS") (eout (strcat2 (strcat2 "gc: " (fmtint GCCOUNT)) " collections\n"))))
-(= (exit code=nil) (? (! (|| ($isnil code) (&& ($isnum code) (isint code)))) ($throwk 3 (strcat2 "exit: expected an integer, got " (ty code)))) (flush) (? PROFH (profdump)) ($syscall 231 (? ($isnil code) 0 code)))
+(= (finish) (flushx) (? PROFH (profdump)) (? (env "AK_GCSTATS") (eout (strcat2 (strcat2 "gc: " (fmtint GCCOUNT)) " collections\n"))))
+(= (exit code=nil) (? (! (|| ($isnil code) (&& ($isnum code) (isint code)))) ($throwk 3 (strcat2 "exit: expected an integer, got " (ty code)))) (flushx) (? PROFH (profdump)) ($syscall 231 (? ($isnil code) 0 code)))
 INFATAL=false
 (= (hdrw addr) w=($peekw addr) (+ (* ($bitshi w) 4294967296) ($bitslo w)))
 (= (callsites max)  ; up to max "file:line:col" user call sites found on the machine stack, innermost first (an immediate repeat, as in recursion, is listed once)

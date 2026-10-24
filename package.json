@@ -1,6 +1,6 @@
 {
   "name": "ak-lang",
-  "version": "0.7.21",
+  "version": "0.7.27",
   "description": "Ak: a token-cheap language for LLMs. Self-hosted native compiler (x86-64 Linux, no libc), plus a JS target.",
   "bin": {
     "ak": "boot/ak.js"

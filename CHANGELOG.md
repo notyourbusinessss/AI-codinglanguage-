@@ -8,6 +8,36 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.27 (2026-10-24)
+
+### Changed
+- Documented that `(rm p)` removes a directory with everything inside it and ignores a missing path (#139)
+
+## 0.7.26 (2026-10-24)
+
+### Fixed
+- Writing to stdout ignored errors: `p`, `pr` and `ak fmt` exited 0 on a full disk. A failed write now raises `write failed` and the program exits 1 (#138)
+
+## 0.7.25 (2026-10-24)
+
+### Fixed
+- `lib/pki` accepted any certificate purpose: `check_chain` now requires `serverAuth` (or `anyEKU`, or no EKU) for servers and `clientAuth` for client certificates (the TLS server asks for it), and enforces `pathLenConstraint` and DNS / IP `nameConstraints` (#154)
+
+## 0.7.24 (2026-10-24)
+
+### Added
+- `lib/httpd` timeouts `:headms`, `:idlems`, `:bodyms` (a half-sent request gets 408, an idle connection is closed) and `:maxconn` (503) (#153)
+
+## 0.7.23 (2026-10-24)
+
+### Added
+- UDP over IPv6: `(udp)` is dual-stack where the machine has IPv6, `udpl` binds IPv6 addresses (`"::"` hears both families), `udpto` takes IPv6 addresses and host names, `udpfrom2` returns 16 numbers for an IPv6 sender (#152)
+
+## 0.7.22 (2026-10-24)
+
+### Fixed
+- `lib/http` raises `bad status line`, `bad Content-Length` and `too many redirects` instead of an internal comparison error, a silent empty body or a 3xx answer returned as success (#151)
+
 ## 0.7.21 (2026-10-24)
 
 ### Added
