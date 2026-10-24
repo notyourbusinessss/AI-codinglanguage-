@@ -1,0 +1,11 @@
+; Test server for certificate choice by server name (#160): ak tls_sni_serve.aklang dir n -> prints its port, then serves n connections.
+; dir holds a.pem/a.key (a.test), w.pem/w.key (*.wild.test) and d.pem/d.key (the default); replies "hello <sni>".
+(use "../../lib/tls.aklang" as t)
+[dir n]=(args)
+(= (c name) {:cert (rd (+ dir "/" name ".pem")) :key (rd (+ dir "/" name ".key"))})
+cr=(t.creds {:names {"a.test" (c "a") "*.wild.test" (c "w")} :default (c "d")})
+l=(tcpl 0 "127.0.0.1")
+(fdw 1 (++ (tcpp l) "\n"))
+(for i (num n)
+  fd=(tcpa l)
+  (fdw 1 (++ (try (: cn=(t.accept fd cr) (t.read cn) (t.write cn (++ "hello " (?? cn.sni "-"))) (t.close cn) "ok") e=>(++ "ERR " e)) "\n")))

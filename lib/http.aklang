@@ -6,8 +6,11 @@
 ;   (h.download url path)  streams a 2xx body into the file path ({:status .. :size n}); other statuses keep their body in :body
 ; Request, header and URL text with CR, LF or NUL is refused (no request injection). A body over :max bytes (default 64 MiB, 1 TiB with download) or a head over 1 MiB raises.
 ; Proxies: HTTP_PROXY / HTTPS_PROXY (and lower case) are used unless NO_PROXY lists the host (names, .suffix, *) or it is loopback; opts :proxy "http://[user:pass@]host:port" forces one, :proxy false none. https goes through CONNECT; https:// proxies are not supported.
+; Compression: {:gzip true} sends Accept-Encoding: gzip, deflate and decodes gzip / deflate bodies (lib/inflate.aklang; :max also limits the decoded size). Not applied to h.download.
+; Connection reuse: s=h.session() then {:pool s} in the options keeps keep-alive connections for the next request to the same host and port (a reply of unknown length or with Connection: close ends the connection); (h.release s) closes them.
 ; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds, :rms / :wms = how long a read / write may stall before it raises (default 60000).
 (use "tls.aklang" as t)
+(use "inflate.aklang" as z)
 (= (b64 s)                              ; base64 of a string (for Basic authentication)
   al="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" d=(bytes s) out=""
   i=0
@@ -93,17 +96,22 @@
   (bs.sink d) nil)
 (= (readn c have n bs)                  ; n body bytes: have first, then more from c
   (? n>bs.max (netfail (++ "response body over the limit of " bs.max " bytes (option :max)")))
-  (feed bs have[..n]) got=(min #have n)
-  (wh got<n d=c.r(65536) (? d=="" (netfail "response body truncated")) d=d[..n-got] (feed bs d) got+=#d))
-(= (readall c have bs) d=nil (? have!="" (feed bs have)) (wh d!="" d=c.r(65536) (? d!="" (feed bs d))))
-(= (readchunks c have bs)
+  (feed bs have[..n]) got=(min #have n) bs.rest=(? #have>n have[n..] "")
+  (wh got<n d=c.r(65536) (? d=="" (netfail "response body truncated")) (? #d>n-got bs.rest=d[n-got..]) d=d[..n-got] (feed bs d) got+=#d))
+(= (readall c have bs) d=nil bs.rest=nil (? have!="" (feed bs have)) (wh d!="" d=c.r(65536) (? d!="" (feed bs d))))
+(= (readchunks c have bs)               ; chunks until the last one, then the trailer lines; whatever follows is left in bs.rest
   n=-1
   (wh n!=0
     (wh (! (has have "\r\n")) d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d)
     k=(idx have "\r\n") n=(num (++ "0x" (trim (split have[..k] ";")[0]))) have=have[k+2..]
     (? (! (&& (isnum n) n>=0)) (netfail "bad chunk size"))
     (? bs.n+n>bs.max (netfail (++ "response body over the limit of " bs.max " bytes (option :max)")))
-    (? n>0 (: (wh #have<n+2 d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d) (feed bs have[..n]) have=have[n+2..]))))
+    (? n>0 (: (wh #have<n+2 d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d) (feed bs have[..n]) have=have[n+2..])))
+  fin=false
+  (wh (! fin)
+    (wh (! (has have "\r\n")) d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d)
+    k=(idx have "\r\n") fin=(== k 0) have=have[k+2..])
+  bs.rest=have)
 (= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path
   origin=(++ (? sec "https://" "http://") (hostpart host) (? port==(? sec 443 80) "" (++ ":" port)))
   dir=(join (split (split path "?")[0] "/")[..-1] "/")
@@ -111,27 +119,38 @@
      (starts loc "//") (++ (? sec "https:" "http:") loc)
      (starts loc "/") (++ origin loc)
      (++ origin dir "/" loc)))
+(= (fresh px pp sec host port opts)     ; a new stream to the host, directly or through the proxy px (parsed pp)
+  (? (&& px sec) (tunnel px host port opts) px (open pp[0] pp[1] pp[2] opts) (open sec host port opts)))
+(= (session) {:conns {}})                ; a connection pool for the :pool option: keep-alive connections wait in it for the next request to the same host
+(= (release pool) (for k (keys pool.conns) (try pool.conns[k].c() e=>nil)) pool.conns={} nil)
+(= (exchange c head body)               ; send a request, read the reply head: [head rest]
+  c.w((++ head (?? body "")))
+  (readhead c))
 (= (req method url body=nil headers=nil opts=nil hops=0)
   [sec host port path user]=(parseurl url) opts=(?? opts {})
   (chk "method" method " :/") (chk "URL" url "") (chk "host" host "")
   px=(proxyfor sec host opts)
   pp=(? px (parseurl px) nil)
   auth=(? port==(? sec 443 80) (hostpart host) (++ (hostpart host) ":" port))
-  h={:Host auth :Connection "close" "User-Agent" "ak"}
+  pool=opts.pool key=(++ (? sec "https" "http") "://" auth (? px (++ " via " px) ""))
+  h={:Host auth :Connection (? pool "keep-alive" "close") "User-Agent" "ak"}
+  (? opts.gzip h["Accept-Encoding"]="gzip, deflate")
   (? user h.Authorization=(++ "Basic " (b64 user)))
   (? (&& px (! sec) pp[4]) h["Proxy-Authorization"]=(++ "Basic " (b64 pp[4])))
   (? body (: h["Content-Length"]=#body))
   (for [k v] (?? headers {}) (: (chk "header name" k " :") (chk "header value" (tostr v) "") h[k]=v))
   head=(++ method " " (? (&& px (! sec)) (++ "http://" auth path) path) " HTTP/1.1\r\n" (join (~ k=>(++ k ": " h[k]) (keys h)) "\r\n") "\r\n\r\n")
-  c=(? (&& px sec) (tunnel px host port opts) px (open pp[0] pp[1] pp[2] opts) (open sec host port opts))
-  c.w((++ head (?? body "")))
-  [rh rest]=(readhead c)
+  old=(? pool pool.conns[key] nil)
+  (? old pool.conns=(del pool.conns key))
+  c=(?? old (fresh px pp sec host port opts))
+  ; a pooled connection the server has since closed fails before any reply byte: once more on a new one
+  [rh rest]=(? old (try (exchange c head body) e=>(? (has ["read timed out" "write timed out"] e) (raise "io" e nil) (: (try c.c() e=>nil) c=(fresh px pp sec host port opts) (exchange c head body)))) (exchange c head body))
   lines=(split rh "\r\n") st=(statusof lines[0])
   (? (== st nil) (: c.c() (netfail "bad status line in the response")))
   hd={} (for l lines[1..] k=(idx l ":") (? k>0 hd[(lo l[..k])]=(trim l[k+1..])))
   cl=(? hd["content-length"] (clen hd["content-length"]) nil)
   (? (&& hd["content-length"] (== cl nil)) (: c.c() (netfail "bad Content-Length in the response")))
-  bs={:n 0 :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil}
+  bs={:n 0 :rest rest :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil}
   to=(? (&& opts.to st>=200 st<300) opts.to nil)
   (? to (wr to ""))
   bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
@@ -140,7 +159,12 @@
      (!= cl nil) (readn c rest cl bs)
      (readall c rest bs))
   out=bs.out
-  c.c()
+  nobody=(|| (== (up method) "HEAD") (has [204 304] st) (&& st>=100 st<200))
+  keep=(&& pool (starts lines[0] "HTTP/1.1") (! (has (lo (?? hd.connection "")) "close")) (|| nobody (!= cl nil) (has (lo (?? hd["transfer-encoding"] "")) "chunked")) (== bs.rest ""))
+  (? keep (: pool.conns[key]=c) c.c())
+  ce=(lo (trim (?? hd["content-encoding"] "")))
+  (? (&& opts.gzip (! to) (> #out 0) (has ["gzip" "x-gzip" "deflate"] ce))
+     out=(? (== ce "deflate") (try (z.zlib out bs.max) e=>(z.inflate out bs.max)) (z.gunzip out bs.max)))
   (? (&& (has [301 302 303 307 308] st) hd.location hops>=5) (netfail "too many redirects"))
   (? (&& (has [301 302 303 307 308] st) hd.location)
      (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)

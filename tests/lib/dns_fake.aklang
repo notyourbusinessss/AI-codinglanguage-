@@ -1,16 +1,19 @@
 ; A fake nameserver for the resolver tests (#56): ak dns_fake.aklang -> prints its port (UDP and TCP), then answers forever and logs "<name> <qtype> udp|tcp" per query on stdout.
-; v6.test: only AAAA 2001:db8::7 · both.test: A 192.0.2.7 + AAAA 2001:db8::7 · big.test: the UDP answer is truncated, the TCP one has A 192.0.2.9 · ttl.test: A 192.0.2.5 + AAAA 2001:db8::5 with TTL 1 · db.lab.test, a.b.lab.test, a.b: A 192.0.2.60 / .61 / .62 (search-domain tests) · anything else: NXDOMAIN
+; v6.test: only AAAA 2001:db8::7 · both.test: A 192.0.2.7 + AAAA 2001:db8::7 · big.test: the UDP answer is truncated, the TCP one has A 192.0.2.9 · ttl.test: A 192.0.2.5 + AAAA 2001:db8::5 with TTL 1 · db.lab.test, a.b.lab.test, a.b: A 192.0.2.60 / .61 / .62 (search-domain tests) · PTR: 192.0.2.77 -> host77.example.test + alias.77.2.0.192.in-addr.arpa (compressed), 2001:db8::7 -> v6.example.test · anything else: NXDOMAIN
 u=(udpl 0 "127.0.0.1")
 port=(tcpp u)
 l=(tcpl port "127.0.0.1")
 (= (say s) (fdw 1 (++ s "\n")))
 (say port)
+(= (enc name) (flat [..(~ l=>[#l ..(bytes l)] (split name ".")) [0]]))   ; a name as DNS labels
 (= (rec name qt)                        ; [ttl addresses] for the question, or nil for NXDOMAIN
   (sw name
     "v6.test" [60 (? qt==28 [(ip6 "2001:db8::7")] [])]
     "both.test" [60 (? qt==28 [(ip6 "2001:db8::7")] [[192 0 2 7]])]
     "big.test" [60 (? qt==1 [[192 0 2 9]] [])]
     "ttl.test" [1 (? qt==28 [(ip6 "2001:db8::5")] [[192 0 2 5]])]
+    "77.2.0.192.in-addr.arpa" [60 (? qt==12 [(enc "host77.example.test") [5 97 108 105 97 115 192 12]] [])]
+    "7.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa" [60 (? qt==12 [(enc "v6.example.test")] [])]
     "db.lab.test" [60 (? qt==1 [[192 0 2 60]] [])]
     "a.b.lab.test" [60 (? qt==1 [[192 0 2 61]] [])]
     "a.b" [60 (? qt==1 [[192 0 2 62]] [])]

@@ -1,0 +1,106 @@
+; DEFLATE (RFC 1951) with the gzip (RFC 1952) and zlib (RFC 1950) wrappers, in Ak.
+;   (use "lib/inflate.aklang" as z)
+;   (z.inflate s max)  raw deflate -> string      (z.gunzip s max)  gzip (CRC-32 and length checked)      (z.zlib s max)  zlib (Adler-32 checked)
+; max (optional, default 268435456) is the most output bytes; more raises, so a compressed bomb cannot fill memory. Corrupt input raises kind "io".
+(= (bad m) (raise "io" (++ "inflate: " m) nil))
+(= (bit st)
+  (? st.nb==0 (: (? st.pos>=#st.d (bad "unexpected end of data")) st.cur=st.d[st.pos] st.pos=st.pos+1 st.nb=8))
+  b=(& st.cur 1) st.cur=(>> st.cur 1) st.nb=st.nb-1 b)
+(= (bits st n) v=0 pw=1 (for i n v=v+(bit st)*pw pw=pw*2) v)
+(= (hbuild lens)                        ; canonical Huffman decoder from code lengths: {:cnt [..] :sym [..]}
+  n=#lens cnt=(rpt [0] 16) (for i n cnt[lens[i]]=cnt[lens[i]]+1)
+  offs=(rpt [0] 17) (for l 1..16 offs[l+1]=offs[l]+cnt[l])
+  sym=(rpt [0] n) (for i n (? lens[i]!=0 (: sym[offs[lens[i]]]=i offs[lens[i]]=offs[lens[i]]+1)))
+  {:cnt cnt :sym sym})
+(= (hdecode st h)
+  code=0 first=0 index=0 len=1 res=nil
+  (wh (&& (== res nil) len<=15)
+    code=code+(bit st) count=h.cnt[len]
+    (? code-count<first res=h.sym[index+code-first]
+       (: index=index+count first=(* (+ first count) 2) code=code*2 len=len+1)))
+  (? (== res nil) (bad "invalid code")) res)
+LBASE=[3 4 5 6 7 8 9 10 11 13 15 17 19 23 27 31 35 43 51 59 67 83 99 115 131 163 195 227 258]
+LEXT=[0 0 0 0 0 0 0 0 1 1 1 1 2 2 2 2 3 3 3 3 4 4 4 4 5 5 5 5 0]
+DBASE=[1 2 3 4 5 7 9 13 17 25 33 49 65 97 129 193 257 385 513 769 1025 1537 2049 3073 4097 6145 8193 12289 16385 24577]
+DEXT=[0 0 0 0 1 1 2 2 3 3 4 4 5 5 6 6 7 7 8 8 9 9 10 10 11 11 12 12 13 13]
+CLORDER=[16 17 18 0 8 7 9 6 10 5 11 4 12 3 13 2 14 1 15]
+FIXL=nil
+(= (codes st lh dh)                     ; decode literal/length + distance symbols until end-of-block
+  done=false
+  (wh (! done)
+    s=(hdecode st lh)
+    (? s<256 (: (push st.out s) (? #st.out>st.max (bad "output over the limit")))
+       s==256 done=true
+       (: s=s-257 (? s>=29 (bad "invalid length symbol"))
+          len=LBASE[s]+(bits st LEXT[s]) ds=(hdecode st dh) (? ds>=30 (bad "invalid distance symbol"))
+          dist=DBASE[ds]+(bits st DEXT[ds]) o=st.out n=#o
+          (? dist>n (bad "distance too far back"))
+          (? n+len>st.max (bad "output over the limit"))
+          (for i len (push o o[n-dist+i])))))
+  nil)
+(= (fixed)
+  (? (== FIXL nil) (<- FIXL [(hbuild (flat [(rpt [8] 144) (rpt [9] 112) (rpt [7] 24) (rpt [8] 8)])) (hbuild (rpt [5] 30))]))
+  FIXL)
+(= (dynamic st)
+  nlen=(+ (bits st 5) 257) ndist=(+ (bits st 5) 1) ncode=(+ (bits st 4) 4)
+  (? (|| nlen>286 ndist>30) (bad "too many length or distance codes"))
+  cl=(rpt [0] 19) (for i ncode cl[CLORDER[i]]=(bits st 3))
+  ch=(hbuild cl) lens=[]
+  (wh #lens<nlen+ndist
+    s=(hdecode st ch)
+    (? s<16 (push lens s)
+       (: prev=0 rep=0
+          (? s==16 (: (? (! #lens) (bad "repeat with no previous length")) prev=lens[#lens-1] rep=3+(bits st 2))
+             s==17 rep=3+(bits st 3)
+             rep=11+(bits st 7))
+          (? #lens+rep>nlen+ndist (bad "too many lengths"))
+          (for i rep (push lens prev)))))
+  (? (== lens[256] 0) (bad "no end-of-block code"))
+  (codes st (hbuild lens[..nlen]) (hbuild lens[nlen..])))
+(= (inflate s max=nil)
+  st={:d (bytes s) :pos 0 :cur 0 :nb 0 :out [] :max (?? max 268435456)} last=false
+  (wh (! last)
+    last=(== (bit st) 1) t=(bits st 2)
+    (? t==0 (: st.nb=0 p=st.pos (? p+4>#st.d (bad "unexpected end of data"))
+               n=st.d[p]+st.d[p+1]*256 c=st.d[p+2]+st.d[p+3]*256
+               (? (!= n (- 65535 c)) (bad "stored block length mismatch"))
+               (? p+4+n>#st.d (bad "unexpected end of data"))
+               (? #st.out+n>st.max (bad "output over the limit"))
+               (for i n (push st.out st.d[p+4+i])) st.pos=p+4+n)
+       t==1 (: f=(fixed) (codes st f[0] f[1]))
+       t==2 (dynamic st)
+       (bad "invalid block type")))
+  (frombytes st.out))
+(= (u32 x) (% x 4294967296))      ; the bit operators work on 32-bit signed values: bring a result back to 0..2^32-1
+(= (crc32 s)
+  c=4294967295
+  (for b (bytes s)
+    c=(u32 (^ c b))
+    (for k 8 c=(? (& c 1) (u32 (^ (>>> c 1) 3988292384)) (>>> c 1))))
+  (u32 (^ c 4294967295)))
+(= (gunzip s max=nil)
+  d=(bytes s)
+  (? (|| #d<18 d[0]!=31 d[1]!=139) (bad "not gzip data"))
+  (? d[2]!=8 (bad "unsupported gzip compression method"))
+  fl=d[3] p=10
+  (? (& fl 4) (: p=p+2+d[p]+d[p+1]*256))
+  (? (& fl 8) (: (wh (&& p<#d d[p]!=0) p=p+1) p=p+1))
+  (? (& fl 16) (: (wh (&& p<#d d[p]!=0) p=p+1) p=p+1))
+  (? (& fl 2) p=p+2)
+  (? p>#d-8 (bad "truncated gzip data"))
+  out=(inflate s[p..#s-8] max)
+  t=#d-8 crc=d[t]+d[t+1]*256+d[t+2]*65536+d[t+3]*16777216 sz=d[t+4]+d[t+5]*256+d[t+6]*65536+d[t+7]*16777216
+  (? (!= crc (crc32 out)) (bad "gzip CRC mismatch"))
+  (? (!= sz (% #out 4294967296)) (bad "gzip length mismatch"))
+  out)
+(= (adler32 s)
+  a=1 b=0 (for x (bytes s) a=(% (+ a x) 65521) b=(% (+ b a) 65521))
+  b*65536+a)
+(= (zlib s max=nil)
+  d=(bytes s)
+  (? (|| #d<6 (!= (& d[0] 15) 8) (!= (% (+ (* d[0] 256) d[1]) 31) 0)) (bad "not zlib data"))
+  (? (& d[1] 32) (bad "zlib preset dictionaries are not supported"))
+  out=(inflate s[2..#s-4] max)
+  t=#d-4 ad=d[t]*16777216+d[t+1]*65536+d[t+2]*256+d[t+3]
+  (? (!= ad (adler32 out)) (bad "zlib checksum mismatch"))
+  out)
