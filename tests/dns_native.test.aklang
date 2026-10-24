@@ -1,0 +1,22 @@
+; AAAA lookups, DNS over TCP after a truncated answer, the TTL cache and IPv6 address parsing (#56), against tests/lib/dns_fake.aklang
+(use "lib/run.aklang" as t)
+base=(+ "/tmp/akdns-" ($ (now)) "-" ($ (rand 1000000000)))
+pid=(trim (sh (+ "bin/ak tests/lib/dns_fake.aklang >" base ".out 2>&1 & echo $!")))
+(wh (|| (! (ex (+ base ".out"))) (! (has (rd (+ base ".out")) "\n"))) (sleep 50))
+port=(trim (fst (split (rd (+ base ".out")) "\n")))
+r=(t.run (+ "AK_DNS=127.0.0.1:" port " bin/ak tests/lib/dns_client.aklang") nil)
+log=(split (trim (rd (+ base ".out"))) "\n")
+(sh (+ "kill " pid " 2>/dev/null; rm -f " base ".out"))
+(assert (== r.code 0) (+ "dns_client failed: " r.err))
+(assert (== r.out "[\"2001:db8::7\"]\n[\"192.0.2.7\" \"2001:db8::7\"]\n[\"192.0.2.9\"]\n[\"192.0.2.5\" \"2001:db8::5\"] [\"192.0.2.5\" \"2001:db8::5\"]\n[\"192.0.2.5\" \"2001:db8::5\"]\ncannot resolve nx.test\n[\"::1\"] [\"2001:db8::1\"] [\"127.0.0.1\"]\n") (+ "resolver output: " (show r.out)))
+q=log[1..]
+(assert (has q "v6.test 28 udp") "AAAA is asked")
+(assert (&& (has q "big.test 1 udp") (has q "big.test 1 tcp") (has q "big.test 28 tcp")) (+ "a truncated answer is repeated over TCP: " (show q)))
+(assert (== (len (~? x=>(== x "ttl.test 1 udp") q)) 2) (+ "the cache serves the second lookup and expires after the TTL: " (show q)))
+(assert (== (len (~? x=>(== x "ttl.test 28 udp") q)) 2) (+ "AAAA is cached too: " (show q)))
+; IPv6 address text
+cases=[["::1" "::1"] ["::" "::"] ["2001:db8::1" "2001:db8::1"] ["fe80::1%eth0" "fe80::1"] ["::ffff:1.2.3.4" "::ffff:102:304"] ["1:2:3:4:5:6:7:8" "1:2:3:4:5:6:7:8"]
+       ["1:0:0:2:0:0:0:3" "1:0:0:2::3"] ["2001:0db8:0000:0000:0000:ff00:0042:8329" "2001:db8::ff00:42:8329"] ["1::2::3" nil] ["12345::1" nil] ["1:2:3:4:5:6:7" nil] ["1:2:3:4:5:6:7:8:9" nil] [":1" nil] ["1:" nil] ["::g" nil] ["1.2.3.4" nil]]
+(for [h want] cases
+  got=(? (ip6 h) (ip6fmt (ip6 h)) nil)
+  (assert (== got want) (+ "ip6 " h ": " (show got))))
