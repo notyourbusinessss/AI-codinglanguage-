@@ -46,8 +46,8 @@ srv.listen(0, '127.0.0.1', async () => {
   t('body until close', r.out === 'until close\n', r);
   r = await run(`r=(h.get ${u('/redir')}) (p r.status r.body)`);
   t('redirect is followed', r.out === '200 hello\n', r);
-  r = await run(`(p (h.get ${u('/loop')}).status)`);
-  t('redirect loop stops after 5 hops', r.out === '302\n', r);
+  r = await run(`(p (try (h.get ${u('/loop')}) e=>e))`);
+  t('redirect loop stops after 5 hops with an error (#151)', r.out === 'too many redirects\n', r);
   r = await run(`r=(h.post ${u('/post')} "data" {"X-Extra" "yes"}) (p r.status r.body)`);
   t('POST with body and extra header', r.out === '201 POST:data:yes\n', r);
   r = await run(`(p (h.get ${u('/missing')}).status)`);

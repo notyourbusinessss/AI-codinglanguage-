@@ -3,10 +3,10 @@
 ;   k.pem_certs text -> list of DER strings          k.cert_parse der -> map: raw tbs sigalg sig issuer subject nb na key san ips ca keyusage
 ;   k.verify_sig key alg data sig -> true / false    alg: rsa_pkcs1_sha256 rsa_pkcs1_sha384 rsa_pss_sha256 rsa_pss_sha384 ecdsa_sha256 ecdsa_sha384
 ;   k.trust_roots -> parsed CA certificates from the system bundle (SSL_CERT_FILE overrides)
-;   k.check_chain ders host roots now -> the parsed leaf, or raises "certificate: why"   (host: a name, a dotted IPv4 or an IPv6 literal, or nil to skip the name check; now: unix seconds)
+;   k.check_chain ders host roots now -> the parsed leaf, or raises "certificate: why"   (host: a name, a dotted IPv4 or an IPv6 literal, or nil to skip the name check; now: unix seconds; purpose: nil for a TLS server, "client" for a client certificate)
 ;   k.priv_parse pem -> private key map (PEM "PRIVATE KEY", "EC PRIVATE KEY" or "RSA PRIVATE KEY", unencrypted; RSA or EC P-256/P-384)
 ;   k.sign key alg data -> signature string (alg: rsa_pss_sha256 rsa_pss_sha384 ecdsa_sha256 ecdsa_sha384)      k.key_matches priv pub -> true / false (pub: a cert's :key)
-; Checked: signatures along the chain, validity dates, CA flag and keyCertSign, subjectAltName host match. Not checked: revocation, name constraints, path length, extended key usage.
+; Checked: signatures along the chain, validity dates, CA flag and keyCertSign, subjectAltName host match, extended key usage (serverAuth / clientAuth / anyEKU, when present), pathLenConstraint, nameConstraints (DNS and IP). Not checked: revocation. Cert maps also carry eku (OID hex strings), pathlen, nc, ipb.
 (use "crypto.aklang" as c)
 ; ---- DER: an element is [tag content_start content_end element_start]
 (= (der_at s i)
@@ -169,18 +169,48 @@ CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
   r={:raw der :tbs (der_full der parts[0]) :sigalg (sigalg_name der parts[1]) :sig (der_str der parts[2])[1..]
      :issuer (der_full der is) :subject (der_full der su)
      :nb (der_time der (der_kids der va)[0]) :na (der_time der (der_kids der va)[1])
-     :key (spki_key der sp) :san [] :ips [] :ca false :keyusage nil}
+     :key (spki_key der sp) :san [] :ips [] :ipb [] :ca false :pathlen nil :keyusage nil :eku nil :nc nil}
   (for x exts
     k=(der_kids der x) o=(oid der k[0]) v=k[#k-1]
     inner=(der_at der v[1])
     (sw o
       "551d11" (for g (der_kids der inner)
                  (? g[0]==130 r.san=(+> r.san (lo (der_str der g)))
-                    g[0]==135 r.ips=(+> r.ips (: bs=(der_str der g) (? #bs==16 (ip6fmt (bytes bs)) (join (~ b=>(tostr b) (bytes bs)) "."))))))
-      "551d13" (: bc=(der_kids der inner) (? (&& #bc>0 bc[0][0]==1) r.ca=(!= ($ldb der bc[0][1]) 0)))
+                    g[0]==135 (: bs=(der_str der g) r.ipb=(+> r.ipb (bytes bs))
+                                 r.ips=(+> r.ips (? #bs==16 (ip6fmt (bytes bs)) (join (~ b=>(tostr b) (bytes bs)) "."))))))
+      "551d13" (: bc=(der_kids der inner) (? (&& #bc>0 bc[0][0]==1) r.ca=(!= ($ldb der bc[0][1]) 0))
+                  (for b bc (? b[0]==2 r.pathlen=(~/ (\ (a x) (+ (* a 256) x)) 0 (bytes (der_str der b))))))
+      "551d25" r.eku=(~ q=>(oid der q) (der_kids der inner))
+      "551d1e" (: nc={:pdns [] :pip [] :edns [] :eip []}
+                  (for t (der_kids der inner)
+                    (for st (der_kids der t)
+                      g=(der_kids der st)[0]
+                      (? g[0]==130 (: key=(? t[0]==160 "pdns" "edns") nc[key]=(+> nc[key] (lo (der_str der g))))
+                         g[0]==135 (: key=(? t[0]==160 "pip" "eip") nc[key]=(+> nc[key] (bytes (der_str der g)))))))
+                  r.nc=nc)
       "551d0f" (: bs=(der_str der inner) r.keyusage=(? #bs>1 ($ldb bs 1) 0))
       nil))
   r)
+(= (dns_within name cons)               ; is the DNS name inside the constraint subtree? ("example.com" holds itself and subdomains, ".example.com" only subdomains, "" everything)
+  (|| (== cons "") (== name cons) (&& (ends name (? (starts cons ".") cons (++ "." cons))) (> #name #cons))))
+(= (ip_within b cons)                   ; b: 4 or 16 bytes, cons: address then mask (8 or 32 bytes)
+  n=#b
+  (&& (== #cons 2*n) (all (\ (i) (== (& b[i] cons[n+i]) (& cons[i] cons[n+i]))) 0..n)))
+(= (nc_check nc leaf)                   ; name constraints of a CA against the leaf's names
+  (for nm leaf.san
+    (? (&& #nc.pdns (! (any (\ (c) (dns_within nm c)) nc.pdns))) (err "certificate: name not permitted by a name constraint"))
+    (? (any (\ (c) (dns_within nm c)) nc.edns) (err "certificate: name excluded by a name constraint")))
+  (for b leaf.ipb
+    fam=(~? (\ (c) (== #c 2*#b)) nc.pip)
+    (? (&& #fam (! (any (\ (c) (ip_within b c)) fam))) (err "certificate: address not permitted by a name constraint"))
+    (? (any (\ (c) (ip_within b c)) nc.eip) (err "certificate: address excluded by a name constraint"))))
+(= (chain_rules chain purpose)          ; extended key usage (not the trust anchor), path length and name constraints along [leaf .. anchor]
+  want=(? (== purpose "client") "2b06010505070302" "2b06010505070301") n=#chain
+  (for i 0..n
+    x=chain[i]
+    (? (&& x.eku i<n-1 (! (has x.eku want)) (! (has x.eku "551d2500"))) (err (++ "certificate: not valid for " (? (== purpose "client") "client" "server") " authentication")))
+    (? (&& i>0 (!= x.pathlen nil) x.pathlen<i-1) (err "certificate: path length constraint violated"))
+    (? (&& i>0 x.nc) (nc_check x.nc chain[0]))))
 (= (cert_valid cert now) (&& cert.nb<=now now<=cert.na))
 (= (host_match cert host)
   h=(lo host) v4=(dotted host) v6=(? v4 nil (ip6 host))
@@ -206,20 +236,21 @@ CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
             (try (push out (cert_parse d)) e=>nil)))))
   (? (! #out) (err "certificate: no CA bundle found (set SSL_CERT_FILE)"))
   out)
-(= (check_chain ders host roots now)
-  certs=(~ d=>(cert_parse d) ders) leaf=certs[0]
+(= (check_chain ders host roots now purpose=nil)
+  certs=(~ d=>(cert_parse d) ders) leaf=certs[0] chain=[leaf]
   (? (! (cert_valid leaf now)) (err "certificate: leaf is expired or not yet valid"))
   (? (&& host (! (host_match leaf host))) (err (++ "certificate: host name " host " does not match the certificate")))
   cur=leaf depth=0 result=nil
   (wh (&& ($isnil result) depth<10)
     anchor=(first (~? r=>(&& (== r.subject cur.issuer) (cert_valid r now) (can_sign r) (cert_sig_ok cur r)) roots))
-    (? anchor result=true
+    (? anchor (: result=true chain=(+> chain anchor))
        (== cur.subject cur.issuer) (err "certificate: self-signed certificate is not trusted")
        (: nxt=(first (~? x=>(&& (== x.subject cur.issuer) (can_sign x) (cert_valid x now) (cert_sig_ok cur x)) certs))
           (? ($isnil nxt) (err "certificate: unable to find a trusted issuer")
-             (: cur=nxt depth+=1))))
+             (: cur=nxt chain=(+> chain nxt) depth+=1))))
     )
   (? ($isnil result) (err "certificate: chain is too long"))
+  (chain_rules chain purpose)
   leaf)
 (= (first xs) (? #xs xs[0] nil))
 ; ---- private keys and signing (for a TLS server)

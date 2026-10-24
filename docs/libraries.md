@@ -135,8 +135,8 @@ Built in, no `use` needed. Descriptors are plain numbers.
 | `(fdwait [fd ..] ms)` | the readable descriptors among them (`ms` < 0 waits forever) |
 | `(fdpoll [rfd ..] [wfd ..] ms)` | `[readable writable]`: which of the read and write descriptors are ready |
 | `(dns name)` | the addresses of a name as strings, IPv4 first, then IPv6 |
-| `(udp)`, `(udpto fd ip port s)`, `(udpfrom fd n ms)` | UDP client sockets (`ip` is a dotted IPv4 string or `[a b c d]`) |
-| `(udpl port host)`, `(udpfrom2 fd n ms)` | UDP server: bind a socket (`tcpp` gives the port); `udpfrom2` returns `[data ip port]` so the server can reply with `udpto` |
+| `(udp)`, `(udpto fd ip port s)`, `(udpfrom fd n ms)` | UDP client sockets: dual-stack IPv6 where the machine has it, else IPv4 (`ip` is an IPv4 or IPv6 string, `[a b c d]` or 16 numbers, or a host name resolved like `tcpc`) |
+| `(udpl port host)`, `(udpfrom2 fd n ms)` | UDP server: bind a socket (`tcpp` gives the port; `"::1"` or `"::"` make an IPv6 socket, `"::"` also hears IPv4); `udpfrom2` returns `[data ip port]` (ip is `[a b c d]` for IPv4, 16 numbers for IPv6) so the server can reply with `udpto` |
 
 ```ak
 l=(tcpl 0 "127.0.0.1")
@@ -171,7 +171,7 @@ p r.status r.body
 
 r=(try (h.get "https://expired.badssl.com/") e=>(++ "failed: " e))   ; certificate errors raise kind "io"
 ```
-`(h.req method url body headers opts)` is the general form; `opts` is `{:roots certs :ms connect-timeout :rms read-stall-ms :wms write-stall-ms}` (a read or write that makes no progress for `:rms` / `:wms` milliseconds, 60 s by default, raises `read timed out` / `write timed out`). URLs follow RFC 3986: the scheme is case-insensitive, `http://user:pass@host/` sends `Authorization: Basic ...`, a `#fragment` is never sent, `http://host?x=1` requests `/?x=1`, `[::1]` hosts parse and a bad port raises `bad port in URL`; header names with a dash are written as strings: `{"content-type" "text/plain"}`.
+`(h.req method url body headers opts)` is the general form (a malformed status line or `Content-Length` raises, and a sixth redirect raises `too many redirects`); `opts` is `{:roots certs :ms connect-timeout :rms read-stall-ms :wms write-stall-ms}` (a read or write that makes no progress for `:rms` / `:wms` milliseconds, 60 s by default, raises `read timed out` / `write timed out`). URLs follow RFC 3986: the scheme is case-insensitive, `http://user:pass@host/` sends `Authorization: Basic ...`, a `#fragment` is never sent, `http://host?x=1` requests `/?x=1`, `[::1]` hosts parse and a bad port raises `bad port in URL`; header names with a dash are written as strings: `{"content-type" "text/plain"}`.
 
 Safety and size: a method, URL, header name or value with CR, LF or NUL (and a header name with a space or colon) raises `illegal character in the ..` before anything is sent. A body over `:max` bytes (default 64 MiB) or a response head over 1 MiB raises; `(h.download url path opts)` writes a 2xx body straight into the file (limit 1 TiB unless `:max`) and returns `{:status :headers :body "" :size n}`. Proxies: `HTTP_PROXY` / `HTTPS_PROXY` (also lower case) are used for `http://` (absolute-form request) and `https://` (`CONNECT`, TLS inside) unless `NO_PROXY` lists the host (`example.com`, `.corp`, `*`) or it is loopback; `{:proxy "http://user:pw@host:3128"}` forces one (`Proxy-Authorization: Basic`), `{:proxy false}` none. `https://` proxies are not supported. On the server side `req.peer` is `{:ip :port}` of the client.
 
@@ -185,7 +185,7 @@ h=(s.router [["GET" "/" (\ (rq) "hello")]
 l=(s.listen 8080 h)        ; 127.0.0.1 by default, {:host "0.0.0.0"} to serve the network
 s.run()
 ```
-The router answers 404 for an unknown path and 405 with an `Allow` header for a wrong method; `HEAD` falls back to `GET`. Keep-alive, `Expect: 100-continue` and chunked request bodies work; a malformed request gets 400, an oversized head 431 (`:maxhead`, default 16 KB), an oversized body 413 (`:maxbody`, default 1 MB), an unsupported version 505, and a handler that raises gets 500 (the error is printed to stderr) without stopping the server. There is no TLS (put it behind a TLS terminator) and no idle timeout. Use `s.run()` rather than another `lib/async.aklang` copy's `run`: each `use` of a file keeps its own task queue.
+The router answers 404 for an unknown path and 405 with an `Allow` header for a wrong method; `HEAD` falls back to `GET`. Keep-alive, `Expect: 100-continue` and chunked request bodies work; a malformed request gets 400, an oversized head 431 (`:maxhead`, default 16 KB), an oversized body 413 (`:maxbody`, default 1 MB), an unsupported version 505, and a handler that raises gets 500 (the error is printed to stderr) without stopping the server. Timeouts: `:headms` (30000: a request head must be complete this long after its first byte, and a new connection must send something this fast), `:idlems` (60000: a quiet keep-alive connection), `:bodyms` (30000: the whole body); a half-sent request gets 408 and the connection closes, an idle one closes without an answer. `:maxconn` caps open connections (503 beyond it). There is no TLS (put it behind a TLS terminator). Use `s.run()` rather than another `lib/async.aklang` copy's `run`: each `use` of a file keeps its own task queue.
 
 ## WebSocket: `lib/ws.aklang`
 RFC 6455 over any stream, client and server. `ws=(w.connect "ws://host:8080/chat" {:protocols ["chat"]})` (`wss://` goes through `lib/tls.aklang`), `(w.send ws text)`, `(w.sendb ws bytes)`, `(w.recv ws)` for the next message (nil after the peer has closed; `ws.bin` tells whether it was binary), `(w.ping ws)`, `(w.close ws 1000 "bye")`. A server accepts a socket from `tcpa` (or `unixl`): `ws=(w.accept (w.fdstream fd) {:protocols ["chat"]})` answers the upgrade (nil after a 400/426 reply when it is not one) and `ws.path`, `ws.headers` and `ws.protocol` describe it. Fragments are joined, pings answered, a message over `:maxsize` (16 MB) or a protocol violation (an unmasked client frame, reserved bits) closes with 1009 or 1002 and raises. Text is not checked for UTF-8, and there are no extensions (permessage-deflate) and no Origin check (read `ws.headers.origin`).
@@ -221,7 +221,7 @@ ders=(k.pem_certs (rd "chain.pem"))                 ; leaf first, then the inter
 leaf=(k.check_chain ders "example.com" roots (flr (/ (now) 1000)))   ; raises "certificate: why" when it does not verify
 p leaf.subject leaf.san leaf.na
 ```
-`check_chain` verifies signatures up to a root, validity dates, the CA flag and keyCertSign, and the host name against subjectAltName (the CN is ignored). It does **not** check revocation, name constraints or path length, and rejects SHA-1 and SHA-512 signatures. See [`SPEC-extra.md`](../SPEC-extra.md) for the exact signatures.
+`check_chain` verifies signatures up to a root, validity dates, the CA flag and keyCertSign, and the host name against subjectAltName (the CN is ignored). It also enforces extended key usage (`serverAuth`, `anyEKU`; a fifth argument `"client"` requires `clientAuth`), `pathLenConstraint` and DNS / IP `nameConstraints`. It does **not** check revocation, and rejects SHA-1 and SHA-512 signatures. See [`SPEC-extra.md`](../SPEC-extra.md) for the exact signatures.
 
 ## TLS: `lib/tls.aklang`
 A TLS 1.3 and 1.2 client, and a TLS 1.3 server. The client always verifies the certificate chain and the host name, and there is deliberately no switch to turn that off.
