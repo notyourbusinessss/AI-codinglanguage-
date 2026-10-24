@@ -17,6 +17,7 @@ n=0
 (= (is name got want) (<- n n+1) (assert (== got want) (+ name ": got " (show got) " want " (show want))))
 r=(try (: 
   (is "route with a parameter" (body (raw "GET /user/42 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")) "hello 42")
+  (is "client address (#147)" (body (raw "GET /peer HTTP/1.1\r\nConnection: close\r\n\r\n")) "127.0.0.1:true")
   (is "status line" (head1 (raw "GET / HTTP/1.1\r\nConnection: close\r\n\r\n")) "HTTP/1.1 200 OK")
   (is "query decoding" (body (raw "GET /q?a=1&b=x%20y+z&a=3 HTTP/1.1\r\nConnection: close\r\n\r\n")) "{\"a\":\"3\",\"b\":\"x y z\"}")
   (is "POST body, query and header" (body (raw "POST /echo?x=9 HTTP/1.1\r\nX-Extra: 7\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc")) "POST:abc:9:7")

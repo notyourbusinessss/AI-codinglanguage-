@@ -128,6 +128,9 @@ Built in, no `use` needed. Descriptors are plain numbers.
 | `(fdw fd s ms=nil)` | write all of `s` (a string, byte list or `u8`); with `ms`, raises `write timed out` if the peer takes nothing for that long |
 | `(fdline fd ms=nil)`, `(fdreadn fd n ms=nil)` | one line (without its line ending) or exactly n bytes, buffered per descriptor; nil / fewer bytes at the end of the stream, `read timed out` after `ms` (nothing is lost, call again) |
 | `(fdwp fd s off n)` | write without blocking: the number of bytes taken (0 when the buffer is full) |
+| `(peer fd)`, `(sockname fd)` | the remote / local address of a connected socket: `{:ip "127.0.0.1" :port 80}` (IPv4 or IPv6 text) |
+| `(shutw fd)`, `(shutr fd)` | half-close: no more writing (the other side reads end-of-file and can still answer) / no more reading |
+| `(sockopt fd name on=true)` | `"nodelay"`, `"keepalive"`, `"reuseaddr"`, `"reuseport"`, `"broadcast"`; `on` is true, false or an integer |
 | `(fdc fd)` | close |
 | `(fdwait [fd ..] ms)` | the readable descriptors among them (`ms` < 0 waits forever) |
 | `(fdpoll [rfd ..] [wfd ..] ms)` | `[readable writable]`: which of the read and write descriptors are ready |
@@ -154,7 +157,7 @@ pong
 ["127.0.0.1"]
 nil
 ```
-DNS asks the nameservers in `/etc/resolv.conf` for A and AAAA records over UDP (set `AK_DNS=ip[:port]` to use another), repeats a truncated answer over TCP, honours `options timeout:N attempts:N` and caches answers in the process for their TTL (at most an hour). `examples/httpd.aklang` is a small web server using `fdwait`.
+DNS asks the nameservers in `/etc/resolv.conf` for A and AAAA records over UDP (set `AK_DNS=ip[:port]` to use another), repeats a truncated answer over TCP, honours `options timeout:N attempts:N` and caches answers in the process for their TTL (at most an hour). `search` / `domain` and `options ndots:N` of `resolv.conf` apply: a name with fewer than N dots (default 1) is tried under each search domain first, a trailing dot means absolute (`AK_RESOLV=path` reads another file). `examples/httpd.aklang` is a small web server using `fdwait`.
 
 ## HTTP client: `lib/http.aklang`
 `http://` and `https://` (TLS 1.3, certificate verified against the system CA bundle). Redirects are followed, and content-length, chunked and read-until-close bodies work. The result is `{:status :headers :body}` with lower-case header names.
@@ -169,6 +172,8 @@ p r.status r.body
 r=(try (h.get "https://expired.badssl.com/") e=>(++ "failed: " e))   ; certificate errors raise kind "io"
 ```
 `(h.req method url body headers opts)` is the general form; `opts` is `{:roots certs :ms connect-timeout :rms read-stall-ms :wms write-stall-ms}` (a read or write that makes no progress for `:rms` / `:wms` milliseconds, 60 s by default, raises `read timed out` / `write timed out`). URLs follow RFC 3986: the scheme is case-insensitive, `http://user:pass@host/` sends `Authorization: Basic ...`, a `#fragment` is never sent, `http://host?x=1` requests `/?x=1`, `[::1]` hosts parse and a bad port raises `bad port in URL`; header names with a dash are written as strings: `{"content-type" "text/plain"}`.
+
+Safety and size: a method, URL, header name or value with CR, LF or NUL (and a header name with a space or colon) raises `illegal character in the ..` before anything is sent. A body over `:max` bytes (default 64 MiB) or a response head over 1 MiB raises; `(h.download url path opts)` writes a 2xx body straight into the file (limit 1 TiB unless `:max`) and returns `{:status :headers :body "" :size n}`. Proxies: `HTTP_PROXY` / `HTTPS_PROXY` (also lower case) are used for `http://` (absolute-form request) and `https://` (`CONNECT`, TLS inside) unless `NO_PROXY` lists the host (`example.com`, `.corp`, `*`) or it is loopback; `{:proxy "http://user:pw@host:3128"}` forces one (`Proxy-Authorization: Basic`), `{:proxy false}` none. `https://` proxies are not supported. On the server side `req.peer` is `{:ip :port}` of the client.
 
 ## HTTP server: `lib/httpd.aklang`
 One task per connection on `lib/async.aklang`, so a handler is plain sequential code and may wait (`a.sleep`, other sockets) without holding up the others. The handler gets the request as a map (`:method :target :path :query :headers :body :version`; header names are lower case, `:query` is decoded) and returns a string (a 200 text reply), `[status type body]` or `{:status :headers :body}`.
