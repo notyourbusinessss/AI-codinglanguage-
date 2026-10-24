@@ -1,0 +1,20 @@
+; Test client for session resumption: ak tls_resume.aklang host port roots.pem -> three requests, the 2nd and 3rd offering the session the previous one received; prints "<resumed?> <last reply line>" for each, or "ERR <message>".
+(use "../../lib/tls.aklang" as t)
+(use "../../lib/pki.aklang" as k)
+[host port roots]=(args)
+(= (get o)
+  cn=(t.connect host (num port) o)
+  (t.write cn "GET / HTTP/1.0\r\n\r\n")
+  data="" d=nil
+  (wh d!="" d=(t.read cn) data+=d)
+  ses=(t.session cn)
+  (t.close cn)
+  [cn.resumed ses (last (split (trim (rep data "\r" "")) "\n"))])
+(= (last l) l[#l-1])
+(p (try
+  (: o={:roots (~ x=>(k.cert_parse x) (k.pem_certs (rd roots))) :ms 5000}
+     r1=(get o) o.session=r1[1]
+     r2=(get o) o.session=r2[1]
+     r3=(get o)
+     (join (~ r=>(++ (tostr r[0]) " " r[2]) [r1 r2 r3]) " | "))
+  e=>(++ "ERR " e)))

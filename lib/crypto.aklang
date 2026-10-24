@@ -1,7 +1,7 @@
 ; Cryptographic primitives written in Ak (native target): hashes, HMAC, HKDF, AEAD ciphers, X25519. Used by lib/tls.aklang.
 ;   (use "lib/crypto.aklang" as c)
 ; All byte data is a string (bytes) in and out. Not constant-time: do not use it to protect secrets from a local attacker.
-;   c.sha256 s   c.sha384 s   c.hmac hash key msg ("sha256"|"sha384")   c.hkdf_extract hash salt ikm   c.hkdf_expand hash prk info n
+;   c.sha1 s   c.sha256 s   c.sha384 s   c.hmac hash key msg ("sha256"|"sha384")   c.hkdf_extract hash salt ikm   c.hkdf_expand hash prk info n
 ;   c.chacha_seal key nonce aad plain -> cipher+tag    c.chacha_open key nonce aad data -> plain or nil
 ;   c.aes_gcm_seal key nonce aad plain / c.aes_gcm_open key nonce aad data (16-byte key)
 ;   c.x25519 scalar point   c.x25519_base scalar   c.hex s   c.unhex h   c.random n
@@ -24,6 +24,22 @@ H384L=[0xc1059ed8 0x367cd507 0x3070dd17 0xf70e5939 0xffc00b31 0x68581511 0x64f98
   (for i lenb tail[lenb-1-i]=(% bits 256) bits=(flr (/ bits 256)))
   (for b tail (push m b))
   m)
+; ---- SHA-1 (only for protocols that still need it, e.g. the WebSocket handshake; not for security)
+(= (sha1 s)
+  m=(frombytes (padmd (bytes s) #s false)) h=[1732584193 4023233417 2562383102 271733878 3285377520] w=(u32 80) i=0
+  (wh i<#m
+    (for t 16 w[t]=(be32 m i+4*t))
+    (for t 16..80 w[t]=(rotl (w[t-3]^w[t-8]^w[t-14]^w[t-16]) 1))
+    [a b c d e]=h
+    (for t 80
+      f=(? t<20 ((b&c)|((bnot b)&d)) t<40 (b^c^d) t<60 ((b&c)|(b&d)|(c&d)) (b^c^d))
+      k=(? t<20 1518500249 t<40 1859775393 t<60 2400959708 3395469782)
+      tmp=(>>> (+ (rotl a 5) f e k w[t]) 0)
+      e=d d=c c=(rotl b 30) b=a a=tmp)
+    v=[a b c d e]
+    h=(~ k=>(>>> h[k]+v[k] 0) 0..5)
+    i+=64)
+  (frombytes (~~ x=>[(>>> x 24) (>>> x 16)&255 (>>> x 8)&255 x&255] h)))
 ; ---- SHA-256
 (= (rotr x n) (>>> (| (>>> x n) (<< x (- 32 n))) 0))
 (= (sha256 s)

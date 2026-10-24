@@ -5,14 +5,57 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 
 ## Unreleased
 
+### Changed
+- Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
+
+## 0.7.15 (2026-10-24)
+
 ### Added
+- Native sockets speak IPv6: `tcpl`/`tcpc` take IPv6 addresses (`"::1"`, `"::"` also serves IPv4 clients), `(dns name)` returns AAAA records after the IPv4 ones, `tcpc` tries IPv4 addresses before IPv6, and the resolver repeats a truncated answer over TCP, honours `options timeout: attempts:` of `/etc/resolv.conf` and caches answers for their TTL (#56)
+
+## 0.7.14 (2026-10-24)
+
+### Added
+- `lib/tls`: TLS 1.2 session tickets (RFC 5077) in the client, resumed with the same `{:session s}` option (`cn.resumed`), and TLS 1.3 0-RTT early data on both sides: `:early n` in `t.creds`, `{:early data}` in the client options (always delivered, as ordinary data when 0-RTT is not possible); each ticket is accepted for 0-RTT once, within 11 s of its real age, never after a HelloRetryRequest (#141)
+
+### Changed
+- The server ticket format gained the `ticket_age_add` value; tickets issued by 0.7.8 no longer resume (clients fall back to a full handshake)
+
+## 0.7.13 (2026-10-24)
+
+### Added
+- `lib/ws.aklang`: WebSocket (RFC 6455) client and server over any stream, with subprotocols, fragments, ping/pong, close codes and size limits; `(unixl path)` listens on a Unix-domain socket; `c.sha1` in `lib/crypto` for the handshake (#60)
+
+## 0.7.12 (2026-10-24)
+
+### Added
+- `lib/httpd.aklang`: an HTTP/1.1 server library (one task per connection, router, keep-alive, chunked request bodies, limits, 400/413/431/500 instead of crashes); `examples/httpd_async.aklang` now uses it (#58)
+
+## 0.7.11 (2026-10-24)
+
+### Added
+- `(fdr fd n ms)` returns nil after `ms` milliseconds without data, `(fdw fd s ms)` raises `write timed out`, and `(fdline fd ms)` / `(fdreadn fd n ms)` read a line or exactly n bytes with per-descriptor buffering; `lib/http` and `lib/tls` use `:rms` / `:wms` (default 60 s) so a stalled server cannot hang a client (#57)
+
+## 0.7.10 (2026-10-24)
+
+### Fixed
+- `lib/http` parses URLs per RFC 3986: a `#fragment` is no longer sent, `user:pass@` becomes Basic authentication instead of the host, `http://host?x=1` works, schemes are case-insensitive, bracketed IPv6 hosts parse and a bad port is an error (#136)
+
+## 0.7.9 (2026-10-24)
+
+### Fixed
+- Socket ports are validated: `tcpl`, `tcpc`, `udpl` and `udpto` raise `invalid port: n` for a value that is not an integer from 0 (1 for `tcpc`/`udpto`) to 65535 instead of using its low 16 bits (#137)
+
+## 0.7.8 (2026-10-23)
+
+The TLS work of #102: TLS 1.2 client, ALPN, client certificates, more key exchange groups, HelloRetryRequest and session resumption.
+
+### Added
+- `lib/tls`: TLS 1.3 session resumption on both sides: the server issues stateless tickets (`:tkey` of `t.creds`), the client keeps them (`t.session`) and offers one with `{:session s}`; `cn.resumed` reports it. No tickets when client certificates are required (part of #102)
 - `lib/tls`: key exchange on secp256r1 and secp384r1 besides x25519 (TLS 1.3 and 1.2 client, TLS 1.3 server), and HelloRetryRequest on both sides (cookie echo included); `lib/pki` gained `ecdh_pair`, `ecdh` and `curve_by_id` (part of #102)
 - `lib/tls` client speaks TLS 1.2 when the server has no TLS 1.3: ECDHE (x25519) with AES-128/256-GCM or ChaCha20-Poly1305, RSA or ECDSA certificates, extended master secret, ALPN and client certificates; the ClientHello also lists secp256r1/secp384r1 so servers accept certificates on those curves (part of #102)
 - `lib/tls`: ALPN (`opts.alpn` on the client, `:alpn` in `t.creds`, `cn.alpn` for the result) and client certificates on both sides: `opts.cert`/`opts.key` on `t.connect`, `:clientca` and `:optional` in `t.creds`, `cn.peer` for the verified peer certificate (part of #102)
 - `k.check_chain` accepts `nil` as the host to skip the name check (used for client certificates)
-
-### Changed
-- Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
 ## 0.7.7 (2026-10-23)
 

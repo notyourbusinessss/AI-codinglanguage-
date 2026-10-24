@@ -1,0 +1,19 @@
+; Test client for 0-RTT: ak tls_early.aklang host port roots.pem [once] -> three connections sending an early request, the 2nd and 3rd resuming the session the previous one received; prints "<early?> <resumed?> <last line of the reply>" for each, or "ERR <message>".
+(use "../../lib/tls.aklang" as t)
+(use "../../lib/pki.aklang" as k)
+[host port roots once]=(args)
+(= (get o)
+  cn=(t.connect host (num port) o)
+  data="" d=nil
+  (? once data=(t.read cn) (wh d!="" d=(t.read cn) data+=d))
+  ses=(t.session cn)
+  (t.close cn)
+  [cn.early cn.resumed ses (last (split (trim (rep data "\r" "")) "\n"))])
+(= (last l) l[#l-1])
+(p (try
+  (: o={:roots (~ x=>(k.cert_parse x) (k.pem_certs (rd roots))) :ms 5000 :early "GET /early HTTP/1.0\r\n\r\n"}
+     r1=(get o) o.session=r1[2]
+     r2=(get o) o.session=r2[2]
+     r3=(get o)
+     (join (~ r=>(++ (tostr r[0]) " " (tostr r[1]) " " r[3]) [r1 r2 r3]) " | "))
+  e=>(++ "ERR " e)))

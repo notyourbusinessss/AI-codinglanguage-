@@ -1,0 +1,17 @@
+; socket ports are validated, not truncated to 16 bits (#137): bad ports raise "invalid port", edge ports still work
+(= (err f) (try (: (f) "no error") e=>e))
+bad=[70000 -1 80.5 65536 "80" nil]
+n=0
+(for b bad
+  (for [nm f] [["tcpl" (\ () (tcpl b "127.0.0.1"))] ["udpl" (\ () (udpl b))] ["tcpc" (\ () (tcpc "127.0.0.1" b))] ["udpto" (\ () (udpto (udp) "127.0.0.1" b "x"))]]
+    ; nil means "any port" for the listeners
+    (? (&& (== b nil) (has ["tcpl" "udpl"] nm)) nil
+       (: m=(err f) (assert (starts m "invalid port") (++ nm " " (show b) ": " m)) n+=1))))
+(assert (> n 20) (++ "too few cases ran: " n))
+(assert (== (err (\ () (tcpc "127.0.0.1" 0))) "invalid port: 0") "tcpc port 0")
+(assert (== (err (\ () (udpto (udp) "127.0.0.1" 0 "x"))) "invalid port: 0") "udpto port 0")
+l=(tcpl 0 "127.0.0.1")
+(assert (> (tcpp l) 0) "tcpl port 0 picks a port")
+u=(udpl 0 "127.0.0.1")
+(assert (> (tcpp u) 0) "udpl port 0 picks a port")
+(fdc l) (fdc u)

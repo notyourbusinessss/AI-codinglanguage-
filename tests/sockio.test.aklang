@@ -1,0 +1,5 @@
+; socket read/write timeouts and line helpers (#57): fdr with ms, fdline, fdreadn, fdw with ms
+(use "lib/run.aklang" as t)
+r=(t.run "bin/ak tests/lib/sockio.aklang" nil)
+(assert (== r.code 0) (+ "sockio failed: " r.err))
+(assert (== r.out "nil true true\nread timed out\nread timed out\nabc de fg\nh\nxyz 12 nil \nwrite timed out true\nok\nping\npong\ntrue bad Unix socket path \n") (+ "sockio output: " (show r.out)))

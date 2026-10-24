@@ -1,0 +1,36 @@
+; fdr/fdw timeouts, fdline and fdreadn (#57) over a loopback connection in one process
+l=(tcpl 0 "127.0.0.1")
+c=(tcpc "127.0.0.1" (tcpp l))
+s=(tcpa l)
+(= (err f) (try (: (f) "no error") e=>e))
+t0=(now)
+(p (fdr c 100 200) (>= (- (now) t0) 150) (< (- (now) t0) 2000))          ; silent peer: nil after about 200 ms
+(p (err (\ () (fdline c 100))))
+(fdw s "ab")
+(p (err (\ () (fdline c 100))))                                          ; no newline yet: times out, "ab" stays buffered
+(fdw s "c\r\nde\nfgh")
+(p (fdline c 1000) (fdline c 1000) (fdreadn c 2 1000))                   ; abc de fg
+(p (fdr c 100 1000))                                                      ; the buffered rest comes first: "h"
+(fdw s "xyz\n12")
+(fdc s)
+(p (fdline c) (fdreadn c 5) (fdline c) (fdr c 10 100))                    ; xyz "12" (end of stream) nil ""
+(fdc c)
+; write timeout: nobody reads, so a large write stops after ms
+l2=(tcpl 0 "127.0.0.1")
+c2=(tcpc "127.0.0.1" (tcpp l2))
+s2=(tcpa l2)
+t0=(now)
+(p (err (\ () (fdw c2 (rpt "x" 20000000) 300))) (< (- (now) t0) 5000))
+(fdw s2 "ok")
+(p (fdr c2 10 1000))
+; Unix-domain listener (#60)
+f=(++ "/tmp/ak-sockio-" (now) ".sock")
+ul=(unixl f)
+uc=(unixc f)
+us=(tcpa ul)
+(fdw uc "ping")
+(p (fdr us 10))
+(fdw us "pong")
+(p (fdr uc 10))
+(p (starts (err (\ () (unixl f))) "cannot listen on") (err (\ () (unixl ""))))
+(fdc uc) (fdc us) (fdc ul) (rm f)
