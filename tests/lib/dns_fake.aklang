@@ -1,0 +1,31 @@
+; A fake nameserver for the resolver tests (#56): ak dns_fake.aklang -> prints its port (UDP and TCP), then answers forever and logs "<name> <qtype> udp|tcp" per query on stdout.
+; v6.test: only AAAA 2001:db8::7 · both.test: A 192.0.2.7 + AAAA 2001:db8::7 · big.test: the UDP answer is truncated, the TCP one has A 192.0.2.9 · ttl.test: A 192.0.2.5 + AAAA 2001:db8::5 with TTL 1 · anything else: NXDOMAIN
+u=(udpl 0 "127.0.0.1")
+port=(tcpp u)
+l=(tcpl port "127.0.0.1")
+(= (say s) (fdw 1 (++ s "\n")))
+(say port)
+(= (rec name qt)                        ; [ttl addresses] for the question, or nil for NXDOMAIN
+  (sw name
+    "v6.test" [60 (? qt==28 [(ip6 "2001:db8::7")] [])]
+    "both.test" [60 (? qt==28 [(ip6 "2001:db8::7")] [[192 0 2 7]])]
+    "big.test" [60 (? qt==1 [[192 0 2 9]] [])]
+    "ttl.test" [1 (? qt==28 [(ip6 "2001:db8::5")] [[192 0 2 5]])]
+    nil))
+(= (respond pk proto)                   ; the response bytes (a string) to the query pk (a string)
+  id=(strslice pk 0 2) i=12 labels=[]
+  (wh ($ldb pk i)>0 n=($ldb pk i) (push labels (strslice pk i+1 i+1+n)) i+=n+1)
+  qt=(be16 pk i+1) name=(join labels ".") qend=i+5
+  r=(rec name qt) trunc=(&& (== name "big.test") (== proto "udp"))
+  (say (++ name " " qt " " proto))
+  ans=(? (|| ($isnil r) trunc) [] r[1])
+  hd=(++ id (frombytes [(? trunc 130 128) (? ($isnil r) 131 128) 0 1 0 #ans 0 0 0 0]))
+  body=(join (~ a=>(++ (frombytes [192 12 0 qt 0 1 0 0 0 (? r r[0] 0) 0 #a]) (frombytes a)) ans) "")
+  (++ hd (strslice pk 12 qend) body))
+(wh true
+  (for f (fdwait [u l] -1)
+    (? f==u
+       (: [pk ip pt]=(udpfrom2 u 512) (udpto u ip pt (respond pk "udp")))
+       (: c=(tcpa l)
+          (try (: n=(be16 (fdreadn c 2 2000) 0) pk=(fdreadn c n 2000) rs=(respond pk "tcp") (fdw c (++ (frombytes [(// #rs 256) (% #rs 256)]) rs))) e=>nil)
+          (fdc c)))))
