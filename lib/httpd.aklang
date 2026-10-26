@@ -5,7 +5,7 @@
 ; handler: (req) -> a string (200 text/plain), [status type body], or {:status 200 :headers {"Content-Type" ".."} :body ".."}.
 ; req: {:method "GET" :target "/a/b?x=1" :path "/a/b" :query {"x" "1"} :headers {"host" ".."} (lower-case names) :body ".." :version "1.1" :peer {:ip "127.0.0.1" :port 51234} (the client)}.
 ; Options (map): :host ("127.0.0.1"), :maxhead (16384 bytes of request line + headers, else 431), :maxbody (1048576 bytes, else 413), :maxreq (100 requests per connection).
-; A malformed request gets 400, an unsupported version 505, a handler that raises 500 (the error goes to stderr); none of them stops the server.
+; A malformed request gets 400 (also: Content-Length together with Transfer-Encoding, a Transfer-Encoding other than chunked, an HTTP/1.1 request without exactly one Host), an unsupported version 505, a handler that raises 500 (the error goes to stderr); none of them stops the server.
 ; Persistent connections work for HTTP/1.1 (and HTTP/1.0 with Keep-Alive); request bodies may be Content-Length or chunked; "Expect: 100-continue" is answered.
 ; (s.router routes) builds a handler from [[method pattern handler] ..]: patterns like "/user/:id" put the segment in req.params, a trailing "/*" puts the rest in req.params.rest; 404 for no path match, 405 (with Allow) for a wrong method.
 ; Timeouts (ms): :headms (30000: a request head must be complete this long after its first byte, and a connection must send its first byte this fast), :idlems (60000: a keep-alive connection may stay quiet), :bodyms (30000: the whole body); a half-sent request gets 408 and the connection closes, an idle one closes quietly. :maxconn limits open connections (503 beyond it).
@@ -31,14 +31,17 @@
   (? (|| (!= #rl 3) (== rl[0] "") (== rl[1] "")) [400 "bad request line"]
      (! (starts rl[2] "HTTP/")) [400 "bad request line"]
      (! (has ["HTTP/1.0" "HTTP/1.1"] rl[2])) [505 "only HTTP/1.0 and HTTP/1.1"]
-     (: hd={} ok=true
+     (: hd={} ok=true nh=0
         (for l lines[1..]
           k=(idx l ":")
           (? (|| k<=0 (has l[..k] " ")) ok=false
-             (: n=(lo l[..k]) v=(trim l[k+1..]) hd[n]=(? hd[n] (++ hd[n] ", " v) v))))
+             (: n=(lo l[..k]) v=(trim l[k+1..]) (? (== n "host") nh+=1) hd[n]=(? hd[n] (++ hd[n] ", " v) v))))
         t=rl[1] i=(idx t "?") f=(idx t "#") t=(? f>=0 t[..f] t) i=(idx t "?")
         (? (! ok) [400 "bad header line"]
            (! (starts t "/")) [400 "request target must start with /"]
+           (&& hd["transfer-encoding"] hd["content-length"]) [400 "Content-Length with Transfer-Encoding"]
+           (&& hd["transfer-encoding"] (!= (lo hd["transfer-encoding"]) "chunked")) [400 "unsupported Transfer-Encoding"]
+           (&& (== rl[2] "HTTP/1.1") (!= nh 1)) [400 "HTTP/1.1 needs exactly one Host header"]
            {:method rl[0] :target t :path (urldec (? i>=0 t[..i] t)) :query (parsequery (? i>=0 t[i+1..] "")) :headers hd :version rl[2][5..] :body ""}))))
 (= (more c buf)                           ; more bytes from c after the ones in buf, or nil when the peer hung up
   (? c.cn (: d=(try (t.read c.cn 65536) e=>"") (? d=="" nil (++ buf d)))

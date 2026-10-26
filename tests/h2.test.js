@@ -31,7 +31,7 @@ srv.on('stream', (st, h) => {
 const md5 = s => crypto.createHash('md5').update(s).digest('hex').slice(0, 8);
 srv.listen(0, '127.0.0.1', async () => {
   const base = 'https://localhost:' + srv.address().port;
-  const exp = (m, p, data) => { const body = `${m} ${p} ${data.length} ${md5(data)}`; return `200 h2 ${body.length} yes a=1, b=2 3000 ${body}`; };
+  const exp = (m, p, data) => { const body = `${m} ${p} ${data.length} ${md5(data)}`; return `200 h2 ${body.length} yes a=1\nb=2 3000 ${body}`; };
   t('GET', await run(base + '/a?b=1', 'GET'), exp('GET', '/a?b=1', ''));
   t('POST of 200000 bytes (over the 65535 window)', await run(base + '/up', 'POST', 200000), exp('POST', '/up', '0123456789'.repeat(20000)));
   const big = await run(base + '/big', 'GET');

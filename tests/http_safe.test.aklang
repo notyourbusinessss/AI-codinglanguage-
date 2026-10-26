@@ -29,6 +29,13 @@ r=(try (:
   (for [mode msg] [["badstatus" "bad status line in the response"] ["badlen" "bad Content-Length in the response"] ["neglen" "bad Content-Length in the response"]]
     p=(srv mode "1" "")
     (is mode (try (: (h.get (url p)) "no error") e=>e) msg))
+  ; repeated headers (#170)
+  p=(srv "cookies" "1" "") rp=(h.get (url p))
+  (is "repeated Set-Cookie kept" rp.headers["set-cookie"] "a=1; Path=/\nb=2")
+  (is "other repeated headers joined" rp.headers["x-multi"] "one, two")
+  (is "identical repeated Content-Length accepted" rp.body "hi")
+  p=(srv "difflen" "1" "")
+  (is "differing Content-Length" (try (: (h.get (url p)) "no error") e=>e) "bad Content-Length in the response")
   p=(srv "dup" "1" "")
   (is "agreeing duplicate Content-Length" (h.get (url p)).body "hi")
   p=(srv "loop" "7" "")

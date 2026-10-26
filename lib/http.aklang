@@ -1,7 +1,7 @@
 ; A small HTTP/1.1 client (native only): http:// and https:// (TLS 1.3 through lib/tls.aklang; the server certificate is verified against the system CA bundle).
 ;   (use "lib/http.aklang" as h)
 ;   (h.get url)   (h.post url body)   (h.req method url body headers)  ->  {:status 200 :headers {"content-type" ..} :body "..."}
-; Header names in the result are lower case. Content-Length, chunked and read-until-close bodies work; 301/302/303/307/308 are followed (at most 5).
+; Header names in the result are lower case; a repeated header is joined with ", " (set-cookie with "\n"), and Content-Length values that differ raise. Content-Length, chunked and read-until-close bodies work; 301/302/303/307/308 are followed (at most 5).
 ; An error (kind "io") is raised for unresolvable hosts, refused connections, certificate or handshake failures and truncated replies.
 ;   (h.download url path)  streams a 2xx body into the file path ({:status .. :size n}); other statuses keep their body in :body
 ; Request, header and URL text with CR, LF or NUL is refused (no request injection). A body over :max bytes (default 64 MiB, 1 TiB with download) or a head over 1 MiB raises.
@@ -86,6 +86,8 @@
 (= (clen v)                             ; a Content-Length value -> its number (a repeated, agreeing "5, 5" is fine), or nil
   ps=(~ x=>(trim x) (split v ","))
   (? (&& (all (\ (x) (== x ps[0])) ps) (> #ps[0] 0) #ps[0]<16 (all (\ (x) (&& x>=48 x<=57)) (bytes ps[0]))) (num ps[0]) nil))
+(= (addhd hd k v)                       ; a repeated header is kept: values joined with ", " (set-cookie with "\n", since its values hold commas)
+  hd[k]=(? (== hd[k] nil) v (++ hd[k] (? (== k "set-cookie") "\n" ", ") v)))
 (= (readhead c)                         ; bytes up to and including the blank line, plus anything read after it
   buf="" k=-1
   (wh k<0
@@ -178,7 +180,7 @@
   [rh rest]=(? old (try (exchange c head body) e=>(? (has ["read timed out" "write timed out"] e) (raise "io" e nil) (: (try c.c() e=>nil) c=(fresh px pp sec host port opts) (exchange c head body)))) (exchange c head body))
   lines=(split rh "\r\n") st=(statusof lines[0])
   (? (== st nil) (: c.c() (netfail "bad status line in the response")))
-  hd={} (for l lines[1..] k=(idx l ":") (? k>0 hd[(lo l[..k])]=(trim l[k+1..])))
+  hd={} (for l lines[1..] k=(idx l ":") (? k>0 (addhd hd (lo l[..k]) (trim l[k+1..]))))
   cl=(? hd["content-length"] (clen hd["content-length"]) nil)
   (? (&& hd["content-length"] (== cl nil)) (: c.c() (netfail "bad Content-Length in the response")))
   bs={:n 0 :rest rest :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil}

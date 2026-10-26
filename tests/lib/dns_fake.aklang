@@ -1,5 +1,5 @@
 ; A fake nameserver for the resolver tests (#56): ak dns_fake.aklang -> prints its port (UDP and TCP), then answers forever and logs "<name> <qtype> udp|tcp" per query on stdout.
-; v6.test: only AAAA 2001:db8::7 · both.test: A 192.0.2.7 + AAAA 2001:db8::7 · big.test: the UDP answer is truncated, the TCP one has A 192.0.2.9 · ttl.test: A 192.0.2.5 + AAAA 2001:db8::5 with TTL 1 · db.lab.test, a.b.lab.test, a.b: A 192.0.2.60 / .61 / .62 (search-domain tests) · PTR: 192.0.2.77 -> host77.example.test + alias.77.2.0.192.in-addr.arpa (compressed), 2001:db8::7 -> v6.example.test · anything else: NXDOMAIN
+; v6.test: only AAAA 2001:db8::7 · both.test: A 192.0.2.7 + AAAA 2001:db8::7 · big.test: the UDP answer is truncated, the TCP one has A 192.0.2.9 · ttl.test: A 192.0.2.5 + AAAA 2001:db8::5 with TTL 1 · db.lab.test, a.b.lab.test, a.b: A 192.0.2.60 / .61 / .62 (search-domain tests) · PTR: 192.0.2.77 -> host77.example.test + alias.77.2.0.192.in-addr.arpa (compressed), 2001:db8::7 -> v6.example.test · mx.test / txt.test / srv.test / ns.test / cname.test: MX, TXT, SRV, NS and CNAME records (#174) · anything else: NXDOMAIN
 u=(udpl 0 "127.0.0.1")
 port=(tcpp u)
 l=(tcpl port "127.0.0.1")
@@ -17,6 +17,11 @@ l=(tcpl port "127.0.0.1")
     "db.lab.test" [60 (? qt==1 [[192 0 2 60]] [])]
     "a.b.lab.test" [60 (? qt==1 [[192 0 2 61]] [])]
     "a.b" [60 (? qt==1 [[192 0 2 62]] [])]
+    "mx.test" [60 (? qt==15 [[0 20 ..(enc "mail2.mx.test")] [0 10 ..(enc "mail.mx.test")]] [])]
+    "txt.test" [60 (? qt==16 [[3 97 98 99 2 100 101] [4 118 61 115 49]] [])]
+    "srv.test" [60 (? qt==33 [[0 1 0 2 0 80 ..(enc "web.srv.test")]] [])]
+    "ns.test" [60 (? qt==2 [(enc "ns1.ns.test") (enc "ns2.ns.test")] [])]
+    "cname.test" [60 (? qt==5 [(enc "real.test")] [])]
     nil))
 (= (respond pk proto)                   ; the response bytes (a string) to the query pk (a string)
   id=(strslice pk 0 2) i=12 labels=[]
