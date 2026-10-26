@@ -2,7 +2,7 @@
 ;   (use "lib/h2.aklang" as z)
 ;   (z.request c method scheme authority path headers body hooks)   one request on a new connection: the preface and SETTINGS, HEADERS (+ DATA), then frames until the reply ends;
 ;       headers = {name value} (lower-case names; connection-specific ones are dropped); hooks = {:head (status headers)=>nil called with the final reply head, :data (bytes)=>nil for each piece of body}
-;       returns {:status 200 :headers {..}} (a repeated header is joined with ", ").  Raises "http2: ..." on a protocol error, RST_STREAM, GOAWAY before the reply, or an early close.
+;       returns {:status 200 :headers {..}} (a repeated header is joined with ", ", set-cookie with "\n").  Raises "http2: ..." on a protocol error, RST_STREAM, GOAWAY before the reply, or an early close.
 ;   (z.hdecode st block) (z.hencode headers)   HPACK, st = (z.hstate)
 ; One request per connection (no multiplexing, no server push: ENABLE_PUSH is 0 and a PUSH_PROMISE is an error); flow control is kept up with WINDOW_UPDATE as data arrives and respected when sending a body.
 STATIC=[
@@ -106,7 +106,7 @@ hl=(~ x=>(num x) (split HLEN " ")) hc=(~ x=>(num (++ "0x" x)) (split HCODE " "))
      (: stat=nil hd={}
         (for e hs
           (? (starts e[0] ":") (? (== e[0] ":status") stat=e[1])
-             (: n=e[0] hd[n]=(? (!= hd[n] nil) (++ hd[n] ", " e[1]) e[1]))))
+             (: n=e[0] hd[n]=(? (!= hd[n] nil) (++ hd[n] (? (== n "set-cookie") "\n" ", ") e[1]) e[1]))))
         (? (|| (== stat nil) #stat!=3 (! (all (\ (x) (&& x>=48 x<=57)) (bytes stat)))) (h2fail "reply without a valid :status"))
         (? (starts stat "1") nil          ; 1xx: informational, the real reply follows
            (: st.status=(num stat) st.headers=hd (hooks.head (num stat) hd)))))
