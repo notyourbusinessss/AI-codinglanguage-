@@ -1,0 +1,8 @@
+; Record-type client for tests/dns_native.test.aklang (#174; AK_DNS points at tests/lib/dns_fake.aklang)
+(p (dnsrr "mx.test" "MX"))
+(p (dnsrr "txt.test" "txt"))
+(p (dnsrr "srv.test" "SRV") (dnsrr "ns.test" "NS") (dnsrr "cname.test" "CNAME"))
+(p (dnsrr "both.test") (dnsrr "both.test" "AAAA") (dnsrr "mx.test" "A") (dnsrr "mx.test" "MX"))
+(p (dnsrr "nx.test" "MX") (try (dnsrr "mx.test" "BOGUS") e=>e))
+(p (dnsrr "192.0.2.77.in-addr.arpa" "PTR") (dnsrr "77.2.0.192.in-addr.arpa" "PTR"))
+(p (dns "both.test"))

@@ -10,3 +10,10 @@ eof  1
 refused
 cannot resolve no.such.host.invalid
 nil nil [1 2 3 4]
+true fdwait: bad file descriptor 1000000
+true true
+true false 5
+false linger takes seconds or false bad value for socket option rcvbuf unknown socket option: bogus
+1 true
+hello group
+nil cannot join 10.0.0.1

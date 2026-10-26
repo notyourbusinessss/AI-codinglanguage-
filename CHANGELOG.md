@@ -8,6 +8,17 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.40 (2026-10-26)
+
+### Fixed
+- `lib/http` keeps repeated response headers (joined with ", ", `set-cookie` with a newline; the same in `lib/h2`) and raises `bad Content-Length in the response` when the values differ (#170)
+- `lib/httpd` answers 400 and closes for Content-Length together with Transfer-Encoding, a Transfer-Encoding other than chunked, and an HTTP/1.1 request without exactly one Host (#171)
+- `fdwait` raises `fdwait: bad file descriptor N` for an fd that is not open instead of reporting it readable (#172)
+
+### Added
+- `sockopt` options `rcvbuf`, `sndbuf`, `linger`, `v6only`, `mcastttl`, `mcastloop`, `mcastif`; `(getsockopt fd name)`; `(mcastjoin fd group iface)` and `(mcastleave ..)` for IPv4 and IPv6 groups (#173)
+- `(dnsrr name type)` looks up A, AAAA, CNAME, MX, NS, PTR, SRV and TXT records (#174)
+
 ## 0.7.35 (2026-10-24)
 
 ### Added
