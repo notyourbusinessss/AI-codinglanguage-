@@ -433,6 +433,14 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   f=(joinpath dir x[1]) (for e [".aklang" ".ak"] (? (&& !(ex f) (ex (++ f e))) f=(++ f e)))      ; (use "x") finds x.aklang, or a legacy x.ak
   (? !(ex f) (err (++ "use: file not found: " x[1])))
   f)
+(= (normpath f)               ; ./a and a/../a name the same file, for the circular-use check
+  parts=[] (for s (split f "/") (? (|| s=="" s==".") nil (&& s==".." #parts>0 (!= (lst parts) "..")) (pop parts) (push parts s)))
+  (++ (? (starts f "/") "/" "") (join parts "/")))
+USTK=[]                       ; the files being loaded, outermost first
+(= (usein f at body)          ; run (body) with f on the stack of files being loaded; a file already on it is a cycle
+  k=(normpath f)
+  (? (has USTK k) (xerr (++ "use: circular import " (join (++ USTK [k]) " -> ")) at))
+  (push USTK k) r=(body) (pop USTK) r)
 (= (xerr msg at) (err (++ XFILE ":" (symline at) ":" (symcol at) ": " msg)))
 XFILE=""
 FDEFS={}                      ; function name -> file that defined it (plain `use` clash warning)
@@ -470,7 +478,7 @@ FDEFS={}                      ; function name -> file that defined it (plain `us
   f=(usepath x dir) g=($ x[3])
   (? al[g] (xerr (++ "use: the alias " g " is already taken") x[3]))
   old=FDEFS (<- FDEFS {})                ; a namespace has its own function table
-  forms=(expand_all (parse (rd f) f) (dirname f) {f true} f) (<- XFILE file) (<- FDEFS old)
+  forms=(usein f x[0] (\ () (expand_all (parse (rd f) f) (dirname f) {f true} f))) (<- XFILE file) (<- FDEFS old)
   defs={} (for y forms (defnames y defs))
   al[g]={:defs defs}
   r=[(S "%file") f ..(~ y=>(renamesyms y g defs) forms)]
@@ -484,7 +492,7 @@ FDEFS={}                      ; function name -> file that defined it (plain `us
           (<- XFILE file) (regfn g file))))
   out)
 (= (expand_program forms dir file)
-  (<- FDEFS {})
+  (<- FDEFS {}) (<- USTK [(normpath file)])
   (expand_all forms dir {} file))
 (= (expand x dir seen)
   (? !(is "list" x) x
@@ -494,7 +502,7 @@ FDEFS={}                      ; function name -> file that defined it (plain `us
           f=(usepath x dir)
           (? seen[f] nil
              (: seen[f]=true
-                forms=(expand_all (parse (rd f) f) (dirname f) seen f)
+                forms=(usein f x[0] (\ () (expand_all (parse (rd f) f) (dirname f) seen f)))
                 r=[(S "%file") f ..forms]
                 (? POS[x] POS[r]=POS[x]) r)))
      (: r=(~ y=>(expand y dir seen) x) (? POS[x] POS[r]=POS[x]) r)))
