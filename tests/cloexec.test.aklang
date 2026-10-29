@@ -1,0 +1,13 @@
+; sockets and files are close-on-exec, so an sh child does not inherit them (#186)
+(= (socks) (num (trim (sh "ls -l /proc/self/fd | grep -c socket || true"))))
+n0=(socks)
+l=(tcpl 0) p=(tcpp l)
+c=(tcpc "127.0.0.1" p) a=(tcpa l)
+u=(udp) s=(tcpl 0 "127.0.0.1")
+(assert (== (socks) n0) (+ "an sh child inherited " (- (socks) n0) " socket(s)"))
+(fdc c) (fdc a) (fdc u) (fdc s)
+; a long-running child does not keep a closed listener's port bound
+(sh "sleep 2 >/dev/null 2>&1 &")
+(fdc l)
+l2=(tcpl p)
+(fdc l2)

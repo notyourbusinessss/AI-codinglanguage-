@@ -1,0 +1,16 @@
+; Test server for interim 1xx replies (#185): prints its port, then answers one request per connection by path and closes.
+l=(tcpl 0)
+(fdw 1 (++ (tcpp l) "\n"))
+(wh true
+  c=(tcpa l) buf=""
+  (wh (! (has buf "\r\n\r\n")) d=(fdr c 65536) (? (== d "") buf=(++ buf "\r\n\r\n") buf=(++ buf d)))
+  path=(split buf " ")[1]
+  fin="HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+  r=(sw path "/103" (++ "HTTP/1.1 103 Early Hints\r\nLink: </a.css>; rel=preload\r\n\r\n" fin)
+             "/100103" (++ "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\n" fin)
+             "/chunked" "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nX-E: 1\r\n\r\nHTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+             "/trunc" "HTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\n"
+             "/101" "HTTP/1.1 101 Switching Protocols\r\nUpgrade: x\r\nConnection: Upgrade\r\n\r\n"
+             "/many" (rpt "HTTP/1.1 103 Early Hints\r\n\r\n" 9)
+             fin)
+  (fdw c r) (fdc c))

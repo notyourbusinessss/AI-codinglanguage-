@@ -1,0 +1,45 @@
+; lib/ws.aklang checks UTF-8 of text messages and close reasons, and close codes (#180); frames are fed to a server-side ws through an in-memory stream
+(use "../lib/ws.aklang" as w)
+n=0
+(= (is name got want) (<- n n+1) (assert (== got want) (+ name ": got " (show got) " want " (show want))))
+(= (mf op pl fin=true)                  ; a masked client frame (mask key 0) with a payload under 126 bytes
+  (++ (frombytes [(+ (? fin 128 0) op) (+ 128 #pl)]) (frombytes [0 0 0 0]) pl))
+(= (run frames)                         ; -> [result sent-bytes ws]: recv's result or its error text, and everything the server wrote
+  inb=frames sent=""
+  ws=(w.mkws {:r k=>(: d=inb[..k] (<- inb inb[k..]) d) :w s=>(<- sent (++ sent s)) :c ()=>nil} false nil)
+  res=(try (w.recv ws) e=>e)
+  [res sent ws])
+(= (code sent) (? #sent>=4 (+ (* (bytes sent)[2] 256) (bytes sent)[3]) nil))
+r=(try (:
+  [res sent ws]=(run (mf 1 (++ "caf" (frombytes [195 169]) " " (frombytes [226 130 172]) " " (frombytes [240 159 152 128]))))
+  (is "valid multi-byte text is delivered" res (++ "caf" (frombytes [195 169]) " " (frombytes [226 130 172]) " " (frombytes [240 159 152 128])))
+  [res sent ws]=(run (mf 1 ""))
+  (is "empty text" res "")
+  [res sent ws]=(run (++ (mf 1 (frombytes [226 130]) false) (mf 0 (++ (frombytes [172]) " ok"))))
+  (is "text split inside a character" res (++ (frombytes [226 130 172]) " ok"))
+  [res sent ws]=(run (mf 2 (frombytes [255 254])))
+  (is "binary is not checked" res (frombytes [255 254]))
+  [res sent ws]=(run (mf 1 (++ (frombytes [255 254]) " bad")))
+  (is "bad text: io error" (has (tostr res) "not valid UTF-8") true)
+  (is "bad text: close 1007" (code sent) 1007)
+  (for bad [(frombytes [192 128]) (frombytes [224 128 128]) (frombytes [237 160 128]) (frombytes [244 144 128 128]) (frombytes [248 136 128 128 128]) (frombytes [128]) (frombytes [226 130]) (++ "a" (frombytes [195]))]
+    [res sent ws]=(run (mf 1 bad))
+    (is (++ "invalid text " (show bad) " closes with 1007") [(has (tostr res) "UTF-8") (code sent)] [true 1007]))
+  ; a close frame: code and reason
+  (for ok [1000 1001 1003 1007 1011 3000 4999]
+    [res sent ws]=(run (mf 8 (++ (frombytes [(// ok 256) (% ok 256)]) "bye")))
+    (is (++ "close code " ok " is accepted") [res ws.code ws.reason] [nil ok "bye"]))
+  [res sent ws]=(run (mf 8 ""))
+  (is "close without a code" [res ws.code] [nil 1005])
+  (for bad [0 999 1004 1005 1006 1015 2999 5000]
+    [res sent ws]=(run (mf 8 (frombytes [(// bad 256) (% bad 256)])))
+    (is (++ "close code " bad " is refused with 1002") [(has (tostr res) "bad close code") (code sent)] [true 1002]))
+  [res sent ws]=(run (mf 8 (frombytes [3])))
+  (is "a 1-byte close payload is refused" [(has (tostr res) "bad close frame") (code sent)] [true 1002])
+  [res sent ws]=(run (mf 8 (frombytes [3 232 255 254])))
+  (is "a close reason that is not UTF-8 closes with 1007" [(has (tostr res) "UTF-8") (code sent)] [true 1007])
+  [res sent ws]=(run (mf 8 (++ (frombytes [3 232]) "caf" (frombytes [195 169]))))
+  (is "a UTF-8 close reason is kept" [res ws.reason] [nil (++ "caf" (frombytes [195 169]))])
+  true) e=>e)
+(assert (== r true) (+ "ws_utf8: " (show r)))
+(assert (> n 30) (+ "too few checks ran: " n))

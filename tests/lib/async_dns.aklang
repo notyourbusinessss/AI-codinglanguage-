@@ -1,0 +1,11 @@
+; Child of tests/async_net.test.aklang: a ticker task keeps ticking while another task waits for a name server that never answers and a third connects to an unroutable address (#179)
+(use "../../lib/async.aklang" as a)
+ticks=[] dnsms=nil conns=nil
+(= (ticker) (for i 14 (push ticks (now)) (a.sleep 100)))
+(= (lookup) t0=(now) (try (dns "slow.example") e=>nil) (<- dnsms (- (now) t0)))
+(= (conn) t0=(now) (try (tcpc "10.255.255.1" 80 800) e=>nil) (<- conns (- (now) t0)))
+(a.spawn ticker) (a.spawn lookup) (a.spawn conn)
+a.run()
+gap=0
+(for i 1..#ticks gap=(max gap ticks[i]-ticks[i-1]))
+(p "ticks" #ticks "gap" gap "dns" dnsms "conn" conns)

@@ -41,12 +41,12 @@
     v=(num x)
     (? (&& ok ($isnum v) v<=255) (push r v) ok=false))
   (? ok r nil))
-(= (hostsips h)                         ; every address for h in /etc/hosts
+(= (hostsips h)                         ; every address for h (lower case, no final dot) in /etc/hosts; names there compare in lower case too
   r=[]
   (? (ex "/etc/hosts")
      (for l (split (rd "/etc/hosts") "\n")
        f=(split (trim l))
-       (? (&& #f>1 (! (starts (trim l) "#"))) (for i 1..#f (? (== f[i] h) (: d=(?? (dotted f[0]) (ip6 f[0])) (? (&& d (! (has r d))) (push r d))))))))
+       (? (&& #f>1 (! (starts (trim l) "#"))) (for i 1..#f (? (== (lo f[i]) h) (: d=(?? (dotted f[0]) (ip6 f[0])) (? (&& d (! (has r d))) (push r d))))))))
   (++ (~? a=>(== #a 4) r) (~? a=>(== #a 16) r)))
 (= (arpa ip)                            ; the reverse-lookup name of an address (text, 4 or 16 bytes), or nil
   b=(? (isstr ip) (?? (dotted ip) (ip6 ip)) ip)
@@ -71,16 +71,16 @@
             (? (! res) (: res=(dnsq name ns[0] ns[1] o[0] 12)))))
         (? (&& res res[0]==0) res[1] []))))
 (= (hostips h)                          ; all addresses of a host (IPv4 as 4 bytes, IPv6 as 16, IPv4 first): literal, localhost, /etc/hosts, then DNS
-  d=(dotted h) v6=(? d nil (ip6 h))
-  (? d [d] v6 [v6] (== h "localhost") [[127 0 0 1]]
-     (: r=(hostsips h) (? #r r (dnsips h)))))
+  d=(dotted h) v6=(? d nil (ip6 h)) l=(lo h) l=(? (ends l ".") l[..-1] l)      ; names are case-insensitive and "name." is the same name
+  (? d [d] v6 [v6] (== l "localhost") [[127 0 0 1]]
+     (: r=(hostsips l) (? #r r (dnsips h)))))
 (= (hostip h) r=(hostips h) (? #r r[0] nil))
 (= (hostip4 h) r=(~? a=>(== #a 4) (hostips h)) (? #r r[0] nil))
 (= (netfail what) ($throwk 4 what))
 (= (tcpl port host="0.0.0.0")           ; listening socket fd (port 0 picks a free one; see tcpp)
   (needport (?? port 0) 0) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
-  fd=($syscall 41 (sockfam ip) 1 0)
+  fd=($syscall 41 (sockfam ip) 524289 0)
   (? fd<0 (netfail (? (== #ip 16) "no IPv6 support on this machine" "socket failed")))
   one=($newb 1 4 4) ($stb one 0 1) ($syscall 54 fd 1 2 ($addr one) 4)
   (? (== #ip 16) (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))      ; IPV6_V6ONLY off: "::" also takes IPv4 connections
@@ -93,7 +93,7 @@
   (? (< ($syscall 51 fd ($addr sa) ($addr ln)) 0) (netfail "getsockname failed"))
   (+ (* 256 ($ldb sa 2)) ($ldb sa 3)))
 (= (tcpa fd)                            ; accept one connection (blocks)
-  r=-4 (wh r==-4 r=($syscall 43 fd 0 0))
+  r=-4 (wh r==-4 r=($syscall 288 fd 0 0 524288))   ; accept4 with SOCK_CLOEXEC: sh children do not inherit the connection
   (? r<0 (netfail "accept failed")) r)
 (= (sockend call fd what)               ; getsockname (51) / getpeername (52) -> {:ip "127.0.0.1" :port 80}, or {:ip "::1" ..}; a Unix socket gives {:ip nil :port 0}
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
@@ -159,6 +159,10 @@
   nil)
 (= (mcastjoin fd group iface=nil) (mcast fd group iface true))   ; join a multicast group (an IPv4 or IPv6 address string) on a UDP socket; iface: a local IPv4 address (IPv4) or an interface index (IPv6), default: the system picks
 (= (mcastleave fd group iface=nil) (mcast fd group iface false))
+NETHOOK=nil                             ; set by lib/async.aklang while its tasks run: a function (fd write? ms) -> ready? that lets the other tasks run while this one waits
+(= (nethook f) (<- NETHOOK f) nil)
+(= (waitr fd ms)                        ; is fd readable within ms milliseconds (ms<0: forever)? inside an async task the other tasks run meanwhile
+  (? NETHOOK (NETHOOK fd false ms) (> (len (fdwait [fd] ms)) 0)))
 (= (tcpc host port ms=nil)              ; connect to host:port; tries every address of the name; ms = connect timeout per address (default: the kernel's)
   (needport port 1) ips=(hostips host)
   (? (! #ips) (netfail (strcat2 "cannot resolve " host)))
@@ -173,7 +177,7 @@
   ($ldb er 0))
 (= (errwhy e) (? e==111 "refused" e==113 "no route" e==101 "network unreachable" e==110 "timed out" "failed"))
 (= (tryconn ip port ms)                 ; one connect attempt: the fd, or a reason string
-  fd=($syscall 41 (sockfam ip) (? ms 2049 1) 0)    ; SOCK_STREAM (| SOCK_NONBLOCK when there is a timeout)
+  fd=($syscall 41 (sockfam ip) (? (|| ms NETHOOK) 526337 524289) 0)    ; SOCK_STREAM | SOCK_CLOEXEC (| SOCK_NONBLOCK when there is a timeout or inside an async task)
   (? fd<0 (? (== #ip 16) "no IPv6 support" (netfail "socket failed")) (tryconn2 fd ip port ms)))
 (= (tryconn2 fd ip port ms)
   sa=(sockaddr ip port)
@@ -181,10 +185,10 @@
   why=nil
   (? r==-115
      (: pf=($newb 1 8 8) ($stb pf 0 fd) ($stb pf 4 4)           ; EINPROGRESS: wait until writable or the time is up
-        w=-4 (wh w==-4 w=($syscall 7 ($addr pf) 1 ms))
+        w=-4 (wh w==-4 w=(? NETHOOK (? (NETHOOK fd true (?? ms -1)) 1 0) ($syscall 7 ($addr pf) 1 ms)))
         (? w==0 why="timed out" w<0 why="poll failed" (: e=(soerr fd) (? e why=(errwhy e)))))
      r<0 why=(errwhy 0-r))
-  (? ms ($syscall 72 fd 4 0))           ; back to blocking mode
+  (? (|| ms NETHOOK) ($syscall 72 fd 4 0))           ; back to blocking mode
   (? why (: ($syscall 3 fd) why) fd))
 (= (needfd fd) (? (|| (! ($isnum fd)) (! (isint fd)) fd<0) ($throwk 3 (strcat2 "expected a file descriptor, got " (ty fd)))) fd)
 RDBUF=nil                               ; one 64 KB buffer reused by fdr and udpfrom, so a small read does not allocate 64 KB (workers are forked copies, coroutines never switch inside a read)
@@ -193,7 +197,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
 (= (lget fd) (? LINEBUF (?? LINEBUF[(tostr fd)] "") ""))
 (= (lput fd b) (? ($isnil LINEBUF) (<- LINEBUF {})) (setdot LINEBUF (tostr fd) b))
 (= (fdraw fd n ms)                      ; one read from the socket itself (not the fdline buffer); nil on timeout
-  (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
+  (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 0 fd ($addr b) n))
         (? r<0 (netfail "read failed") (strslice b 0 r)))))
@@ -239,7 +243,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
              (: left=(- end (now)) (? left<=0 (netfail "write timed out")) (fdpoll [] [fd] left)))))))
 (= (unixc path)                         ; connect to a Unix-domain socket (a file path): the fd
   (needstr path)
-  fd=($syscall 41 1 1 0)
+  fd=($syscall 41 1 524289 0)
   (? fd<0 (netfail "socket failed"))
   sa=($newb 1 110 110) ($stb sa 0 1)
   (for i #path ($stb sa 2+i ($ldb path i)))
@@ -248,7 +252,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
 (= (unixl path)                         ; listen on a Unix-domain socket (a file path that must not exist yet; remove it after use): the fd, to accept with tcpa
   (needstr path)
   (? (|| (== #path 0) (> #path 107)) (netfail (strcat2 "bad Unix socket path " path)))
-  fd=($syscall 41 1 1 0)
+  fd=($syscall 41 1 524289 0)
   (? fd<0 (netfail "socket failed"))
   sa=($newb 1 110 110) ($stb sa 0 1)
   (for i #path ($stb sa 2+i ($ldb path i)))
@@ -275,8 +279,8 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
 
 ; ---- UDP and DNS ----
 (= (udp)                                ; a UDP socket: dual-stack IPv6 (IPv4 destinations are sent as ::ffff:a.b.c.d) where the machine has IPv6, else IPv4
-  fd=($syscall 41 10 2 0)
-  (? fd<0 (: fd=($syscall 41 2 2 0) (? fd<0 (netfail "socket failed")))
+  fd=($syscall 41 10 524290 0)
+  (? fd<0 (: fd=($syscall 41 2 524290 0) (? fd<0 (netfail "socket failed")))
      (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))
   fd)
 (= (sockdom fd)                         ; 2 (AF_INET) or 10 (AF_INET6): the family of a socket
@@ -296,14 +300,14 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (? r<0 (netfail "send failed")) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
   n=(needlen (?? n 65536) 2147483647) (needfd fd)
-  (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
+  (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
         (? r<0 (netfail "receive failed") (strslice b 0 r)))))
 (= (udpl port host="0.0.0.0")           ; a UDP socket bound to host:port (port 0 picks a free one; see tcpp), to serve with udpfrom2 and udpto; an IPv6 host ("::1", "::" for both families) makes an IPv6 socket
   (needport (?? port 0) 0) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
-  fd=($syscall 41 (sockfam ip) 2 0)
+  fd=($syscall 41 (sockfam ip) 524290 0)
   (? fd<0 (netfail (? (== #ip 16) "no IPv6 support on this machine" "socket failed")))
   (? (== #ip 16) (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))
   sa=(sockaddr ip (?? port 0))
@@ -311,7 +315,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   fd)
 (= (udpfrom2 fd n=nil ms=nil)           ; like udpfrom, but returns [data ip port] of the sender, so a server can answer with udpto: ip is [a b c d] for IPv4 (also from a dual-stack socket), 16 numbers for IPv6
   n=(needlen (?? n 65536) 2147483647) (needfd fd)
-  (? (&& (isnum ms) (== (len (fdwait [fd] ms)) 0)) nil
+  (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 ($addr sa) ($addr ln)))
         (? r<0 (netfail "receive failed")
