@@ -11,6 +11,6 @@ Ak is a small programming language that is cheap to read and write (few tokens),
 | [Stability](stability.md) | what a release promises, deprecation rules, version numbers (and the [changelog](../CHANGELOG.md)) |
 | [Examples](../examples) | complete programs: a game, a web server, a GUI |
 
-Every code block marked `ak` in these pages is run by `npm test` (`tests/docs.test.js`), and when an `output` block follows it, the program's output must match it exactly. A block marked `ak no-run` needs a network or a display and is not run.
+Every code block marked `ak` in these pages is run by `npm test` (`tests/docs.test.aklang`), and when an `output` block follows it, the program's output must match it exactly. A block marked `ak no-run` needs a network or a display and is not run.
 
 Project housekeeping (issue labels and priorities) is in [`LABELS.md`](LABELS.md).

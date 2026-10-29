@@ -1,0 +1,12 @@
+; examples/*.aklang with an .out file: stdout must match (stdin is "hello\nworld\n")
+(use "lib/run.aklang" as t)
+n=0
+(for f (sort (ls "examples"))
+  b=(? (ends f ".aklang") (sub f 0 #f-7) nil)
+  (? (&& b (ex (+ "examples/" b ".out")))
+    (: (<- n n+1)
+    r=(t.run (+ "bin/ak examples/" f) "hello\nworld\n")
+    want=(rd (+ "examples/" b ".out"))
+    (assert (&& (== r.out want) (== r.code 0)) (+ "example " f " differs\n--got--\n" r.out r.err "--want--\n" want)))))
+(assert (> n 0) "no examples with an .out file found")
+(p (+ "examples: " n " passed"))

@@ -1,0 +1,13 @@
+; unjson accepts exactly the JSON number grammar (#47): the malformed ones raise, the valid ones parse.
+(use "lib/run.aklang" as t)
+BAD=["01" "1." ".5" "+1" "1.e3" "-01" "00" "-" "1e" "1e+" "-.5" "0x1"]
+GOOD=[["0" "0"] ["-0" "0"] ["1.5e3" "1500"] ["10" "10"] ["1E+2" "100"] ["0.5" "0.5"] ["-1.5e-3" "-0.0015"] ["123456789012345678" "123456789012345680"]]
+f=(+ t.tmpname() ".aklang")
+(wr f (join [..(~ (\ (s) (+ "(p (try (unjson " (show s) ") e=>\"bad\"))")) BAD) ..(~ (\ (g) (+ "(p (unjson " (show (fst g)) "))")) GOOD)] "\n"))
+r=(t.run (+ "bin/ak " f) nil)
+(rm f)
+(assert (== r.code 0) r.err)
+want=[..(~ (\ (s) "bad") BAD) ..(~ (\ (g) g[1]) GOOD)]
+got=(split (trim r.out) "\n")
+(assert (== got want) (+ "got " (show got) " want " (show want)))
+(p (+ "json_numbers: all " #want " inputs behave"))

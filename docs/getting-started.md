@@ -58,4 +58,4 @@ Errors from the compiler look like `file:line:col: message`. A runtime error pri
 - [Language tour](language-tour.md) for the whole language by example.
 - [Libraries](libraries.md) for networking, TLS, windows and the rest of what ships in `lib/`.
 - `examples/` for complete programs: `tictactoe.aklang` (a game against a minimax computer), `httpd.aklang` (a web server), `connect4gui.aklang` (a game in its own window).
-- Run `npm test` in a checkout to check everything, or `node tests/docs.test.js` to check just these pages.
+- Run `npm test` in a checkout to check everything, or `bin/ak test tests/docs.test.aklang` to check just these pages.
