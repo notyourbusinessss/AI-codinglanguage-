@@ -129,7 +129,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     ".@" (? (is "str" x[2]) (lower_prim "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
     ".=" (? (is "str" x[2]) (lower_prim "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
     "." (lower_method x tail)
-    ["aw" "req" "js" "new"] (lerr (++ "(" n " ..) needs the JS target; the native target has no JS interop") x)
+    ["aw" "req" "js" "new"] (? (lookup n) (lower_call x tail) (lerr (++ "(" n " ..) needs the JS target; the native target has no JS interop") x))      ; a program's own function of that name wins
     (lower_call x tail)))
 
 (= (lower_method x tail)       ; (. obj "name" args..): call the function stored under that key
