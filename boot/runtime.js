@@ -424,7 +424,7 @@ const B = {
       return left ? s.padEnd(width) : (zero ? (s[0] === '-' ? '-' + s.slice(1).padStart(width - 1, '0') : s.padStart(width, '0')) : s.padStart(width));
     }); },
   padl: (s, n, c) => tostr(s).padStart(n, c === undefined ? ' ' : c), padr: (s, n, c) => tostr(s).padEnd(n, c === undefined ? ' ' : c),
-  chr: n => { if (!Number.isInteger(n) || n < 0 || n > 0x10FFFF) throw new AkError('chr: invalid code point ' + show(n)); return String.fromCodePoint(n); }, ord: s => s.codePointAt(0),
+  chr: n => { if (!Number.isInteger(n) || n < 0 || n > 0x10FFFF || (n >= 0xD800 && n <= 0xDFFF)) throw new AkError('chr: invalid code point ' + show(n)); return String.fromCodePoint(n); }, ord: s => s.codePointAt(0),
   num,
   re: (p, f) => new RegExp(p, f == null ? undefined : f), match: (r, s) => { const m = (r instanceof RegExp ? r : new RegExp(r)).exec(s); return m ? Array.from(m, x => x === undefined ? null : x) : null; },
   // types / errors

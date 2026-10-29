@@ -1,0 +1,11 @@
+; chr and \u{..} reject surrogate code points (#201); the code points around the gap and the range ends still work
+(= (msg f) (try (: (f) "no error") e=>e))
+(for [n want] [[55295 [237 159 191]] [57344 [238 128 128]] [1114111 [244 143 191 191]] [128512 [240 159 152 128]]]
+  (assert (== (bytes (chr n)) want) (+ "chr " (show n))))
+(for n [55296 56320 57343 1114112]
+  (assert (has (msg (\ () (chr n))) (+ "chr: invalid code point " (show n))) (+ "chr " (show n))))
+(assert (== (ord (chr 55295)) 55295) "ord of 0xD7FF")
+r=(run ["bin/ak" "-e" "(p \"\\u{d800}\")"])
+(assert (&& (!= r.code 0) (has r.err "chr: invalid code point 55296") (== r.out "")) (+ "\\u{d800}: " (show r)))
+r=(run ["bin/ak" "-e" "(p (bytes \"\\u{d7ff}\\u{e000}\"))"])
+(assert (== r.out "[237 159 191 238 128 128]\n") (+ "\\u{d7ff}\\u{e000}: " (show r)))

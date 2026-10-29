@@ -57,7 +57,7 @@ No libraries: `lib/x11.aklang` speaks the X11 protocol itself over the display's
 
 ## Strings across targets
 A native string is UTF-8 bytes; a JS string is UTF-16 units. For ASCII text the two are identical. The contract for other text:
-- Same on both: `==` `++` `+` `split`/`join`/`starts`/`ends`/`has`/`rep` with a non-empty separator, `trim`, `rpt`, `show`, `json`/`unjson` (including `\u` escapes and surrogate pairs), `chr` and `ord` (code points; `ord` of a string reads its first character), regex with a literal pattern, and `idx` of a character that comes before any non-ASCII text.
+- Same on both: `==` `++` `+` `split`/`join`/`starts`/`ends`/`has`/`rep` with a non-empty separator, `trim`, `rpt`, `show`, `json`/`unjson` (including `\u` escapes and surrogate pairs), `chr` and `ord` (code points, no surrogates; `ord` of a string reads its first character), regex with a literal pattern, and `idx` of a character that comes before any non-ASCII text.
 - Counts units, so differs: `#s`, `s[i]`, `s[a..b]`, `take` `drop` `fst` `lst`, `for` over a string, `split s ""`, `idx` after non-ASCII text, `padl` `padr` and `fmt` widths. `(#"é")` is 2 natively and 1 on JS, `(#"😀")` is 4 and 2. A native slice may cut inside a character and give invalid UTF-8.
 - Regex: `.` and classes match one code point natively; on JS only with the `u` flag: `(match (re "^.$" "u") s)`.
 - `up` and `lo` map ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic letters one to one natively; JS also applies special casing (`ß` -> `SS`, a final sigma), which natively stays as it is.
