@@ -1,0 +1,8 @@
+; a name repeated in one parameter list or destructuring pattern is a compile error with a position (#192); _ may repeat
+(use "lib/run.aklang" as t)
+(= (ak code) (t.run (+ "bin/ak -e '" code "'") nil))
+(for src ["(= (f a a) a) (p (f 1 2))" "g=(\\ (x x) x) (p (g 1 2))" "(= (h [a a]) a) (p (h [1 2]))" "[a a]=[1 2]" "(= (f a ..a) a)" "(= (f [a b] [c a]) a)" "(for [a a] [[1 2]] (p a))"]
+  r=(ak src)
+  (assert (&& (== r.code 1) (has r.err "<-e>:1:") (has r.err "duplicate parameter")) (+ src ": " (show r))))
+r=(ak "(= (f _ _ b) b) (p (f 1 2 3)) [_ _ c]=[1 2 3] (p c)")
+(assert (&& (== r.code 0) (== r.out "3\n3\n")) (show r))

@@ -8,6 +8,23 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.58 (2026-10-29)
+
+### Fixed
+- `ak build`, `exe` and `compile` refuse to write the executable over the source file (same file, also through a link) or to a name ending in `.aklang` or `.ak`; the source stays untouched (#182)
+- A repeated name in a parameter list or destructuring pattern (`(= (f a a) ..)`, `(\ (x x) ..)`, `[a a]=..`, `(for [a a] ..)`) is a compile error `duplicate parameter a` with a position; `_` may repeat (#192)
+- A function of your own named `req`, `js`, `new` or `aw` is called normally instead of hitting the JS-target error, so `ak check lib/http.aklang` passes; a test checks every file in `lib/` (#183)
+- `json` and `unjson` reject strings (and keys) that are not valid UTF-8 instead of writing or accepting them (#188)
+- File errors say why: `cannot read /x: no such file or directory`, `is a directory`, `permission denied`, `not a directory`, `file exists` and so on, for `rd wr app wrx ls mkdir rm mv` (#184)
+- `(mkdir "")` raises instead of doing nothing (#176)
+- `sleep` raises for NaN, negative, infinite and above 2^40 ms, and goes on sleeping after a signal interrupts it (#175)
+- `lib/time`: `parse` rejects a UTC offset above 23:59, and `iso` raises for years outside 0..9999 (#193)
+
+### Added
+- `(run argv opts)`: start a program without a shell with `:in` (stdin), `:env`, `:cwd`; returns `{:code :out :err}` and never raises for a non-zero exit (#187)
+- `stat cp chmod cwd chdir` (#189)
+- `fmt` knows `%e %E %g %G %c` and the `+` and space flags (#177)
+
 ## 0.7.47 (2026-10-29)
 
 ### Fixed

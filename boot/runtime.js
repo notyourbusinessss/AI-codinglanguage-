@@ -458,7 +458,7 @@ const B = {
     process.exit(r.status === null ? 1 : r.status);
   },
   rm: f => { fs.rmSync(pth(f), { recursive: true, force: true }); return null; },
-  mkdir: d => { try { fs.mkdirSync(pth(d), { recursive: true }); } catch (e) { throw new AkError('cannot create ' + d, 'io'); } return null; },
+  mkdir: d => { try { fs.mkdirSync(pth(d), { recursive: true }); } catch (e) { throw new AkError('cannot create ' + d + ': ' + (({ ENOENT: 'no such file or directory', EACCES: 'permission denied', ENOTDIR: 'not a directory', EEXIST: 'not a directory', EROFS: 'read-only file system', ENOSPC: 'no space left on device' })[e.code] || 'errno ' + e.errno), 'io'); } return null; },
   mv: (a, b) => { fs.renameSync(pth(a), pth(b)); return null; },
   isdir: p => { pth(p); try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } },
   bcat: (...parts) => { let n = 0; for (const p of parts) n += p.length; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; },

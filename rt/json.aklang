@@ -1,6 +1,18 @@
 ; Native runtime: JSON parsing. (unjson s) -> maps (insertion ordered), lists, numbers, strings, true/false, nil.
 JS=""
 JI=0
+(= (utf8bad s)                    ; index of the first byte that is not valid UTF-8 (overlongs, surrogates, > U+10FFFF), or -1
+  n=($hlen s) i=0 bad=-1
+  (wh (&& bad<0 i<n)
+    c=($ldb s i)
+    (? c<128 i+=1
+       (&& c>=194 c<=223) (? (&& i+1<n (== (>> ($ldb s i+1) 6) 2)) i+=2 bad=i)
+       (&& c>=224 c<=239) (: c1=(? i+1<n ($ldb s i+1) 0)
+                             (? (&& i+2<n (== (>> c1 6) 2) (== (>> ($ldb s i+2) 6) 2) (? c==224 c1>=160 c==237 c1<160 true)) i+=3 bad=i))
+       (&& c>=240 c<=244) (: c1=(? i+1<n ($ldb s i+1) 0)
+                             (? (&& i+3<n (== (>> c1 6) 2) (== (>> ($ldb s i+2) 6) 2) (== (>> ($ldb s i+3) 6) 2) (? c==240 c1>=144 c==244 c1<144 true)) i+=4 bad=i))
+       bad=i))
+  bad)
 (= (jerr msg) ($throw (strcat2 (strcat2 (strcat2 "invalid JSON: " msg) " at position ") (fmtint JI))))
 (= (jws) (wh (&& JI<($hlen JS) (isspace ($ldb JS JI))) (<- JI JI+1)))
 (= (jhex4) v=0 (for k 4 c=(? JI+k<($hlen JS) (digitval ($ldb JS JI+k)) 99) (? c>=16 (jerr "bad \\u escape")) v=v*16+c) (<- JI JI+4) v)
@@ -93,6 +105,7 @@ JI=0
   (? (&& ok i==b nd>0 nd<=15) (: v=(scale10 m (- fd)) (? neg ($fsub 0 v) v)) nil))
 (= (unjson s)
   (<- JS (tostr s)) (<- JI 0)
+  bad=(utf8bad JS) (? bad>=0 (: (<- JI bad) (jerr "string is not valid UTF-8")))
   v=(jvalue) (jws)
   (? JI<($hlen JS) (jerr "trailing characters"))
   v)

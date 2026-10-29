@@ -137,14 +137,46 @@ P10=nil
         (wh x>0 q=($ffloor ($fdiv x radix)) d=($fsub x ($fmul q radix)) i-=1 ($stb buf i (? d<10 48+d 87+d)) x=q)
         (? neg (: i-=1 ($stb buf i 45)))
         (strslice buf i 64))))
+(= (rneint ax k)                        ; round-half-even(ax * 10^k) as a digit string (k may be negative); ax is a finite number >= 0
+  d=(? ax==0 (list 0 0) (decomp ax)) mz=d[0] ez=d[1]
+  num=(bn_mul_big (bn_small mz) (bn_pow10 (? k>0 k 0))) num=(? ez>0 (bn_shl num ez) num)
+  den=(bn_mul_big (bn_pow10 (? k<0 0-k 0)) (bn_pow2 (? ez<0 0-ez 0)))
+  qr=(bn_divmod num den) q=qr[0] r2=(bn_mul_small qr[1] 2) c=(bn_cmp r2 den)
+  (? (|| c>0 (&& c==0 (== (% (? #q>0 q[0] 0) 2) 1))) q=(bn_add q [1]))
+  (bn_tostr (bn_norm q)))
+(= (fixeddigits ax k)                   ; ax with k decimals, correctly rounded half to even (%f of C)
+  ds=(rneint ax k) ds=(? (<= #ds k) (strcat2 (rpt "0" k+1-#ds) ds) ds)
+  (? k==0 ds (strcat2 (strcat2 (strslice ds 0 #ds-k) ".") (strslice ds #ds-k #ds))))
+(= (expform ax p)                       ; [digits exponent] of ax in scientific form with p decimals: "1234" 3 for p=3, ax=1234.4
+  e=(? ax==0 0 ($ffloor (log10 ax))) ds="" tries=0
+  (? ax==0 ds=(rpt "0" p+1)
+     (wh (&& tries<4 #ds!=p+1)
+       ds=(rneint ax p-e)
+       (? #ds>p+1 e+=1 #ds<p+1 e-=1) tries+=1))
+  [ds e])
+(= (fmt_e x p up)                       ; %e: d.ddde+XX
+  ax=(abs x) r=(expform ax p) ds=r[0] e=r[1]
+  (strcat2 (strcat2 (strslice ds 0 1) (? p>0 (strcat2 "." (strslice ds 1 p+1)) "")) (strcat2 (? up "E" "e") (strcat2 (? e<0 "-" "+") (padzero (fmtint (abs e)) 2)))))
+(= (fmtfloat x prec kind up)
+  (? (|| (!= x x) (> (abs x) 1.7976931348623157e308)) (fmtnum x)
+     (strcat2 (? x<0 "-" "") (? kind==0 (fmt_e (abs x) prec up) (fmt_g (abs x) prec up)))))
+(= (padzero s n) (? (< #s n) (strcat2 (rpt "0" n-#s) s) s))
+(= (stripzeros s)                       ; "1.500" -> "1.5", "2.000" -> "2" (%g without the # flag)
+  (? (< (strfind s "." 0) 0) s
+     (: n=#s (wh (== ($ldb s n-1) 48) n-=1) (? (== ($ldb s n-1) 46) n-=1) (strslice s 0 n))))
+(= (fmt_g x p up)                       ; %g: shortest of %e and %f for the precision, trailing zeros removed
+  p=(? p==0 1 p) ax=(abs x) x10=(expform ax p-1) e=x10[1]
+  (? (&& e>=-4 e<p) (stripzeros (fixeddigits ax p-1-e))
+     (: m=(fmt_e ax p-1 up) i=(strfind m (? up "E" "e") 0)
+        (strcat2 (stripzeros (strslice m 0 i)) (strslice m i #m)))))
 (= (fmt f ..a)
   r=(mklist 8) n=#f i=0 ai=0
   (wh i<n
     c=($ldb f i)
     (? (!= c 37) (: j=i (wh (&& j<n (!= ($ldb f j) 37)) j+=1) (lpush r (strslice f i j)) i=j)
-       (: i+=1 left=false zero=false w=0 prec=nil
-          (? (&& i<n (== ($ldb f i) 45)) (: left=true i+=1))
-          (? (&& i<n (== ($ldb f i) 48)) (: zero=true i+=1))
+       (: i+=1 left=false zero=false w=0 prec=nil sg=0
+          (wh (&& i<n (|| (== ($ldb f i) 45) (== ($ldb f i) 48) (== ($ldb f i) 43) (== ($ldb f i) 32)))
+            c=($ldb f i) (? c==45 left=true c==48 zero=true c==43 sg=43 (? sg==0 sg=32)) i+=1)
           (wh (&& i<n (isdig ($ldb f i))) w=w*10+(($ldb f i)-48) i+=1)
           (? (&& i<n (== ($ldb f i) 46)) (: i+=1 prec=0 (wh (&& i<n (isdig ($ldb f i))) prec=prec*10+(($ldb f i)-48) i+=1)))
           (? i>=n ($throwk 0 "fmt: incomplete format"))
@@ -159,10 +191,17 @@ P10=nil
                     88 (up (toradix (tonum v) 16))
                     98 (toradix (tonum v) 2)
                     111 (toradix (tonum v) 8)
+                    101 (fmtfloat (tonum v) (?? prec 6) 0 false)
+                    69 (fmtfloat (tonum v) (?? prec 6) 0 true)
+                    103 (fmtfloat (tonum v) (?? prec 6) 1 false)
+                    71 (fmtfloat (tonum v) (?? prec 6) 1 true)
+                    99 (chr (tonum v))
                     ($throwk 0 (strcat2 "fmt: unknown specifier %" (chr t))))
+                numeric=(has [100 102 101 69 103 71] t)
+                s=(? (&& sg!=0 numeric (!= ($ldb s 0) 45)) (strcat2 (chr sg) s) s)
                 pad=w-#s
                 (lpush r (? pad<=0 s left (strcat2 s (rpt " " pad))
-                            zero (? (&& #s>0 (== ($ldb s 0) 45)) (strcat2 "-" (strcat2 (rpt "0" pad) (strslice s 1 #s))) (strcat2 (rpt "0" pad) s))
+                            zero (? (&& #s>0 (|| (== ($ldb s 0) 45) (&& sg!=0 numeric))) (strcat2 (strslice s 0 1) (strcat2 (rpt "0" pad) (strslice s 1 #s))) (strcat2 (rpt "0" pad) s))
                             (strcat2 (rpt " " pad) s))))))))
   (? ai<#a ($throwk 0 "fmt: too many arguments"))
   (join r ""))
@@ -175,8 +214,9 @@ JN=0
 (= (jcat s) n=($hlen s) (jroom n) ($copy JB JN s 0 n) (<- JN JN+n) nil)
 (= (jbyte c) (jroom 1) ($stb JB JN c) (<- JN JN+1) nil)
 (= (jqput s)
-  n=($hlen s) i=0
-  (wh (&& i<n (>= ($ldb s i) 32) (!= ($ldb s i) 34) (!= ($ldb s i) 92)) i+=1)
+  n=($hlen s) i=0 hi=false
+  (wh (&& i<n (>= ($ldb s i) 32) (!= ($ldb s i) 34) (!= ($ldb s i) 92)) (? (>= ($ldb s i) 128) hi=true) i+=1)
+  (? (&& (|| hi i<n) (>= (utf8bad s) 0)) ($throwk 3 "json: string is not valid UTF-8; encode binary data as hex or base64 first"))
   (? i==n (: (jroom n+2) ($stb JB JN 34) ($copy JB JN+1 s 0 n) ($stb JB JN+n+1 34) (<- JN JN+n+2))
      (jcat (jquote s)))
   nil)

@@ -1,0 +1,11 @@
+; json and unjson refuse text that is not valid UTF-8 (#188); valid text, emoji and \u escapes are unchanged
+(= (fails f want) (try (: (f) false) e=>(&& (has e want) (== (errkind e) (? (has want "invalid JSON") "error" "type")))))
+(for b [[255 254] [195] [192 128] [237 160 128] [244 144 128 128] [226 130] [128]]
+  (assert (fails (\ () (json (frombytes b))) "not valid UTF-8") (+ "json value " (show b)))
+  (assert (fails (\ () (json {(frombytes b) 1})) "not valid UTF-8") (+ "json key " (show b)))
+  (assert (fails (\ () (json [(frombytes [97 10 ..b])])) "not valid UTF-8") (+ "json value with an escape " (show b)))
+  (assert (fails (\ () (unjson (+ "\"" (frombytes b) "\""))) "invalid JSON") (+ "unjson value " (show b)))
+  (assert (fails (\ () (unjson (+ "{\"" (frombytes b) "\":1}"))) "invalid JSON") (+ "unjson key " (show b))))
+(assert (== (json "é😀é\n") "\"é😀é\\n\"") "valid text")
+(assert (== (unjson "[\"é😀\\u00e9\\ud83d\\ude00\",{\"ü\":1}]") ["é😀é😀" {"ü" 1}]) "unjson valid")
+(assert (== (json (frombytes [240 144 128 128])) (+ "\"" (frombytes [240 144 128 128]) "\"")) "U+10000")

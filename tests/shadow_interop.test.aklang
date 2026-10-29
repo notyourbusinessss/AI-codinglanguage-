@@ -1,0 +1,14 @@
+; a program's own function named req, js, new or aw is called normally; the unshadowed names still need the JS target; every library passes `ak check` (#183)
+(use "lib/run.aklang" as t)
+(= (ak code) (t.run (+ "bin/ak -e '" code "'") nil))
+(for n ["req" "js" "new" "aw"]
+  r=(ak (+ "(= (" n " a) a+1) (p (" n " 1))"))
+  (assert (&& (== r.code 0) (== r.out "2\n")) (+ n ": " (show r))))
+(for n ["req" "js" "new" "aw"]
+  r=(ak (+ "(p (" n " 1))"))
+  (assert (&& (== r.code 1) (has r.err "needs the JS target")) (+ n ": " (show r))))
+libs=(~? f=>(ends f ".aklang") (ls "lib"))
+(assert (> #libs 5) "no libraries found in lib/")
+(for f libs
+  r=(t.run (+ "bin/ak check lib/" f) nil)
+  (assert (&& (== r.code 0) (== r.out "ok\n")) (+ f ": " (show r))))
