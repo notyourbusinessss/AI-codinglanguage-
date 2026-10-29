@@ -8,6 +8,9 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+### Fixed
+- `httpd` refuses a handler-set `Content-Length` that does not equal the body length, and a handler-set `Transfer-Encoding`, with a 500 instead of a framing mismatch that desyncs the keep-alive connection (#200)
+
 ## 0.7.59 (2026-10-29)
 
 ### Fixed
