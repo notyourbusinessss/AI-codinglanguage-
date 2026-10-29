@@ -1,0 +1,9 @@
+; rand validates its argument and rep with an empty pattern returns the text (#156)
+(= (msg f) (try (: (f) "no error") e=>e))
+(for [r want] [[(msg (\ () (rand "a"))) "expected number, got str"] [(msg (\ () (rand -1))) "positive number"]
+               [(msg (\ () (rand 0))) "positive number"] [(msg (\ () (rand [1]))) "expected number, got list"]]
+  (assert (has r want) (show r)))
+(for i 200 x=(rand 3) (assert (&& (>= x 0) (< x 3) (== x (int x))) (+ "rand 3: " (show x))))
+(for i 50 x=(rand 2.5) (assert (|| (== x 0) (== x 1) (== x 2)) (+ "rand 2.5: " (show x))))
+(assert (== (rep "abc" "" "-") "abc") "rep with empty pattern")
+(assert (<= 0 (rand)) "rand")

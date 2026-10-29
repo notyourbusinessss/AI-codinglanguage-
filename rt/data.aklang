@@ -385,6 +385,8 @@ SYMTAB=nil
   s)
 RNGI=nil
 (= (rand n=nil)
+  (? (&& (! ($isnil n)) (! ($isnum n))) ($throwk 3 (strcat2 "expected number, got " (ty n))))
+  (? (&& ($isnum n) (! (> n 0))) ($throwk 3 "rand: expected a positive number"))
   (? ($isnil RNGI) (<- RNGI (+ 1 (% (now) 2147483646))))
   (<- RNGI (% (* RNGI 16807) 2147483647))
   r=RNGI/2147483647

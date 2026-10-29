@@ -8,6 +8,11 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.59 (2026-10-29)
+
+### Fixed
+- `rand` raises a `type` error for a non-number (`expected number, got str`) and for 0, negative or NaN; `rep` with an empty pattern returns the text unchanged on the JS target too, as native does (#156)
+
 ## 0.7.58 (2026-10-29)
 
 ### Fixed

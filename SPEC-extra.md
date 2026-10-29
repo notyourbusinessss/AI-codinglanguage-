@@ -80,4 +80,4 @@ Portable code treats text as opaque (compare, join, split on ASCII separators) a
 - `fmt` raises (kind `error`) when it runs out of arguments (`fmt: missing argument for %s`), has arguments left over (`fmt: too many arguments`), ends inside a specifier (`fmt: incomplete format`) or meets an unknown one (`fmt: unknown specifier %k`).
 - `json` and `unjson` reject strings that are not valid UTF-8 (`json: string is not valid UTF-8`, `invalid JSON: string is not valid UTF-8 at position n`); encode binary data as hex or base64 first.
 - `json` raises an `arith` error for `NaN`, `Infinity` and `-Infinity` (`json: cannot write NaN`) instead of writing `null`.
-
+`(rand)` is a float in [0,1); `(rand n)` is an integer in [0,n) and `n` must be a number above 0, else `type` error (`expected number, got str`, `rand: expected a positive number`). `(rep s "" x)` returns `s` unchanged on both targets.
