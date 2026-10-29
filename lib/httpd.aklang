@@ -147,6 +147,7 @@
        (: o.active=(+ o.active 1) (a.spawn guarded fd handler o)))))
   l)
 (= (run) a.run())                       ; run the tasks of this library (use this, not another copy of async.aklang's run: each use of that file keeps its own task queue)
+(= (spawn f ..args) (a.spawn f ..args))   ; start a task in this library's queue, e.g. a client that talks to your own server before s.run() ends
 (= (serve port handler opts=nil) l=(listen port handler opts) a.run() l)
 (= (matchroute pat segs)                ; params map, or nil
   ps=(split pat "/")[1..] ps=(? (&& #ps (== ps[#ps-1] "")) ps[..-1] ps) m={} ok=true i=0

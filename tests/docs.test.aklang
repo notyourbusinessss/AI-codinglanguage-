@@ -1,0 +1,37 @@
+; Every ```ak block in docs/*.md runs; a ```output block right after it must match the program's stdout.
+; ```ak no-run is for examples that need a network or a display.
+(use "lib/run.aklang" as t)
+files=(sort (~? (\ (f) (ends f ".md")) (ls "docs")))
+ran=0 skipped=0
+tmp=(+ ".docs-test-" ($ (rand 1000000000)) ".aklang")      ; in the repo root, so (use "lib/..") works as written
+(for f files
+  lns=(split (rd (+ "docs/" f)) "\n")
+  i=0 n=0
+  (wh i<#lns
+    l=lns[i] i+=1
+    (? (|| (== l "```ak") (== l "```ak no-run"))
+      (: n+=1 code=[]
+         (wh (&& i<#lns (!= lns[i] "```")) (push code lns[i]) i+=1)
+         i+=1
+         want=nil
+         (? (&& i<#lns (== lns[i] "```output"))
+           (: i+=1 w=[]
+              (wh (&& i<#lns (!= lns[i] "```")) (push w lns[i]) i+=1)
+              i+=1
+              want=(? #w (+ (join w "\n") "\n") "")))
+         label=(+ "docs/" f " block " n)
+         (? (== l "```ak no-run") skipped+=1
+           (: (wr tmp (+ (join code "\n") "\n"))
+              r=(t.run (+ "bin/ak " tmp) nil)
+              (rm tmp)
+              ran+=1
+              (assert (== r.code 0) (+ label ": exit " r.code "\n" r.out r.err))
+              (? (!= want nil) (assert (== r.out want) (+ label ": output differs\n--- expected\n" want "--- got\n" r.out))))))))
+  ; the docs must not claim that no release exists (releases are published)
+  )
+(for f ["README.md" ..(~ (\ (f) (+ "docs/" f)) files)]
+  txt=(lo (rd f))
+  (for bad ["none exists yet" "no release exists" "no release has been" "no release is published" "not released" "not yet released" "for now use a clone"]
+    (assert (! (has txt bad)) (+ f ": says \"" bad "\", but releases are published"))))
+(assert (> ran 0) "found no ak blocks to run")
+(p (+ "docs: ok (" ran " blocks run, " skipped " skipped, " #files " pages)"))

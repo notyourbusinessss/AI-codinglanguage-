@@ -1,0 +1,33 @@
+; native uncaught errors: first line is unchanged, outer call sites follow as "  called from" lines
+(use "lib/run.aklang" as t)
+tmp=t.tmpname()
+(sh (+ "mkdir -p " tmp))
+(= (run name src) f=(+ tmp "/" name) (wr f src) {:f f :r (t.run (+ "bin/ak " f) nil)})
+n=0
+(= (chk name ok info) (<- n n+1) (assert ok (+ name ": " (show info))))
+a=(run "a.aklang" "g x =\n (err \"bad\" x)\nf n =\n y=g(n)\n y+1\np f(2)\n")
+(chk "two frames" (&& (== a.r.code 1) (== a.r.err (+ "error: bad 2 (" a.f ":4:5)\n  called from " a.f ":6:4\n"))) a.r)
+b=(run "b.aklang" "(err \"top\")\n")
+(chk "top level: no extra lines" (== b.r.err (+ "error: top (" b.f ":1:1)\n")) b.r)
+c=(run "c.aklang" "d n =\n (? n==0 (+ 1 nil) 1+d(n-1))\np d(50)\n")
+(chk "recursion is collapsed" (== c.r.err (+ "error: cannot add num and nil (" c.f ":2:10)\n  called from " c.f ":2:23\n  called from " c.f ":3:4\n")) c.r)
+src=""
+(for i 15 src+=(+ "f" i " x =\n 1+f" (+ i 1) "(x)\n"))
+src+="f15 x =\n (err \"deep\")\np f0(1)\n"
+d=(run "d.aklang" src)
+dl=(split (trim d.r.err) "\n")
+(chk "at most 10 callers, then ..." (&& (== #dl 12) (starts dl[10] "  called from ") (== dl[11] "  ...")) d.r)
+e=(run "e.aklang" "(p (try (err \"x\") e=>\"caught\"))\n")
+(chk "a caught error prints nothing" (&& (== e.r.code 0) (== e.r.err "") (== e.r.out "caught\n")) e.r)
+; through (use "f" as g): the trace shows the library's own file and positions, never the renamed symbol (g.name), and crosses the boundary both ways
+(wr (+ tmp "/lib.aklang") "(= (boom x)\n  (err \"boom\" x))\n(= (mid x)\n  1+(boom x))\n")
+(wr (+ tmp "/lib2.aklang") "(use \"lib.aklang\" as inner)\n(= (outer x)\n  1+(inner.mid x))\n")
+a1=(run "as1.aklang" "(use \"lib.aklang\" as g)\n(g.mid 5)\n")
+(chk "error inside a namespaced library function" (&& (== a1.r.code 1) (== a1.r.err (+ "error: boom 5 (" tmp "/lib.aklang:4:5)\n  called from " a1.f ":2:1\n"))) a1.r)
+a2=(run "as2.aklang" "(use \"lib.aklang\" as g)\n(= (run n)\n  1+(g.mid n))\n(run 3)\n")
+(chk "main -> g.mid -> lib: the chain crosses into the library and back" (== a2.r.err (+ "error: boom 3 (" tmp "/lib.aklang:4:5)\n  called from " a2.f ":3:5\n  called from " a2.f ":4:1\n")) a2.r)
+a3=(run "as3.aklang" "(use \"lib2.aklang\" as h)\n(h.outer 2)\n")
+(chk "a library loaded with as, through a library loaded with as" (== a3.r.err (+ "error: boom 2 (" tmp "/lib.aklang:4:5)\n  called from " tmp "/lib2.aklang:3:5\n  called from " a3.f ":2:1\n")) a3.r)
+(chk "no renamed symbol in any trace" (! (match "\\b(g|h|inner)\\.(mid|boom|outer)\\b" a3.r.err)) a3.r)
+(sh (+ "rm -rf " tmp))
+(p (+ n " trace checks passed"))
