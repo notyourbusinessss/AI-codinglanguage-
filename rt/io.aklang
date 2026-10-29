@@ -160,3 +160,61 @@ IEOF=false
   (? (!= sig 0) ($throwk 4 (strcat2 (strcat2 (strcat2 (strcat2 "sh killed by signal " (fmtint sig)) ": ") cmd) ""))
      (!= code 0) ($throwk 4 (strcat2 (strcat2 (strcat2 (strcat2 "sh failed (" (fmtint code)) "): ") cmd) "")))
   out)
+
+; ---- run: a program without a shell, with stdin, stderr, exit code, environment and directory
+(= (runmem) fd=($syscall 319 ($addr (cstr "run")) 0) (? fd<0 ($throwk 4 "run: cannot create a buffer")) fd)
+(= (runread fd)                     ; everything a child wrote into the memfd
+  ($syscall 8 fd 0 0) s=(readfd2 fd) ($syscall 3 fd)
+  (? ($isnum s) ($throwk 4 (strcat2 "run: read failed, errno " (fmtint 0-s)))) s)
+(= (runenv e)                       ; ["K=V" ..]: the current environment with the entries of e added (a nil value removes one)
+  m=(env nil)
+  (for [k v] e (? ($isnil v) (mapdel m (tostr k)) (mapset m (tostr k) (tostr v))))
+  r=(mklist 32) (for [k v] m (lpush r (strcat2 (strcat2 k "=") v))) r)
+(= (run argv opts=nil)
+  (? (! (&& (islist argv) #argv>0 (all isstr argv))) ($throwk 3 "run: argv must be a non-empty list of strings"))
+  opts=(?? opts (map))
+  (? (! (ismap opts)) ($throwk 3 "run: options must be a map"))
+  inp=(mapget opts "in") cwd=(mapget opts "cwd") ev=(mapget opts "env")
+  (? (&& (! ($isnil inp)) (! (isstr inp)) (! (islist inp)) (! (istyped inp))) ($throwk 3 (strcat2 "run: :in must be a string, got " (ty inp))))
+  (? (&& (! ($isnil cwd)) (! (isstr cwd))) ($throwk 3 "run: :cwd must be a string"))
+  (? (&& (! ($isnil ev)) (! (ismap ev))) ($throwk 3 "run: :env must be a map"))
+  envl=(runenv (?? ev (map)))
+  mem=(scratch) n=#argv ne=#envl
+  argvoff=0 envoff=8*(n+1) off=envoff+8*(ne+1)
+  ptrs=[] eptrs=[]
+  (for a argv (lpush ptrs off) off=(putstr mem off a))
+  (for a envl (lpush eptrs off) off=(putstr mem off a))
+  (? off>900000 ($throwk 3 "run: arguments and environment are too large"))
+  (for i n (put64 mem+argvoff+8*i mem+ptrs[i])) (put64 mem+argvoff+8*n 0)
+  (for i ne (put64 mem+envoff+8*i mem+eptrs[i])) (put64 mem+envoff+8*ne 0)
+  name=argv[0]
+  cands=(? (has name "/") [name] (~ d=>(strcat2 (strcat2 d "/") name) (~? d=>#d>0 (split (?? (env "PATH") "/usr/local/bin:/usr/bin:/bin") ":"))))
+  cdir=(? cwd (cstr cwd) nil)
+  infd=-1
+  (? (! ($isnil inp))
+     (: infd=(runmem) d=(? (islist inp) (frombytes inp) (istyped inp) inp inp)
+        e=(rawwrite infd d ($hlen d)) (? e<0 (ioerr "run: cannot buffer the input" "" e))
+        ($syscall 8 infd 0 0)))
+  outfd=(runmem) errfd=(runmem)
+  (flush)
+  pid=($syscall 57)
+  (? pid<0 ($throwk 4 "run: cannot start the program"))
+  (? pid==0
+     (: (? infd>=0 (: ($syscall 33 infd 0) ($syscall 3 infd)))
+        ($syscall 33 outfd 1) ($syscall 33 errfd 2) ($syscall 3 outfd) ($syscall 3 errfd)
+        (? (&& cdir (< ($syscall 80 ($addr cdir)) 0)) (: m=(strcat2 (strcat2 "run: cannot change to " cwd) "\n") (rawwrite 2 m ($hlen m)) ($syscall 231 127)))
+        why=2
+        (for c cands
+          co=off off=(putstr mem off c)
+          r=($syscall 59 mem+co mem+argvoff mem+envoff)
+          (? (&& r!=-2 r!=-20) why=0-r))
+        m=(strcat2 (strcat2 (strcat2 (strcat2 "run: cannot execute " name) ": ") (errtext why)) "\n")
+        (rawwrite 2 m ($hlen m)) ($syscall 231 127)))
+  (? infd>=0 ($syscall 3 infd))
+  stb=($newb 8 16 16)
+  r=($syscall 61 pid ($addr stb) 0 0)
+  (wh r==-4 r=($syscall 61 pid ($addr stb) 0 0))
+  st=(+ ($peek ($addr stb)) (* 256 ($peek ($addr stb)+1)))
+  code=(? ($band st 127)!=0 128+($band st 127) ($band ($ushr st 8) 255))      ; killed by a signal: 128 + its number, like a shell
+  res=(map) (mapset res "code" code) (mapset res "out" (runread outfd)) (mapset res "err" (runread errfd))
+  res)
