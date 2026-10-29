@@ -7,6 +7,7 @@
 ; Request, header and URL text with CR, LF or NUL is refused (no request injection). A body over :max bytes (default 64 MiB, 1 TiB with download) or a head over 1 MiB raises.
 ; Proxies: HTTP_PROXY / HTTPS_PROXY (and lower case) are used unless NO_PROXY lists the host (names, .suffix, *) or it is loopback; opts :proxy "http://[user:pass@]host:port" forces one, :proxy false none. https goes through CONNECT; the proxy itself may be http:// or https:// (TLS to the proxy, verified like any server).
 ; Compression: {:gzip true} sends Accept-Encoding: gzip, deflate and decodes gzip / deflate bodies (lib/inflate.aklang; :max also limits the decoded size). Not applied to h.download.
+; Interim 1xx replies (100 Continue, 103 Early Hints; up to 8) are skipped and the final reply is returned; 101 is final.
 ; Connection reuse: s=h.session() then {:pool s} in the options keeps keep-alive connections for the next request to the same host and port (a reply of unknown length or with Connection: close ends the connection); (h.release s) closes them.
 ; HTTP/2: {:h2 true} offers h2 by ALPN on https:// (lib/h2.aklang, one request per connection, no pooling); a server that picks http/1.1 is served as usual. The reply has the same shape.
 ; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds, :rms / :wms = how long a read / write may stall before it raises (default 60000).
@@ -88,8 +89,8 @@
   (? (&& (all (\ (x) (== x ps[0])) ps) (> #ps[0] 0) #ps[0]<16 (all (\ (x) (&& x>=48 x<=57)) (bytes ps[0]))) (num ps[0]) nil))
 (= (addhd hd k v)                       ; a repeated header is kept: values joined with ", " (set-cookie with "\n", since its values hold commas)
   hd[k]=(? (== hd[k] nil) v (++ hd[k] (? (== k "set-cookie") "\n" ", ") v)))
-(= (readhead c)                         ; bytes up to and including the blank line, plus anything read after it
-  buf="" k=-1
+(= (readhead c buf="")                  ; bytes up to and including the blank line (buf holds what was read already), plus anything read after it
+  k=(idx buf "\r\n\r\n")
   (wh k<0
     d=c.r(65536)
     (? d=="" (netfail "connection closed before the response head"))
@@ -131,7 +132,11 @@
 (= (release pool) (for k (keys pool.conns) (try pool.conns[k].c() e=>nil)) pool.conns={} nil)
 (= (exchange c head body)               ; send a request, read the reply head: [head rest]
   c.w((++ head (?? body "")))
-  (readhead c))
+  r=(readhead c) n=0 st=(statusof (fst (split r[0] "\r\n")))
+  (wh (&& st st>=100 st<200 st!=101)   ; an interim reply (100 Continue, 103 Early Hints) is skipped: the real one follows on the same connection
+    (? (>= n 8) (netfail "too many interim responses"))
+    r=(readhead c r[1]) n+=1 st=(statusof (fst (split r[0] "\r\n"))))
+  r)
 (= (done method sec host port path st hd out bs to body headers opts hops)   ; decode the body, follow a redirect, shape the result
   ce=(lo (trim (?? hd["content-encoding"] "")))
   (? (&& opts.gzip (! to) (> #out 0) (has ["gzip" "x-gzip" "deflate"] ce))
@@ -193,7 +198,7 @@
      (readall c rest bs))
   out=bs.out
   nobody=(|| (== (up method) "HEAD") (has [204 304] st) (&& st>=100 st<200))
-  keep=(&& pool (starts lines[0] "HTTP/1.1") (! (has (lo (?? hd.connection "")) "close")) (|| nobody (!= cl nil) (has (lo (?? hd["transfer-encoding"] "")) "chunked")) (== bs.rest ""))
+  keep=(&& pool st!=101 (starts lines[0] "HTTP/1.1") (! (has (lo (?? hd.connection "")) "close")) (|| nobody (!= cl nil) (has (lo (?? hd["transfer-encoding"] "")) "chunked")) (== bs.rest ""))
   (? keep (: pool.conns[key]=c) c.c())
   (done method sec host port path st hd out bs to body headers opts hops))))
 (= (get url headers=nil opts=nil) (req "GET" url nil headers opts))

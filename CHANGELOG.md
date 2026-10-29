@@ -8,6 +8,17 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 
+## 0.7.47 (2026-10-29)
+
+### Fixed
+- `lib/httpd` refuses a handler's response with CR, LF or NUL in a header name or value, a header name that is empty or holds a space or colon, or a status that is not an integer from 100 to 599: the client gets 500 and the error goes to stderr (#190)
+- `lib/httpd` resolves `.` and `..` segments (also as `%2e`) before decoding, keeps `%2F` inside one segment (`req.segs`, and `req.path` writes it as `%2F`), routes on the segments, and answers 400 for an encoded NUL; `req.path` never holds a `..` segment (#191)
+- `lib/http` skips interim 1xx replies (100 Continue, 103 Early Hints; up to 8) and returns the final reply; 101 is final and its connection is not reused (#185)
+- `lib/ws` closes with 1007 for a text message or close reason that is not valid UTF-8, and with 1002 for a close code RFC 6455 forbids on the wire or a 1-byte close payload (#180)
+- Host names are case-insensitive and a final dot is accepted: `LocalHost` and `localhost.` resolve like `localhost`, and `/etc/hosts` names match in any case (#181). Short IPv4 forms such as `127.1` stay unsupported.
+- Sockets are created with `SOCK_CLOEXEC` and accepted with `accept4`, and `rd`, `wr`, `ls` open with `O_CLOEXEC`, so a program started with `sh` no longer inherits listening or connected sockets and a closed port can be bound again at once (#186)
+- While `lib/async` runs its tasks, `tcpc`, `dns`, `hostips` and reads with a timeout (`fdr`, `fdline`, `udpfrom`, ..) let the other tasks run instead of freezing them; this also covers `lib/http` and `lib/httpd` handlers that call out (#179)
+
 ## 0.7.40 (2026-10-26)
 
 ### Fixed

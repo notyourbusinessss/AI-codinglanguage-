@@ -6,11 +6,22 @@
 ;   (w.recv ws) -> the next message as a string (ws.bin tells whether it was a binary message), or nil once the peer has closed; ping is answered with pong, pong is ignored, fragments are joined.
 ;   (w.close ws) sends a close frame and closes the stream; after a close frame from the peer, recv answers it and returns nil (ws.closed, ws.code, ws.reason).
 ;   ws.protocol = the subprotocol chosen, ws.path / ws.headers = the upgrade request (server side).
-; Violations (an unmasked client frame, reserved bits, a fragmented or oversized control frame, a message over :maxsize = 16 MB) send a close frame (1002, 1009) and raise an io error. A text message is not checked for UTF-8.
+; Violations (an unmasked client frame, reserved bits, a fragmented or oversized control frame, a message over :maxsize = 16 MB) send a close frame (1002, 1009) and raise an io error. A text message and a close reason that are not valid UTF-8 close with 1007, a close frame with a code RFC 6455 forbids on the wire (under 1000, 1004-1006, 1015-2999, 5000 and up) or a 1-byte payload with 1002.
 ; Not supported: extensions (permessage-deflate), the Origin check (look at ws.headers.origin yourself).
 (use "crypto.aklang" as c)
 (use "http.aklang" as h)
 GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+(= (utf8ok s)                           ; strict UTF-8: no overlong forms, no surrogates, nothing above U+10FFFF
+  d=(bytes s) n=#d i=0 ok=true
+  (wh (&& ok i<n)
+    c=d[i] b=(? i+1<n d[i+1] 0) b2=(? i+2<n d[i+2] 0) b3=(? i+3<n d[i+3] 0)
+    (? c<128 i+=1
+       (&& c>=194 c<=223) (? (&& i+1<n (== (// b 64) 2)) i+=2 ok=false)
+       (&& c>=224 c<=239) (? (&& i+2<n (== (// b 64) 2) (== (// b2 64) 2) (|| (!= c 224) b>=160) (|| (!= c 237) b<160)) i+=3 ok=false)
+       (&& c>=240 c<=244) (? (&& i+3<n (== (// b 64) 2) (== (// b2 64) 2) (== (// b3 64) 2) (|| (!= c 240) b>=144) (|| (!= c 244) b<144)) i+=4 ok=false)
+       ok=false))
+  ok)
+(= (closeok c) (|| (&& c>=1000 c<=1003) (&& c>=1007 c<=1014) (&& c>=3000 c<=4999)))
 (= (wsfail ws code msg)                 ; close with a status code and raise
   (try (: (sendframe ws 8 (++ (frombytes [(// code 256) (% code 256)]) msg)) ws.s.c()) e=>nil)
   ws.closed=true
@@ -56,7 +67,10 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
      (: out=nil done=false
         (wh (&& (! done) (! ws.closed))
           [fin op pl]=(frame ws)
-          (? (== op 8) (: ws.code=(? #pl>=2 ($ldb pl 0)*256+($ldb pl 1) 1005) ws.reason=(? #pl>2 pl[2..] "") ws.closed=true
+          (? (== op 8) (: (? (== #pl 1) (wsfail ws 1002 "bad close frame"))
+                          (? (&& #pl>=2 (! (closeok ($ldb pl 0)*256+($ldb pl 1)))) (wsfail ws 1002 "bad close code"))
+                          (? (! (utf8ok (? #pl>2 pl[2..] ""))) (wsfail ws 1007 "close reason is not valid UTF-8"))
+                          ws.code=(? #pl>=2 ($ldb pl 0)*256+($ldb pl 1) 1005) ws.reason=(? #pl>2 pl[2..] "") ws.closed=true
                           (try (: (sendframe ws 8 (? #pl>=2 pl[..2] "")) ws.s.c()) e=>nil))
              (== op 9) (sendframe ws 10 pl)
              (== op 10) nil
@@ -65,6 +79,7 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
              (|| (== op 1) (== op 2)) (? (!= out nil) (wsfail ws 1002 "new message inside a fragmented one")
                                          (: out=pl ws.bin=(== op 2) (? fin done=true)))
              (wsfail ws 1002 "unknown opcode")))
+        (? (&& done (! ws.bin) (! (utf8ok out))) (wsfail ws 1007 "text message is not valid UTF-8"))
         (? done out nil))))
 (= (close ws code=1000 reason="")
   (? (! ws.closed) (: ws.closed=true (try (sendframe ws 8 (++ (frombytes [(// code 256) (% code 256)]) reason)) e=>nil)))

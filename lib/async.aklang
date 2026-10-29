@@ -4,6 +4,7 @@
 ;   a.wait fd          wait until fd is readable (a connection to accept, bytes to read, end of stream)
 ;   a.write fd s       write all of s to fd, letting the other tasks run while its buffer is full (fdw would block the whole process)
 ;   a.chan   a.send ch v   a.recv ch (waits for a value)   a.close ch (receivers then get nil)
+;   While run() works, tcpc, dns, hostips and a read with a timeout (fdr, fdline, udpfrom ..) let the other tasks run instead of freezing them (they poll every 1 to 20 ms).
 ;   a.run              run the tasks until none is left that can still make progress; an uncaught error in a task ends it
 READY=[]
 TIMERS=[]
@@ -33,7 +34,16 @@ CURRENT=nil
   (for x TIMERS (? x[0]<=t (push due x) (push keep x)))
   (<- TIMERS keep)
   (for x (sort (x=>x[0]) due) (push READY x[1])))
+(= (nhook fd wr ms)                     ; installed in the runtime while run() works: a wait of tcpc, dns or fdr with a timeout lets the other tasks run (polls, 1 to 20 ms apart)
+  end=(? ms>=0 now()+ms nil) d=1 done=false ok=false
+  (wh (! done)
+    [r w]=(fdpoll (? wr [] [fd]) (? wr [fd] []) 0)
+    (? (|| (has r fd) (has w fd)) (: ok=true done=true)
+       (&& end now()>=end) done=true
+       (: (yield ["sleep" now()+d]) d=(min 20 d*2))))
+  ok)
 (= (run)
+  (nethook nhook)
   (wh (|| READY TIMERS WAITS WAITW)
     q=READY (<- READY [])
     (for t q
@@ -49,4 +59,5 @@ CURRENT=nil
              (: [rd wr]=(fdpoll fds wfds tmo)
                 (for fd rd k=(tostr fd) (for t WAITS[k] (push READY t)) (<- WAITS (del WAITS k)))
                 (for fd wr k=(tostr fd) (for t WAITW[k] (push READY t)) (<- WAITW (del WAITW k)))
-                (due)))))))
+                (due))))))
+  (nethook nil))
