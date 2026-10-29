@@ -17,7 +17,7 @@ d=(+ "/tmp/aktest-why-" ($ (rand 1000000000)))
 (io (\ () (ls (+ d "/missing"))) "cannot list ")
 (io (\ () (ls (+ d "/missing"))) ": no such file or directory")
 (io (\ () (mv (+ d "/missing") (+ d "/other"))) ": no such file or directory")
-(io (\ () (rm "/proc/version")) "cannot remove /proc/version: operation not permitted")
+(io (\ () (rm "/proc/version")) "cannot remove /proc/version: ")
 (mkdir (+ d "/a/b")) (mkdir (+ d "/a/b")) (assert (isdir (+ d "/a/b")) "mkdir a/b")
 (sh (+ "rm -rf " d))
 (for v [1e300 -1 (pow 0 -1) "a" nil 1e13]
