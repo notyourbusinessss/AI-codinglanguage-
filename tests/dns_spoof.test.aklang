@@ -1,0 +1,17 @@
+; The resolver ignores replies that do not answer its query or come from another address (#199), against tests/lib/dns_evil.aklang
+(use "lib/run.aklang" as t)
+base=(+ "/tmp/akdnsx-" ($ (now)) "-" ($ (rand 1000000000)))
+(wr (+ base ".resolv") "nameserver 127.0.0.1\noptions timeout:1 attempts:1\n")
+(= (ask mode)
+  pid=(trim (sh (+ "bin/ak tests/lib/dns_evil.aklang " mode " >" base ".out 2>&1 & echo $!")))
+  (wh (|| (! (ex (+ base ".out"))) (! (has (rd (+ base ".out")) "\n"))) (sleep 50))
+  port=(trim (fst (split (rd (+ base ".out")) "\n")))
+  r=(t.run (+ "AK_DNS=127.0.0.1:" port " AK_RESOLV=" base ".resolv bin/ak -e '(p (try (dns \"Bank.Example\") e=>e))'") nil)
+  (sh (+ "kill " pid " 2>/dev/null; rm -f " base ".out"))
+  (assert (== r.code 0) (+ mode ": " r.err))
+  (trim r.out))
+(assert (== (ask "ok") "[\"6.6.6.6\"]") "a reply for the question is accepted, whatever the letter case")
+(assert (== (ask "cname-ok") "[\"6.6.6.6\"]") "an address for the CNAME target is accepted")
+(for m ["question" "qtype" "owner" "port" "cname-bad"]
+  (assert (== (ask m) "cannot resolve Bank.Example") (+ m ": the forged reply is ignored")))
+(sh (+ "rm -f " base ".resolv"))

@@ -342,14 +342,18 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (for l (split name ".")
     (? #l>63 (netfail "bad host name") #l (: (push pk #l) (for c (bytes l) (push pk c)))))
   [q [..pk 0 0 qtype 0 1]])
-(= (dnsparse r q qtype)                 ; a response -> [rcode addresses ttl truncated?], or nil if it does not answer query q
-  (? (&& r #r>=12 ($ldb r 0)==q[0] ($ldb r 1)==q[1] (>= ($ldb r 2) 128))
-     (: n=(be16 r 6) i=12 qd=(be16 r 4) (for k qd i=(dnsskip r i)+4)      ; the question
-        ips=[] ttl=3600
-        (for k n
-          i=(dnsskip r i)
+(= (dnsparse r q qtype name)            ; a response -> [rcode addresses ttl truncated?], or nil if it does not answer the query (q = its id, qtype, name): the id, the question and the owner names of the records must match
+  (? (&& r #r>=12 ($ldb r 0)==q[0] ($ldb r 1)==q[1] (>= ($ldb r 2) 128) (be16 r 4)==1)
+     (: n=(be16 r 6) want=(lo name) want=(? (ends want ".") want[..-1] want) i=(dnsskip r 12)
+        ok=(&& (== (lo (dnsname r 12)) want) (== (be16 r i) qtype) (== (be16 r i+2) 1)) i+=4
+        names=[want] ips=[] ttl=3600 cn={} j=i
+        (? ok (: (for k n o=(lo (dnsname r j)) j=(dnsskip r j) t=(be16 r j) l=(be16 r j+8) (? t==5 cn[o]=(lo (dnsname r j+10))) j+=10+l)
+                 (for k 10 (? (has (keys cn) want) (: want=cn[want] (push names want)))))) ; the names the answer may be about: the query name and the targets of its CNAME chain
+        (for k (? ok n 0)
+          o=(lo (dnsname r i)) i=(dnsskip r i)
           t=(be16 r i) l=(be16 r i+8) j=i+10
-          (? (&& t==qtype (|| (&& t==1 l==4) (&& t==28 l==16)))
+          (? (! (has names o)) nil
+             (&& t==qtype (|| (&& t==1 l==4) (&& t==28 l==16)))
              (: (push ips (~ x=>($ldb r x) j..j+l)) ttl=(min ttl (+ (* 65536 (be16 r i+4)) (be16 r i+6))))
              (&& t==qtype (has [2 5 12] t))
              (push ips (dnsname r j))
@@ -357,7 +361,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
              (&& t==qtype t==33) (push ips {:prio (be16 r j) :weight (be16 r j+2) :port (be16 r j+4) :host (dnsname r j+6)})
              (&& t==qtype t==16) (: k=j txt="" (wh k<j+l txt=(strcat2 txt (strslice r k+1 k+1+($ldb r k))) k+=($ldb r k)+1) (push ips txt)))
           i=j+l)
-        [(& ($ldb r 3) 15) ips ttl (== (& ($ldb r 2) 2) 2)])
+        (? ok [(& ($ldb r 3) 15) ips ttl (== (& ($ldb r 2) 2) 2)] nil))
      nil))
 (= (dnstcp name server port timeout qtype)      ; the same question over TCP (for answers that did not fit one datagram), or nil
   [q pk]=(dnspk name qtype)
@@ -365,7 +369,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
           (? (isnum fd)
              (: res=(try (: (fdw fd [(// #pk 256) (% #pk 256) ..pk] timeout)
                             n=(be16 (fdreadn fd 2 timeout) 0)
-                            (dnsparse (fdreadn fd n timeout) q qtype))
+                            (dnsparse (fdreadn fd n timeout) q qtype name))
                          e=>nil)
                 (fdc fd) res)
              nil))
@@ -377,8 +381,8 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
     (: (udpto fd server port pk)
        end=(+ (now) timeout)
        (wh (&& (! out) (> end (now)))
-         r=(udpfrom fd 512 (- end (now)))
-         out=(dnsparse r q qtype)))
+         [r ip pt]=(?? (udpfrom2 fd 512 (- end (now))) [nil nil nil])       ; only the server that was asked may answer
+         out=(? (&& r (== ip server) (== pt port)) (dnsparse r q qtype name) nil)))
     e=>(: ($syscall 3 fd) (raise "io" e)))
   ($syscall 3 fd)
   (? (&& out out[3]) (?? (dnstcp name server port timeout qtype) out) out))
