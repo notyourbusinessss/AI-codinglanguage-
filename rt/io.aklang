@@ -207,7 +207,7 @@ IEOF=false
         (for c cands
           co=off off=(putstr mem off c)
           r=($syscall 59 mem+co mem+argvoff mem+envoff)
-          (? (&& r!=-2 r!=-20) why=0-r))
+          (? (&& r!=-2 r!=-20 (|| (has name "/") r!=-13)) why=0-r))      ; a PATH directory that cannot be searched is not the reason
         m=(strcat2 (strcat2 (strcat2 (strcat2 "run: cannot execute " name) ": ") (errtext why)) "\n")
         (rawwrite 2 m ($hlen m)) ($syscall 231 127)))
   (? infd>=0 ($syscall 3 infd))
