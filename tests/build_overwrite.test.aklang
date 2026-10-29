@@ -1,0 +1,19 @@
+; ak build/exe/compile refuse to write the executable over the source file or to a source extension, and leave the file untouched (#182)
+(use "lib/run.aklang" as t)
+(= (ak args) (t.run (+ "bin/ak " args) nil))
+d=(+ "/tmp/aktest-ovw-" ($ (rand 1000000000)))
+(mkdir d)
+(wr (+ d "/prog") "(p \"hi\")\n")
+(wr (+ d "/s.aklang") "(p \"hi\")\n")
+(sh (+ "ln -s prog " d "/lnk"))
+(for [args want] [[(+ "build " d "/prog " d "/prog") "source file itself"] [(+ "build " d "/prog " d "/lnk") "source file itself"] [(+ "exe " d "/prog " d "/./prog") "source file itself"]
+                  [(+ "compile " d "/prog " d "/prog") "source file itself"] [(+ "build --image " d "/prog " d "/prog") "source file itself"]
+                  [(+ "build " d "/s.aklang " d "/s.aklang") "overwrite a source file"] [(+ "build " d "/prog " d "/x.ak") "overwrite a source file"]]
+  r=(ak args)
+  (assert (&& (== r.code 1) (has r.err want)) (+ args ": " (show r)))
+  (assert (&& (== (rd (+ d "/prog")) "(p \"hi\")\n") (== (rd (+ d "/s.aklang")) "(p \"hi\")\n") (! (ex (+ d "/x.ak")))) (+ args ": source changed")))
+r=(ak (+ "build " d "/prog " d "/out"))
+(assert (== r.code 0) (show r))
+r=(t.run (+ d "/out") nil)
+(assert (== r.out "hi\n") (show r))
+(sh (+ "rm -rf " d))

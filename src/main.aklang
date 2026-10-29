@@ -137,6 +137,10 @@ REPLHELP="enter an expression to see its value, or a definition (x=1, f n = .., 
   (? tty (p (++ "ak " VERSION " repl: " REPLHELP)))
   (replloop tty tmp [])
   (rm tmp))
+(= (chkout src out)             ; never write the executable over a source file: same file as the input, or a source extension
+  (? (|| (ends out ".aklang") (ends out ".ak")) (err (++ "output " out " would overwrite a source file (name the executable without .aklang or .ak)")))
+  (? (&& (ex out) (ex src) (== (trim (sh (++ "[ " shq(src) " -ef " shq(out) " ] && echo y || echo n"))) "y")) (err (++ "output " out " is the source file itself")))
+  out)
 (= (srcname f) (? f=="-" "<stdin>" f))      ; `-` means the program is read from stdin
 (= (rdsrc f) (? f=="-" (inall) (rd f)))
 (= (withline e)               ; "f:L:C: msg" -> the same plus the source line and a caret under column C
@@ -151,15 +155,15 @@ REPLHELP="enter an expression to see its value, or a definition (x=1, f n = .., 
        ["-v" "--version" "version"] (p (++ "ak " VERSION))
        ["-h" "--help" "help"] (p USAGE)
        "-e" (? #a<2 (usage) (runx (compile_src a[1] "<-e>") a[2..]))
-       ["build" "exe"] (? (&& #a==4 a[1]=="--image") (wrx a[3] (compile_src (rd a[2]) a[2] true))
+       ["build" "exe"] (? (&& #a==4 a[1]=="--image") (wrx (chkout a[2] a[3]) (compile_src (rd a[2]) a[2] true))
                           #a!=3 (usage)
-                          (wrx a[2] (compile_src (rd a[1]) a[1])))
+                          (wrx (chkout a[1] a[2]) (compile_src (rd a[1]) a[1])))
        "check" (? #a!=2 (usage) (: (front (rdsrc a[1]) (srcname a[1])) (p "ok")))
        "fmt" (? #a!=2 (usage) (pr (fmtforms (parse (rdsrc a[1]) (srcname a[1])))))
        "test" (cmd_test a[1..])
        "repl" (cmd_repl)
        "run" (? #a<2 (usage) (runx (compile_src (rd a[1]) a[1]) a[2..]))
-       "compile" (? #a!=3 (usage) (wrx a[2] (compile_src (rd a[1]) a[1])))
+       "compile" (? #a!=3 (usage) (wrx (chkout a[1] a[2]) (compile_src (rd a[1]) a[1])))
        (? (&& (starts a[0] "-") a[0]!="-") (: (ep (++ "unknown option " a[0])) (usage))      ; ak ./-name.aklang still runs such a file
           (runx (compile_src (rdsrc a[0]) (srcname a[0])) a[1..])))))
 (? (env "AK_DEBUG") (cli) (try (cli) e=>(: (ep (++ "error: " (withline e))) (exit 1))))
