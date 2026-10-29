@@ -74,6 +74,6 @@ Portable code treats text as opaque (compare, join, split on ASCII separators) a
 
 ## BigInt, `fmt` and `json` rules (native)
 - `(ty 10n)` is `"big"`. `abs min max sum int flr cel` and `fmt "%d"` accept BigInts; `sqrt rpt` and the other number builtins raise `expected number, got big`. A BigInt and a number never mix in `+ - *` (`cannot add big and num`), but they compare and sort.
-- `fmt` raises (kind `error`) when it runs out of arguments (`fmt: missing argument for %s`), has arguments left over (`fmt: too many arguments`), ends inside a specifier (`fmt: incomplete format`) or meets an unknown one (`fmt: unknown specifier %e`).
+- `fmt` raises (kind `error`) when it runs out of arguments (`fmt: missing argument for %s`), has arguments left over (`fmt: too many arguments`), ends inside a specifier (`fmt: incomplete format`) or meets an unknown one (`fmt: unknown specifier %k`).
 - `json` raises an `arith` error for `NaN`, `Infinity` and `-Infinity` (`json: cannot write NaN`) instead of writing `null`.
 

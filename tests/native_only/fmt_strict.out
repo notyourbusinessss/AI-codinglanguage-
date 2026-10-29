@@ -1,6 +1,6 @@
 a1-x 5% nil   2.3|7   |0042
 fmt: missing argument for %s
-fmt: unknown specifier %e
+fmt: unknown specifier %k
 fmt: incomplete format
 fmt: incomplete format
 fmt: too many arguments
