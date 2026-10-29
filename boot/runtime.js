@@ -338,7 +338,7 @@ const B = {
   atan2: (y, x) => Math.atan2(n(y), n(x)), exp: x => Math.exp(n(x)), log: x => Math.log(n(x)), log2: x => Math.log2(n(x)), log10: x => Math.log10(n(x)),
   pow: (a, b) => Math.pow(n(a), n(b)), cbrt: x => Math.cbrt(n(x)), hypot: (a, b) => Math.hypot(n(a), n(b)), sinh: x => Math.sinh(n(x)), cosh: x => Math.cosh(n(x)), tanh: x => Math.tanh(n(x)),
   sign: x => Math.sign(n(x)),
-  rand: (n) => n === undefined ? Math.random() : Math.floor(Math.random() * n),
+  rand: (n) => { if (n === undefined || n === null) return Math.random(); if (typeof n !== 'number') throw new AkError('expected number, got ' + tyOf(n), 'type'); if (!(n > 0)) throw new AkError('rand: expected a positive number', 'type'); return Math.floor(Math.random() * n); },
   // data
   list: (...a) => a,
   map: (...a) => { const m = new Map(); for (let i = 0; i < a.length; i += 2) m.set(a[i], a[i + 1]); return m; },
@@ -408,7 +408,7 @@ const B = {
   split: (s, d) => d === undefined ? (s.trim() === '' ? [] : s.trim().split(/\s+/)) : s.split(d),
   join: (l, d) => arr(coll(l)).map(tostr).join(d == null ? '' : tostr(d)),
   trim: s => str(s).trim(), up: s => str(s).toUpperCase(), lo: s => str(s).toLowerCase(),
-  rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : s.split(a).join(b),
+  rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : a === '' ? s : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
   rpt: (s, k) => { k = Math.max(0, Math.trunc(n(k))); if (typeof s === 'string') return s.repeat(k); if (!s.length) return []; if (s.length * k > 134217728) throw new AkError('invalid length: ' + show(s.length * k), 'arith'); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
   fmt: (f, ...a) => { let i = 0; return f.replace(/%(-?)(0?)(\d*)(?:\.(\d+))?([sdfxXbo%])/g, (m, left, zero, w, prec, t) => {
