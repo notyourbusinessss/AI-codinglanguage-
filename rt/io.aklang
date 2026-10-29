@@ -1,5 +1,11 @@
 ; Native runtime part 5: files, process, time. Linux x86-64 syscalls via $syscall.
 (= (cstr s) (? (! (isstr s)) ($throwk 3 (strcat2 "path must be a string, got " (ty s)))) n=($hlen s) r=(strnew n+1) ($copy r 0 s 0 n) r)
+(= (errtext n)                      ; short reason for a positive errno
+  (? n==2 "no such file or directory" n==13 "permission denied" n==21 "is a directory" n==20 "not a directory" n==17 "file exists"
+     n==28 "no space left on device" n==30 "read-only file system" n==39 "directory not empty" n==1 "operation not permitted"
+     n==36 "file name too long" n==24 "too many open files" n==40 "too many levels of symbolic links" n==18 "cross-device link" n==5 "input/output error"
+     (strcat2 "errno " (fmtint n))))
+(= (ioerr what p r) ($throwk 4 (strcat2 (strcat2 (strcat2 what " ") p) (strcat2 ": " (errtext 0-r)))))      ; "cannot read /x: no such file or directory" (r = the negative errno of the failed syscall)
 (= (cpeek addr) n=0 (wh (> ($peek addr+n) 0) n+=1)
   r=(strnew n) (for i n ($stb r i ($peek addr+i))) r)
 (= (readfd2 fd)                     ; the whole input as a string, or the negative errno of a failed read (EINTR is retried; only 0 is end of file)
@@ -12,22 +18,22 @@
 (= (readfd fd) s=(readfd2 fd) (? ($isnum s) ($throwk 4 (strcat2 "read failed, errno " (fmtint 0-s))) s))
 (= (rd f)
   fd=($syscall 2 ($addr (cstr f)) 524288 0)
-  (? fd<0 ($throwk 4 (strcat2 "cannot read " f)))
+  (? fd<0 (ioerr "cannot read" f fd))
   s=(readfd2 fd) ($syscall 3 fd)
-  (? ($isnum s) ($throwk 4 (strcat2 (strcat2 "cannot read " f) (strcat2 ", errno " (fmtint 0-s))))) s)
+  (? ($isnum s) (ioerr "cannot read" f s)) s)
 (= (wrfile f s flags mode)
   fd=($syscall 2 ($addr (cstr f)) flags+524288 mode)
-  (? fd<0 ($throwk 4 (strcat2 "cannot write " f)))
+  (? fd<0 (ioerr "cannot write" f fd))
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s))
   e=(rawwrite fd d ($hlen d)) ($syscall 3 fd)
-  (? e<0 ($throwk 4 (strcat2 (strcat2 "cannot write " f) (strcat2 ", errno " (fmtint 0-e))))) s)
+  (? e<0 (ioerr "cannot write" f e)) s)
 (= (wr f s) (wrfile f s 577 420))
 (= (app f s) (wrfile f s 1089 420))
 (= (wrx f s) (wrfile f s 577 493) ($syscall 90 ($addr (cstr f)) 493) s)
 (= (ex f) (== ($syscall 21 ($addr (cstr f)) 0) 0))
 (= (ls d=nil)
   d=(?? d ".") fd=($syscall 2 ($addr (cstr d)) 589824 0)
-  (? fd<0 ($throwk 4 (strcat2 "cannot list " d)))
+  (? fd<0 (ioerr "cannot list" d fd))
   buf=($newb 8 32768 32768) r=(mklist 16) done=false
   (wh (! done)
     n=($syscall 217 fd ($addr buf) 32768)
@@ -54,9 +60,13 @@
   (+ (* (ru64 buf 1) 1000) ($ffloor ($fdiv (ru64 buf 2) 1000000))))
 (= (clock) buf=($newb 8 16 16) ($syscall 228 1 ($addr buf))
   (+ (* (ru64 buf 1) 1000) ($fdiv (ru64 buf 2) 1000000)))
-(= (sleep ms) buf=($newb 8 16 16)
+(= (sleep ms)
+  (? (! (&& ($isnum ms) (>= ms 0) (<= ms 1099511627776))) ($throwk 3 (strcat2 "invalid sleep: " (show ms))))      ; NaN, negative, infinite and over 2^40 ms (about 35 years) are refused
+  buf=($newb 8 32 32)
   ($stw buf 1 ($frombits 0 ($ffloor ($fdiv ms 1000)))) ($stw buf 2 ($frombits 0 (* (% ms 1000) 1000000)))
-  ($syscall 35 ($addr buf) 0) nil)
+  (wh (== ($syscall 35 ($addr buf) ($addr buf)+16) -4)           ; a signal interrupted the sleep: go on with the time that is left
+    ($stw buf 1 ($ldw buf 3)) ($stw buf 2 ($ldw buf 4)))
+  nil)
 ; stdin: buffered line reader
 IBUF=nil
 IPOS=0
@@ -113,17 +123,22 @@ IEOF=false
              (: (for f (ls p) (rm (strcat2 (strcat2 p "/") f)))
                 ($syscall 84 ($addr (cstr p))))
              ($syscall 87 ($addr (cstr p))))
-        (? r<0 ($throwk 4 (strcat2 "cannot remove " p)))
+        (? r<0 (ioerr "cannot remove" p r))
         nil)))
 (= (mkdir p)
-  (? (isdir p) nil
+  (? (== #p 0) (ioerr "cannot create" p -2)
+     (isdir p) nil
      (: i=1 n=#p
         (wh i<=n
           (? (|| i==n (== ($ldb p i) 47))
-             (: q=(strslice p 0 i) (? (&& (> #q 0) (! (isdir q)) (< ($syscall 83 ($addr (cstr q)) 493) 0) (! (isdir q))) ($throwk 4 (strcat2 "cannot create " p)))))
+             (: q=(strslice p 0 i)
+                (? (&& (> #q 0) (! (isdir q)))
+                   (: r=($syscall 83 ($addr (cstr q)) 493) (? (&& (< r 0) (! (isdir q))) (ioerr "cannot create" p (? r==-17 -20 r)))))))
           i+=1)
         nil)))
-(= (mv a b) (? (< ($syscall 82 ($addr (cstr a)) ($addr (cstr b))) 0) ($throwk 4 (strcat2 (strcat2 (strcat2 "cannot rename " a) " to ") b))) nil)
+(= (mv a b)
+  r=($syscall 82 ($addr (cstr a)) ($addr (cstr b)))
+  (? r<0 ($throwk 4 (strcat2 (strcat2 (strcat2 (strcat2 "cannot rename " a) " to ") b) (strcat2 ": " (errtext 0-r))))) nil)
 (= (selfexe) buf=(scratch) n=($syscall 89 ($addr (cstr "/proc/self/exe")) buf 4096) (? n<=0 ($throwk 4 "cannot find the ak executable"))
   s=(strnew n) (for i n ($stb s i ($peek buf+i))) s)
 (= (sh cmd)
