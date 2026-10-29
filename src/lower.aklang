@@ -211,8 +211,18 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
        (lerr "bad parameter" node)))
   {:ps ps :rest rest :min mn :max (? rest 1e9 #ps)})
 
+(= (boundnames pat) r=[]                  ; every name a [pattern] binds (nested patterns and ..rest included)
+  (for it pat[1..] (? (isspread it) (push r ($ it[1])) (issym it) (push r ($ it)) (ispat it) (for y (boundnames it) (push r y))))
+  r)
+(= (nodups names node)                  ; the same name twice in one parameter list or pattern is a typo; _ may repeat
+  seen=[]
+  (for n names (? n=="_" nil (has seen n) (lerr (++ "duplicate parameter " n) node) (push seen n))))
 (= (lower_fn name plist body selfv node)
   pp=(parse_params plist node)
+  names=[]
+  (for p pp.ps (? p.pat (for y (boundnames p.pat) (push names y)) (push names p.name)))
+  (? pp.rest (push names pp.rest))
+  (nodups names node)
   f=(newfn name L.cf)
   (? selfv selfv.arity=[pp.min pp.max])
   savecf=L.cf savecs=L.cs
@@ -249,6 +259,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   v=(declare_block name)
   ["init" v val])
 (= (destructure pat src leaf)
+  (nodups (boundnames pat) pat)
   t=(newtemp (++ "%d" (newid))) items=pat[1..]
   steps=[["init" t ["call" (rtref "destr") [src]]]]
   (for [k it] (enum items)
@@ -272,6 +283,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
            (issym t) (lower_symassign t x)
            (lerr "= target must be a name, a [pattern], or (name params..)" x)))))
 (= (lower_patassign t v)
+  (nodups (boundnames t) t)
   (? (&& (ispat v) #v==#t (! (any isspread v[1..])) (all issym t[1..]))
        (: tmps=[] steps=[]
           (for e v[1..] tv=(newtemp (++ "%p" (newid))) (push steps ["init" tv (lower e false)]) (push tmps tv))
