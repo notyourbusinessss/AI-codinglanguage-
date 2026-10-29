@@ -1,0 +1,16 @@
+; chr and "\u{..}" reject surrogate code points (#201); the boundaries around 0xD800-0xDFFF and the Unicode maximum
+(use "lib/run.aklang" as t)
+(= (try1 src) (trim (t.run (+ "bin/ak -e '" src "'") nil).out))
+(= (chk n) (try1 (+ "(p (try (# (chr " ($ n) ")) e=>e))")))
+(= (bad n) (== (chk n) (+ "chr: invalid code point " ($ n))))
+(for n [55295 57344 1114111] (assert (! (bad n)) (+ "chr " ($ n) " must work: " (chk n))))
+(assert (== (chk 55295) "3") "0xD7FF is 3 bytes")
+(assert (== (chk 57344) "3") "0xE000 is 3 bytes")
+(assert (== (chk 1114111) "4") "0x10FFFF is 4 bytes")
+(for n [55296 57343 1114112] (assert (bad n) (+ "chr " ($ n) " must be rejected: " (chk n))))
+(assert (== (try1 "(p (try (chr 128512) e=>e))") "😀") "chr 128512 still works")
+(= (esc n) (t.run (+ "bin/ak -e '(p \"\\u{" n "}\")'") nil))
+(for n ["d800" "dfff" "110000"]
+  r=(esc n)
+  (assert (&& (!= r.code 0) (has r.err "chr: invalid code point")) (+ "the \\u{" n "} escape is rejected: " (show r))))
+(assert (== (try1 "(p (# \"\\u{e000}\"))") "3") "the \\u{e000} escape works")
