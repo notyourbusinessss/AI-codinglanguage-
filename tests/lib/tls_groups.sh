@@ -12,13 +12,14 @@ stop() { kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; }
 # the Ak server: 6 connections
 rm -f srv.out; ( cd "$R" && exec $AK tests/lib/tls_serve.aklang "$D/srv.pem" "$D/srv.key" 6 ) > srv.out 2>&1 & SRV=$!
 i=0; while [ ! -s srv.out ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; PORT=$(head -1 srv.out)
-sc() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -a "^hello\|Server Temp Key\|alert" | tr '\n' ' ' | sed 's/closed *$//; s/ *$//; s/---$//'; }
-check "server: P-256 share" "$(sc -groups P-256)" "Server Temp Key: ECDH, prime256v1, 256 bits hello - alpn=- peer=no"
-check "server: P-384 share" "$(sc -groups P-384)" "Server Temp Key: ECDH, secp384r1, 384 bits hello - alpn=- peer=no"
-check "server: HelloRetryRequest to x25519" "$(sc -groups X448:X25519)" "Server Temp Key: X25519, 253 bits hello - alpn=- peer=no"
-check "server: HelloRetryRequest to P-256" "$(sc -groups X448:P-256)" "Server Temp Key: ECDH, prime256v1, 256 bits hello - alpn=- peer=no"
+# openssl 3.0 prints "Server Temp Key: ECDH, prime256v1, 256 bits", later versions "Peer Temp Key: ..." or "Negotiated TLS1.3 group: secp256r1"; all are reduced to G=<group>
+sc() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -aiE "^hello|temp key|negotiated.*group|alert" | sed -E '/[Tt]emp [Kk]ey|[Nn]egotiated.*group/{s/.*(X25519|x25519).*/G=X25519/;s/.*(prime256v1|secp256r1|P-256).*/G=P-256/;s/.*(secp384r1|P-384).*/G=P-384/}' | tr '\n' ' ' | sed 's/closed *$//; s/ *$//; s/---$//'; }
+check "server: P-256 share" "$(sc -groups P-256)" "G=P-256 hello - alpn=- peer=no"
+check "server: P-384 share" "$(sc -groups P-384)" "G=P-384 hello - alpn=- peer=no"
+check "server: HelloRetryRequest to x25519" "$(sc -groups X448:X25519)" "G=X25519 hello - alpn=- peer=no"
+check "server: HelloRetryRequest to P-256" "$(sc -groups X448:P-256)" "G=P-256 hello - alpn=- peer=no"
 check "server: no group in common" "$(sc -groups X448 | grep -c 'alert')" 1
-check "server: x25519 still the default" "$(sc)" "Server Temp Key: X25519, 253 bits hello - alpn=- peer=no"
+check "server: x25519 still the default" "$(sc)" "G=X25519 hello - alpn=- peer=no"
 stop
 # the Ak client against openssl s_server
 srv() { rm -f ossl.out; openssl s_server -accept 0 -cert srv.pem -key srv.key "$@" -msg > ossl.out 2>&1 & SRV=$!; i=0; while ! grep -q "ACCEPT" ossl.out && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done; PORT=$(sed -n 's/.*ACCEPT.*:\([0-9]*\).*/\1/p' ossl.out | head -1); }
