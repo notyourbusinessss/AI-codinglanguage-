@@ -126,8 +126,8 @@ IEOF=false
         (? r<0 (ioerr "cannot remove" p r))
         nil)))
 (= (mkdir p)
-  (? (== #p 0) (ioerr "cannot create" p -2)
-     (isdir p) nil
+  (? (isdir p) nil                     ; first: isdir rejects a non-string
+     (== #p 0) (ioerr "cannot create" p -2)
      (: i=1 n=#p
         (wh i<=n
           (? (|| i==n (== ($ldb p i) 47))
