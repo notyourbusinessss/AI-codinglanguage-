@@ -218,3 +218,36 @@ IEOF=false
   code=(? ($band st 127)!=0 128+($band st 127) ($band ($ushr st 8) 255))      ; killed by a signal: 128 + its number, like a shell
   res=(map) (mapset res "code" code) (mapset res "out" (runread outfd)) (mapset res "err" (runread errfd))
   res)
+
+; ---- stat cp chmod cwd chdir
+(= (peek64 addr) v=0 (for i 8 v=v*256+($peek addr+7-i)) v)
+(= (stat p)                         ; {size mtime(ms) mode dir}, nil when the path does not exist
+  buf=(scratch) r=($syscall 4 ($addr (cstr p)) buf)
+  (? (|| r==-2 r==-20) nil
+     r<0 (ioerr "cannot stat" p r)
+     (: m=(+ ($peek buf+24) (* 256 ($peek buf+25)) (* 65536 ($peek buf+26)))
+        res=(map) (mapset res "size" (peek64 buf+48)) (mapset res "mtime" (+ (* (peek64 buf+88) 1000) ($ffloor ($fdiv (peek64 buf+96) 1000000))))
+        (mapset res "mode" ($band m 4095)) (mapset res "dir" (== ($band m 61440) 16384)) res)))
+(= (chmod p mode)
+  (? (! (&& ($isnum mode) (isint mode) mode>=0 mode<=4095)) ($throwk 3 (strcat2 "chmod: invalid mode " (show mode))))
+  r=($syscall 90 ($addr (cstr p)) mode) (? r<0 (ioerr "cannot chmod" p r)) nil)
+(= (cwd) buf=(scratch) n=($syscall 79 buf 4096) (? n<=0 ($throwk 4 "cannot find the current directory"))
+  s=(strnew n-1) (for i n-1 ($stb s i ($peek buf+i))) s)
+(= (chdir p) r=($syscall 80 ($addr (cstr p))) (? r<0 (ioerr "cannot change to" p r)) nil)
+(= (cp a b)                         ; copies the contents and the permission bits in 64 KB pieces; raises when both names are the same file
+  buf=(scratch) sfd=($syscall 2 ($addr (cstr a)) 524288 0)
+  (? sfd<0 (ioerr "cannot read" a sfd))
+  ($syscall 5 sfd buf)
+  mode=($band (+ ($peek buf+24) (* 256 ($peek buf+25))) 4095) kind=($band (+ ($peek buf+24) (* 256 ($peek buf+25))) 61440)
+  sdev=(peek64 buf) sino=(peek64 buf+8)
+  (? (== kind 16384) (: ($syscall 3 sfd) ($throwk 4 (strcat2 (strcat2 "cannot read " a) ": is a directory"))))
+  (? (&& (== ($syscall 4 ($addr (cstr b)) buf) 0) (== (peek64 buf) sdev) (== (peek64 buf+8) sino)) (: ($syscall 3 sfd) ($throwk 4 (strcat2 (strcat2 (strcat2 (strcat2 "cannot copy " a) " to ") b) ": same file"))))
+  dfd=($syscall 2 ($addr (cstr b)) 524865 mode)
+  (? dfd<0 (: ($syscall 3 sfd) (ioerr "cannot write" b dfd)))
+  chunk=($newb 1 65536 65536) done=false err=0
+  (wh (! done)
+    r=($syscall 0 sfd ($addr chunk) 65536)
+    (? r==-4 nil r==0 done=true r<0 (: err=r done=true)
+       (: e=(rawwrite dfd chunk r) (? e<0 (: err=e done=true)))))
+  ($syscall 3 sfd) ($syscall 3 dfd)
+  (? err<0 (ioerr "cannot copy" (strcat2 (strcat2 a " to ") b) err)) nil)
