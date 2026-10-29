@@ -12,8 +12,8 @@ stop() { kill $SRV 2>/dev/null; wait $SRV 2>/dev/null; }
 # the Ak server: 6 connections
 rm -f srv.out; ( cd "$R" && exec $AK tests/lib/tls_serve.aklang "$D/srv.pem" "$D/srv.key" 6 ) > srv.out 2>&1 & SRV=$!
 i=0; while [ ! -s srv.out ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; PORT=$(head -1 srv.out)
-# openssl before 3.2 prints "Server Temp Key: ECDH, prime256v1, 256 bits", later versions "Negotiated TLS1.3 group: secp256r1"; both are reduced to G=<group>
-sc() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -a "^hello\|Server Temp Key\|Negotiated TLS1.3 group\|alert" | sed -E '/Server Temp Key|Negotiated TLS1.3 group/{s/.*(X25519|x25519).*/G=X25519/;s/.*(prime256v1|secp256r1|P-256).*/G=P-256/;s/.*(secp384r1|P-384).*/G=P-384/}' | tr '\n' ' ' | sed 's/closed *$//; s/ *$//; s/---$//'; }
+# openssl 3.0 prints "Server Temp Key: ECDH, prime256v1, 256 bits", later versions "Peer Temp Key: ..." or "Negotiated TLS1.3 group: secp256r1"; all are reduced to G=<group>
+sc() { (printf 'GET / HTTP/1.0\r\n\r\n'; sleep 1) | openssl s_client -connect localhost:$PORT -CAfile ca.pem -verify_hostname localhost -tls1_3 "$@" 2>&1 | grep -aiE "^hello|temp key|negotiated.*group|alert" | sed -E '/[Tt]emp [Kk]ey|[Nn]egotiated.*group/{s/.*(X25519|x25519).*/G=X25519/;s/.*(prime256v1|secp256r1|P-256).*/G=P-256/;s/.*(secp384r1|P-384).*/G=P-384/}' | tr '\n' ' ' | sed 's/closed *$//; s/ *$//; s/---$//'; }
 check "server: P-256 share" "$(sc -groups P-256)" "G=P-256 hello - alpn=- peer=no"
 check "server: P-384 share" "$(sc -groups P-384)" "G=P-384 hello - alpn=- peer=no"
 check "server: HelloRetryRequest to x25519" "$(sc -groups X448:X25519)" "G=X25519 hello - alpn=- peer=no"
