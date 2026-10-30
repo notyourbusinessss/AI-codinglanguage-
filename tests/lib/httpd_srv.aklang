@@ -16,6 +16,9 @@ h=(s.router [["GET" "/" (\ (rq) "root")]
              ["GET" "/injname" (\ (rq) {:headers {"X A" "v"} :body "x"})]
              ["GET" "/badcode" (\ (rq) [99999 "text/plain" "x"])]
              ["GET" "/strcode" (\ (rq) {:status "200" :body "x"})]
+             ["OPTIONS" "*" (\ (rq) (++ "star " rq.path))]
+             ["PURGE" "/user/:id" hello]
+             ["GET" "/host" (\ (rq) (++ rq.headers.host "|" rq.target "|" rq.path "|" (json rq.query)))]
              ["GET" "/numhdr" (\ (rq) {:headers {"X-N" 5} :body "fine"})]])
 [mc]=(args)       ; optional argument: :maxconn
 l=(s.listen 0 h {:maxbody 1000 :maxhead 2000 :maxreq 3 :headms 1000 :idlems 1500 :bodyms 1000 :maxconn (? mc (num mc) nil)})
