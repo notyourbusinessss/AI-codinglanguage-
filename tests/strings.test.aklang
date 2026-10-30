@@ -1,0 +1,66 @@
+; String semantics of the native compiler (SPEC-extra.md, "Strings across targets"): length, indexing and slicing count UTF-8 bytes.
+; Each case is [source, expected stdout]; a change in either direction fails here and the spec has to be updated on purpose.
+(use "lib/run.aklang" as t)
+cases=[
+  ["(++ \"é\" \"😀\" \"a\")" "é😀a"]
+  ["(\"é\"==\"é\")" "true"]
+  ["(\"é\"!=\"e\")" "true"]
+  ["(split \"a,é,😀\" \",\")" "[\"a\" \"é\" \"😀\"]"]
+  ["(join [\"é\" \"😀\"] \"-\")" "é-😀"]
+  ["(starts \"éa\" \"é\")" "true"]
+  ["(ends \"a😀\" \"😀\")" "true"]
+  ["(has \"aé\" \"é\")" "true"]
+  ["(rep \"aéb\" \"é\" \"e\")" "aeb"]
+  ["(rpt \"é\" 2)" "éé"]
+  ["(trim \" é \")" "é"]
+  ["(chr 233)" "é"]
+  ["(chr 8364)" "€"]
+  ["(chr 128512)" "😀"]
+  ["(ord \"é\")" "233"]
+  ["(ord \"€x\")" "8364"]
+  ["(ord \"😀\")" "128512"]
+  ["(show \"é😀\")" "\"é😀\""]
+  ["(json \"é😀\")" "\"é😀\""]
+  ["(unjson \"\\\"\\\\u00e9\\\\ud83d\\\\ude00\\\"\")" "é😀"]
+  ["(# \"abc\")" "3"]
+  ["\"abc\"[1]" "b"]
+  ["(for c \"abc\" (p c))" "a\nb\nc"]
+  ["(idx \"aé😀b\" \"é\")" "1"]
+  ["(match \"^.$\" \"é\")" "[\"é\"]"]
+  ["(match \"^é+$\" \"éé\")" "[\"éé\"]"]
+  ["(# \"é\")" "2"]
+  ["(# \"€\")" "3"]
+  ["(# \"😀\")" "4"]
+  ["(# \"aé😀b\")" "8"]
+  ["(drop 1 \"aé\")" "é"]
+  ["(idx \"aé😀b\" \"b\")" "7"]
+  ["(idx \"aé😀b\" \"😀\")" "3"]
+  ["(# (split \"é\" \"\"))" "2"]
+  ["(~ ord \"é😀\")" "[195 169 240 159 152 128]"]
+  ["(padl \"é\" 3)" " é"]
+  ["(fmt \"%4s|\" \"é\")" "  é|"]
+  ["(match \"^.$\" \"😀\")" "[\"😀\"]"]
+  ["(match (re \"^.$\" \"u\") \"😀\")" "[\"😀\"]"]
+  ["(up \"éa\")" "ÉA"]
+  ["(lo \"ÀÉÎ\")" "àéî"]
+  ["(up \"жзяёў\")" "ЖЗЯЁЎ"]
+  ["(lo \"ΩΑΒΆ\")" "ωαβά"]
+  ["(up \"ĀāŁł\")" "ĀĀŁŁ"]
+  ["(up \"ß\")" "ß"]
+  ["(lo \"ΑΣ\")" "ασ"]
+]
+(assert (> #cases 40) "no string cases found")
+f=(+ "/tmp/aktest-str-" ($ (now)) ".aklang")
+bad=0
+(for c cases
+  (wr f (? (starts c[0] "(for ") (+ c[0] "\n") (+ "(p " c[0] ")\n")))
+  r=(t.run (+ "bin/ak " f) nil)
+  (? (|| (!= r.code 0) (!= r.out (+ c[1] "\n")))
+    (: bad+=1 (p "FAIL" c[0] "\n  got " (show r.out) "\n  want " (show c[1]) r.err))))
+; a slice through the middle of a character keeps the raw bytes: 61 c3
+(wr f "(p (take 2 \"aé😀\"))\n")
+r=(t.run (+ "bin/ak " f " | od -An -tx1") nil)
+(? (!= (trim r.out) "61 c3 0a") (: bad+=1 (p "FAIL" "(take 2 \"aé😀\")" (show r.out))))
+(rm f)
+(assert (== bad 0) (+ bad " string cases differ"))
+(p (+ "strings: all " (+ #cases 1) " cases match the documented semantics"))

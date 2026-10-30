@@ -65,7 +65,7 @@ A native string is UTF-8 bytes; a JS string is UTF-16 units. For ASCII text the 
 - `sh` raises an io error when the command exits non-zero (`sh failed (3): cmd`) or is killed by a signal (`sh killed by signal 9: cmd`). Regex matching is a backtracking matcher: a pattern that backtracks past a step budget (2 million plus 64 per byte of input) raises `regex too complex` instead of hanging, so untrusted input should still be matched with simple patterns.
 - `(rm p)` removes a file, a symlink (never its target) or a directory with everything inside it; a missing path is not an error. Stdout write failures (full disk) raise `write failed` and exit 1.
 - Sizes: a count or length above 2^31 (lists and ranges: 2^27, `json` indent: 100) raises `invalid length: n` (`rpt`, `padl`, `padr`, `a..b step`, `json`, `fdr`, `udpfrom`) instead of hanging; `(exit x)` takes nil or an integer.
-Portable code treats text as opaque (compare, join, split on ASCII separators) and uses `ord`/`chr` for characters. `tests/strings.test.js` runs one table of cases on both targets, so a change in either direction fails until this section is updated.
+Portable code treats text as opaque (compare, join, split on ASCII separators) and uses `ord`/`chr` for characters. `tests/strings.test.aklang` pins the native results of one table of cases, so a change fails until this section is updated.
 
 ## Destructuring a non-list (native)
 `[a b]=v`, parameter patterns, `for [k v]`, `let` and nested patterns need a list or nil: any other value (`5`, `"hi"`, a map) raises `expected list, got num`. nil gives nils; a short list gives nil for the missing names (`[a b]=[1]` -> `1 nil`). The JS target still accepts anything.
