@@ -55,6 +55,9 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Fixed
 - The DNS client ignores a reply that does not answer its query: the question section must match the name, type and class asked, records must be owned by the queried name or a name on its CNAME chain, and a datagram from an address or port other than the nameserver asked is dropped. A forged reply with a guessed id can no longer poison a lookup or the TTL cache (#199)
 
+### Fixed
+- `httpd` refuses a handler-set `Content-Length` that does not equal the body length, and a handler-set `Transfer-Encoding`, with a 500 instead of a framing mismatch that desyncs the keep-alive connection (#200)
+
 ## 0.7.59 (2026-10-29)
 
 ### Fixed

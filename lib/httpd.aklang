@@ -9,6 +9,7 @@
 ; Persistent connections work for HTTP/1.1 (and HTTP/1.0 with Keep-Alive); request bodies may be Content-Length or chunked; "Expect: 100-continue" is answered.
 ; req.path never holds a "." or ".." segment (dot segments, also as %2e, are resolved as in RFC 3986 5.2.4 before decoding) and a %2F stays inside its segment: req.segs are the decoded segments (a segment may hold "/"), req.path writes such a "/" as %2F; a %00 in the path is a 400.
 ; A handler result with a status that is not an integer from 100 to 599, or a header name that is empty or holds a space, colon, CR, LF or NUL, or a header value with CR, LF or NUL, is refused like a handler that raises: 500, the error goes to stderr.
+; A handler's Content-Length must be a number of digits equal to the body length (else 500); an equal one is kept (a HEAD answer reports the length of the body that would be sent); Transfer-Encoding is refused (the body is Content-Length framed); Connection is set by the server from the request and keep-alive logic.
 ; (s.router routes) builds a handler from [[method pattern handler] ..]: patterns like "/user/:id" put the segment in req.params, a trailing "/*" puts the rest in req.params.rest; 404 for no path match, 405 (with Allow) for a wrong method.
 ; Timeouts (ms): :headms (30000: a request head must be complete this long after its first byte, and a connection must send its first byte this fast), :idlems (60000: a keep-alive connection may stay quiet), :bodyms (30000: the whole body); a half-sent request gets 408 and the connection closes, an idle one closes quietly. :maxconn limits open connections (503 beyond it).
 ; https: :tls {:cert chain_pem :key key_pem} (or the result of t.creds, e.g. several names with SNI) serves TLS; the handshake runs on the connection's task and :headms covers it, but the crypto itself takes about 0.2 s of CPU per new connection (0.4 s with an RSA key) during which other tasks wait; req.sni is the client's server name; a failed handshake is logged to stderr.
@@ -89,6 +90,11 @@
     (assert (! (any (\ (c) (has [0 10 13] c)) (bytes (tostr v)))) "bad value for header " k))
   nob=(|| head (has [204 304] code) (&& code>=100 code<200))
   hs={} (for [k v] headers hs[(lo k)]=v)
+  (? hs["transfer-encoding"] (assert false "response transfer-encoding " hs["transfer-encoding"] " is not supported, the body is Content-Length framed"))
+  (? hs["content-length"]
+     (: cl=(tostr hs["content-length"])
+        (assert (&& (all (\ (c) (&& c>=48 c<=57)) (bytes cl)) (== (num cl) (# body)))
+                "handler content-length " cl " does not match the body of " (show (# body)) " bytes")))
   (? (! (has (keys hs) "content-length")) hs["content-length"]=#body)
   (? (has [204 304] code) hs=(del hs "content-length"))
   (++ "HTTP/1.1 " code " " (reason code) "\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n" (? nob "" body)))
