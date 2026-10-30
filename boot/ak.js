@@ -9,6 +9,7 @@ const { parse } = require('./syntax.js');
 const NODE_MODS = new Set(require('module').builtinModules.filter(m => !m.startsWith('_') && !m.includes('/')));
 
 class CErr extends Error { constructor(m) { super(m); this.name = 'CompileError'; } }
+const BARITY = require('./arity.json');   // builtin argument counts, the same as the native lowerer reports (tests/builtin_arity.test.aklang checks them)
 const hasB = n => Object.prototype.hasOwnProperty.call(B, n);
 
 // ================================================================== `use` (compile-time include)
@@ -607,12 +608,14 @@ function inlineOp(n, args, node) {
   }
 }
 
+const OPS = new Set(['+', '-', '*', '/', '%', '//', '**', '<', '>', '<=', '>=', '==', '!=', '!', '&', '|', '^', '<<', '>>', '>>>', 'bnot', '#']);   // native words these differently (src/lower.aklang INLINE)
+function checkArity(name, [mn, mx], args, node) {
+  if (args.some(isSpread) || (args.length >= mn && args.length <= mx)) return;
+  if (OPS.has(name) && mx >= 1e9) cerr(`${name} takes ${mn === 2 ? '2 arguments' : 'at least 1 argument'}, got ${args.length}`, node);
+  cerr(`${name} takes ${mn === mx ? mn : mx >= 1e9 ? mn + '+' : mn + '-' + mx} argument${mx === 1 ? '' : 's'}, got ${args.length}`, node);
+}
 function callArgs(info, name, args, node) {
-  if (info && info.arity && !args.some(isSpread)) {
-    const [mn, mx] = info.arity;
-    if (args.length < mn || args.length > mx)
-      cerr(`${name} takes ${mn === mx ? mn : mx === Infinity ? mn + '+' : mn + '-' + mx} argument${mx === 1 ? '' : 's'}, got ${args.length}`, node);
-  }
+  if (info && info.arity) checkArity(name, info.arity, args, node);
   return exprs(args, true).join(',');
 }
 
@@ -622,6 +625,7 @@ function call(x) {
     const info = lookup(h.n);
     if (info) { const a = callArgs(info, h.n, args, x); return info.fn ? `${info.js}(${a})` : `${href('fn')}(${info.js})(${a})`; }
     if (hasB(h.n)) {
+      if (BARITY[h.n]) checkArity(h.n, BARITY[h.n], args, x);
       const r = args.some(isSpread) ? undefined : inlineOp(h.n, args, x);
       return r !== undefined ? r : `${bref(h.n)}(${exprs(args, true).join(',')})`;
     }
