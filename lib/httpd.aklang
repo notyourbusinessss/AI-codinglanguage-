@@ -7,6 +7,7 @@
 ; Options (map): :host ("127.0.0.1"), :maxhead (16384 bytes of request line + headers, else 431), :maxbody (1048576 bytes, else 413), :maxreq (100 requests per connection).
 ; A malformed request gets 400 (also: Content-Length together with Transfer-Encoding, a Transfer-Encoding other than chunked, an HTTP/1.1 request without exactly one Host), an unsupported version 505, a handler that raises 500 (the error goes to stderr); none of them stops the server.
 ; Persistent connections work for HTTP/1.1 (and HTTP/1.0 with Keep-Alive); request bodies may be Content-Length or chunked; "Expect: 100-continue" is answered.
+; Request targets: origin-form (/path?q), absolute-form (http://host/path?q: the authority replaces the Host header, req.target keeps the full text) and "*" for OPTIONS only (req.path is "*"; (s.router) matches it with a route pattern "*"); anything else is 400. A method that is not upper-case token text is 501; a NUL anywhere in the request head is 400. Chunked trailer fields are read and dropped (their total counts against :maxhead, else 431).
 ; req.path never holds a "." or ".." segment (dot segments, also as %2e, are resolved as in RFC 3986 5.2.4 before decoding) and a %2F stays inside its segment: req.segs are the decoded segments (a segment may hold "/"), req.path writes such a "/" as %2F; a %00 in the path is a 400.
 ; A handler result with a status that is not an integer from 100 to 599, or a header name that is empty or holds a space, colon, CR, LF or NUL, or a header value with CR, LF or NUL, is refused like a handler that raises: 500, the error goes to stderr.
 ; (s.router routes) builds a handler from [[method pattern handler] ..]: patterns like "/user/:id" put the segment in req.params, a trailing "/*" puts the rest in req.params.rest; 404 for no path match, 405 (with Allow) for a wrong method.
@@ -41,23 +42,31 @@
   m)
 (= (parsehead h)                        ; request line + headers (without the blank line) -> a request map, or [status message]
   lines=(split h "\r\n") rl=(split lines[0] " ")
-  (? (|| (!= #rl 3) (== rl[0] "") (== rl[1] "")) [400 "bad request line"]
+  (? (has h (frombytes [0])) [400 "NUL in the request head"]
+     (|| (!= #rl 3) (== rl[0] "") (== rl[1] "")) [400 "bad request line"]
      (! (starts rl[2] "HTTP/")) [400 "bad request line"]
      (! (has ["HTTP/1.0" "HTTP/1.1"] rl[2])) [505 "only HTTP/1.0 and HTTP/1.1"]
+     (! (all (\ (b) (|| (&& b>=65 b<=90) (&& b>=48 b<=57) (has [33 35 36 37 38 39 42 43 45 46 94 95 96 124 126] b))) (bytes rl[0]))) [501 "method not implemented"]
      (: hd={} ok=true nh=0
         (for l lines[1..]
           k=(idx l ":")
           (? (|| k<=0 (has l[..k] " ")) ok=false
              (: n=(lo l[..k]) v=(trim l[k+1..]) (? (== n "host") nh+=1) hd[n]=(? hd[n] (++ hd[n] ", " v) v))))
-        t=rl[1] i=(idx t "?") f=(idx t "#") t=(? f>=0 t[..f] t) i=(idx t "?")
-        sg=(segsof (? i>=0 t[..i] t))
+        t=rl[1] f=(idx t "#") t=(? f>=0 t[..f] t)
+        ab=(|| (starts (lo t) "http://") (starts (lo t) "https://"))     ; absolute-form: the authority replaces Host, the rest is the origin-form target
+        rs=(? ab t[(+ (idx t "//") 2)..] "") i1=(idx rs "/") i2=(idx rs "?") e=(? i1<0 i2 i2<0 i1 (min i1 i2))
+        au=(? (&& ab e>=0) rs[..e] rs)
+        ot=(? (! ab) t e<0 "/" (starts rs[e..] "?") (++ "/" rs[e..]) rs[e..])
+        i=(idx ot "?") sg=(segsof (? i>=0 ot[..i] ot))
+        (? ab hd["host"]=au)
         (? (! ok) [400 "bad header line"]
            (== sg nil) [400 "bad path"]
-           (! (starts t "/")) [400 "request target must start with /"]
+           (&& ab (|| (== au "") (has au "@"))) [400 "bad request target"]
+           (! (|| (starts ot "/") (&& (== t "*") (== rl[0] "OPTIONS")))) [400 "request target must start with /"]
            (&& hd["transfer-encoding"] hd["content-length"]) [400 "Content-Length with Transfer-Encoding"]
            (&& hd["transfer-encoding"] (!= (lo hd["transfer-encoding"]) "chunked")) [400 "unsupported Transfer-Encoding"]
            (&& (== rl[2] "HTTP/1.1") (!= nh 1)) [400 "HTTP/1.1 needs exactly one Host header"]
-           {:method rl[0] :target t :path (pathof sg) :segs sg :query (parsequery (? i>=0 t[i+1..] "")) :headers hd :version rl[2][5..] :body ""}))))
+           {:method rl[0] :target t :path (? (== t "*") "*" (pathof sg)) :segs sg :query (parsequery (? i>=0 ot[i+1..] "")) :headers hd :version rl[2][5..] :body ""}))))
 (= (more c buf)                           ; more bytes from c after the ones in buf, or nil when the peer hung up
   (? c.cn (: d=(try (t.read c.cn 65536) e=>"") (? d=="" nil (++ buf d)))
      (: (a.wait c.fd) d=(fdr c.fd 65536) (? d=="" nil (++ buf d)))))
@@ -65,7 +74,7 @@
 (= (cclose c) (? c.cn (try (t.close c.cn) e=>(fdc c.fd)) (fdc c.fd)))
 (= (cstream fd)                           ; TLS over fd that waits for the socket cooperatively
   {:r n=>(: (a.wait fd) (fdr fd n 0)) :w s=>(a.write fd s) :c ()=>(fdc fd)})
-(= (readbody c rq buf lim)              ; [body rest], or [status message]
+(= (readbody c rq buf lim hl)           ; [body rest], or [status message]; hl is the limit for the chunked trailer
   te=(lo (?? rq.headers["transfer-encoding"] "")) cl=rq.headers["content-length"] err=nil
   (? (has te "chunked")
      (: out="" done=false
@@ -74,6 +83,13 @@
           (? (! err)
              (: k=(idx buf "\r\n") n=(num (++ "0x" (trim (split buf[..k] ";")[0]))) buf=buf[k+2..]
                 (? (! (&& (isnum n) n>=0)) err=[400 "bad chunk size"] (> (+ #out n) lim) err=[413 "body too large"]
+                   n==0 (: tl=0
+                           (wh (&& (! err) (! done))
+                             (wh (&& (! err) (! (has buf "\r\n")))
+                               (? (> #buf hl) err=[431 "trailer too large"] (: b=(more c buf) (? (== b nil) err=[400 "truncated chunked body"] buf=b))))
+                             (? (! err) (: j=(idx buf "\r\n") ln=buf[..j] buf=buf[j+2..] tl+=j+2
+                                           (? (> tl hl) err=[431 "trailer too large"] (== j 0) done=true
+                                              (|| (<= (idx ln ":") 0) (has ln[..(idx ln ":")] " ")) err=[400 "bad trailer line"])))))
                    (: (wh (&& (! err) #buf<n+2) b=(more c buf) (? (== b nil) err=[400 "truncated chunked body"] buf=b))
                       (? (! err) (: out+=buf[..n] buf=buf[n+2..] (? n==0 done=true))))))))
         (? err err [out buf]))
@@ -104,7 +120,7 @@
         (? (islist rq) (: (cwrite c (response rq[0] {"connection" "close"} rq[1] false)) nil)
            (: (? (== (lo (?? rq.headers["expect"] "")) "100-continue") (cwrite c "HTTP/1.1 100 Continue\r\n\r\n"))
               st.deadline=(+ (now) opts.bodyms)
-              bd=(readbody c rq buf[k+4..] opts.maxbody)
+              bd=(readbody c rq buf[k+4..] opts.maxbody opts.maxhead)
               st.deadline=nil
               (? (isnum bd[0]) (: (cwrite c (response bd[0] {"connection" "close"} bd[1] false)) nil)
                  (: rq=(set (set rq "body" bd[0]) "peer" (try (peer c.fd) e=>nil)) rq=(set rq "sni" (? c.cn c.cn.sni nil))
@@ -162,7 +178,7 @@
     segs=(?? rq.segs (split rq.path "/")[1..]) segs=(? (&& #segs (== segs[#segs-1] "")) segs[..-1] segs)
     allowed=[] hit=nil
     (for r routes
-      m=(matchroute r[1] segs)
+      m=(? (== rq.path "*") (? (== r[1] "*") {} nil) (matchroute r[1] segs))
       (? (!= m nil) (: (push allowed r[0]) (? (&& (! hit) (|| (== r[0] rq.method) (&& (== r[0] "GET") (== rq.method "HEAD")))) hit=[r[2] m]))))
     (? hit ((hit[0]) (set rq "params" hit[1]))
        (> #allowed 0) {:status 405 :headers {"allow" (join allowed ", ")} :body "method not allowed"}
