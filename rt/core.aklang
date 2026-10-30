@@ -171,18 +171,6 @@ SD=0                                                    ; nesting depth of show 
           (wh (&& (< i n) (== c 0)) c=(cmp2 (lget a i) (lget b i)) i+=1)
           (? (!= c 0) c (- ($ldw a 1) ($ldw b 1))))
      ($throwk 3 (strcat2 (strcat2 (strcat2 "cannot compare " (ty a)) " and ") (ty b)))))
-; total order used by sort: like cmp2 but never throws (falls back to comparing printed forms)
-(= (cmp a b)
-  (? (&& ($isnum a) ($isnum b)) (? (< a b) -1 (> a b) 1 0)
-     (&& (isstr a) (isstr b)) (strcmp a b)
-     (&& (islist a) (islist b))
-       (: n=(? ($ldw a 1)<($ldw b 1) ($ldw a 1) ($ldw b 1)) i=0 c=0
-          (wh (&& (< i n) (== c 0))
-            x=(lget a i) y=(lget b i)
-            c=(? (&& ($isnum x) ($isnum y)) (? (< x y) -1 (> x y) 1 0) (cmp x y))
-            i+=1)
-          (? (!= c 0) c (- ($ldw a 1) ($ldw b 1))))
-     (strcmp (show a) (show b))))
 
 ; ---- operator functions as values
 (= (+ ..a) (? #a==0 0 (: r=a[0] (for i 1..#a r=(add2 r a[i])) r)))

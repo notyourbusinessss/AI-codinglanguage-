@@ -242,7 +242,7 @@ SYMTAB=nil
   m=(? n>0 (? ($isnum ($ldw K 1)) 0 (isstr ($ldw K 1)) 1 2) 0) i=0
   (wh (&& m<2 i<n) x=($ldw K i+1) (? (? m==0 (! ($isnum x)) (! (isstr x))) m=2) i+=1)
   m)
-(= (gtany mode a b) (? mode==1 (> (strcmp a b) 0) (> (cmp a b) 0)))
+(= (gtany mode a b) (? mode==1 (> (strcmp a b) 0) (> (cmp2 a b) 0)))      ; like `<`: two values of different kinds raise `cannot compare`
 (= (msortn K n)                 ; numbers only, no items: tight loops (raw index arithmetic, no mode/hasv tests)
   b=0
   (wh b<n

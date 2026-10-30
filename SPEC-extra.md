@@ -74,6 +74,9 @@ Portable code treats text as opaque (compare, join, split on ASCII separators) a
 - Unbounded recursion raises `error: stack overflow` (kind `error`, catchable with `try`, with the usual location and `called from` lines) instead of a segmentation fault. The check is at every function entry and covers both the machine stack and the value stack, also inside a coroutine (8 MB each).
 - `show`, `p`, `$`, `json` and `==` on a list or map that contains itself raise `cyclic structure or nesting deeper than 10000` (kind `error`).
 
+## `sort` compares like `<` (native)
+`sort` orders numbers (BigInts too), strings and lists (element by element) and raises `cannot compare num and str` for two items of different kinds, as `<` does. Booleans and nil have no order. The same applies to the keys of `(sort f xs)`.
+
 ## Float overflow (native)
 `+ - * /` on finite numbers never give `Infinity`: an infinite result raises `arith: float overflow`. `num` returns nil for text that is `Infinity` or too large for a double (`"1e400"`), `int` of NaN or an infinite value raises, and a source literal such as `1e400` is a compile error. `pow`, `exp` and the other math functions follow IEEE and may still return `Infinity`.
 
