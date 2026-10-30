@@ -91,9 +91,10 @@ INFATAL=false
          (|| (> (? (< r 0) (- r) r) MAXI) (? mul (&& (isodd a) (isodd b)) (!= (isodd a) (isodd b)))))
      ($throwk 2 "integer overflow: exceeds 2^53 (use BigInt, e.g. 10n)")
      (finovf r a b)))
+MATHOV=false                                            ; true inside `pow`: the fdlibm port overflows on purpose and IEEE says the result is then Infinity
 (= (finovf r a b)        ; finite operands must not give an infinite result
   inf=($fdiv 1 0)
-  (? (&& (== (absn r) inf) (!= (absn a) inf) (!= (absn b) inf)) ($throwk 2 "arith: float overflow") r))
+  (? (&& (! MATHOV) (== (absn r) inf) (!= (absn a) inf) (!= (absn b) inf)) ($throwk 2 "arith: float overflow") r))
 (= (tonum x) (? ($isnum x) x ($eqp x true) 1 ($eqp x false) 0 (bad x)))
 (= (add2 a b)
   (? (&& ($isnum a) ($isnum b)) (ovf ($fadd a b) a b false)

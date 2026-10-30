@@ -31,3 +31,12 @@ r=(ak "(p 1e308)")
 (assert (&& (== r.code 0) (== r.out "1e+308\n")) "1e308 literal")
 ; json refuses the same text with its own error
 (assert (has (msg (\ () (unjson "[1e400]"))) "bad number") "unjson 1e400")
+; the math functions follow IEEE: they still return Infinity
+(assert (== (pow 1e300 2) (pow 0 -1)) "pow 1e300 2")
+(assert (== (pow 10 400) (pow 0 -1)) "pow 10 400")
+(assert (== (exp 1000) (pow 0 -1)) "exp 1000")
+(assert (== (sinh 1000) (pow 0 -1)) "sinh 1000")
+(assert (== (sinh -1000) (- (pow 0 -1))) "sinh -1000")
+(assert (== (cosh 1000) (pow 0 -1)) "cosh 1000")
+(assert (== (kind (\ () (pow "a" 2))) "type") "pow still checks its arguments")
+(assert (== (kind (\ () (* big 10))) "arith") "the flag is off again after pow")
