@@ -346,7 +346,7 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
          (srcx R 1))
   (sw op "+" (af "addsd xmm0, %s" src) "-" (af "subsd xmm0, %s" src) "*" (af "mulsd xmm0, %s" src) (af "divsd xmm0, %s" src))
   b1=(bound x) b2=(bound y)
-  (? (&& !isdiv (! (boundok op b1 b2)))
+  (? (|| isdiv (! (boundok op b1 b2)))
      (: (a "movq rdx, xmm0") (a "add rdx, rdx") (af "cmp rdx, [%d]" (dconst64 0 0x86800000)) (a (++ "jae " slow))))     ; |result| >= 2^53: runtime decides (2^53 itself may be a rounded 2^53+1)
   (a "movq rax, xmm0")
   (label done)

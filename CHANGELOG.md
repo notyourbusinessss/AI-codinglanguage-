@@ -9,6 +9,16 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 
+## 0.7.64 (2026-10-30)
+
+### Fixed
+- `sort` raises `cannot compare num and str` (kind `type`) for two items of different kinds, the same text and rule as `<`, instead of silently putting strings before numbers before lists with nil last. Numbers (BigInts included), strings and lists of those still sort; lists compare element by element, and a key function is checked the same way. Sorting booleans, or nil together with anything, raises like `(< true false)` (#157)
+
+## 0.7.63 (2026-10-30)
+
+### Fixed
+- Float overflow is an error, not `Infinity` (#155). `+ - * /` of finite numbers whose result is infinite raise `arith: float overflow` (kind `arith`); `(num "1e400")` and `(num "Infinity")` return nil like `(num "NaN")`; `(int x)` of NaN or an infinite value raises `int: cannot convert NaN`; a literal that does not fit a double (`1e400`) is a compile error `number too large`. The math functions (`pow`, `exp`, ...) still follow IEEE and may return `Infinity`.
+
 ## 0.7.62 (2026-10-29)
 
 ### Fixed

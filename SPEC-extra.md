@@ -74,6 +74,12 @@ Portable code treats text as opaque (compare, join, split on ASCII separators) a
 - Unbounded recursion raises `error: stack overflow` (kind `error`, catchable with `try`, with the usual location and `called from` lines) instead of a segmentation fault. The check is at every function entry and covers both the machine stack and the value stack, also inside a coroutine (8 MB each).
 - `show`, `p`, `$`, `json` and `==` on a list or map that contains itself raise `cyclic structure or nesting deeper than 10000` (kind `error`).
 
+## `sort` compares like `<` (native)
+`sort` orders numbers (BigInts too), strings and lists (element by element) and raises `cannot compare num and str` for two items of different kinds, as `<` does. Booleans and nil have no order. The same applies to the keys of `(sort f xs)`.
+
+## Float overflow (native)
+`+ - * /` on finite numbers never give `Infinity`: an infinite result raises `arith: float overflow`. `num` returns nil for text that is `Infinity` or too large for a double (`"1e400"`), `int` of NaN or an infinite value raises, and a source literal such as `1e400` is a compile error. `pow`, `exp` and the other math functions follow IEEE and may still return `Infinity`.
+
 ## BigInt, `fmt` and `json` rules (native)
 - `(ty 10n)` is `"big"`. `abs min max sum int flr cel` and `fmt "%d"` accept BigInts; `sqrt rpt` and the other number builtins raise `expected number, got big`. A BigInt and a number never mix in `+ - *` (`cannot add big and num`), but they compare and sort.
 - `fmt` takes `%s %d %f %e %E %g %G %x %X %o %b %c %%` with `-`, `0`, `+` and space flags, a width and a precision; `%e` and `%g` round half to even like C printf (`Infinity` and `NaN` print as `fmtnum` does), `%c` takes a code point.

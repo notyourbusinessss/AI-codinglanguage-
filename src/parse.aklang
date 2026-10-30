@@ -199,7 +199,7 @@ OPCH="+-*/%<>=!&|^~?@#\\:."
                  (: j=P.i+1 (? (has "+-" (?? s[j] "x")) j+=1) k=j (wh (isdig s[k]) k+=1) (? k>j P.i=k)))
               lit=(stripu s[st..P.i])
               (? (all isdig lit) (fitlit lit "9007199254740992" st))
-              (num lit))))))
+              (?? (num lit) (perr "number too large" st)))))))
 
 (= (hexval a b n at) h=P.s[a..b] bad=(|| #h==0 (? n #h!=n))
   (for c h (? !(has "0123456789abcdefABCDEF" c) bad=true))
