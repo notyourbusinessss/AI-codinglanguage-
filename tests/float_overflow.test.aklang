@@ -1,0 +1,33 @@
+; float overflow is an error, not Infinity (#155)
+(use "lib/run.aklang" as t)
+(= (msg f) (try (: (f) "no error") e=>e))
+(= (kind f) (try (: (f) "no error") e=>(errkind e)))
+(= (ak code) (t.run (+ "bin/ak -e '" code "'") nil))
+(= big 1e308)
+(for [name f] [["mul" (\ () (* big 10))] ["add" (\ () (+ big big))] ["sub" (\ () (- big (- big)))] ["div" (\ () (/ big 1e-10))] ["pow" (\ () (** 10.5 400))]]
+  (assert (== (kind f) "arith") (+ name ": " (msg f))))
+(assert (has (msg (\ () (* big 10))) "arith: float overflow") "message")
+; results that stay finite are untouched
+(assert (== (* 1e154 1e154) 1e308) "1e154 squared")
+(assert (== (/ big 10) 1e307) "division")
+(assert (== (+ big 1) big) "absorbed addition")
+(assert (== (/ 7 2) 3.5) "ordinary division")
+; num: text that overflows or says Infinity is not a number, like NaN
+(for s ["1e400" "-1e400" "Infinity" "-Infinity" "+Infinity" "1e99999" "NaN" "0x" (+ "0x" (rpt "f" 400))]
+  (assert (== (num s) nil) (+ s " should be nil, got " (show (num s)))))
+(assert (== (num "1e308") 1e308) "num 1e308")
+(assert (== (num "-1.5e-300") -1.5e-300) "num small")
+(assert (== (num "1e-400") 0) "underflow is 0")
+; int of a non-finite number raises
+(assert (== (kind (\ () (int (sqrt -1)))) "arith") "int NaN")
+(assert (has (msg (\ () (int (sqrt -1)))) "int: cannot convert NaN") "int NaN text")
+(assert (== (int 2.9) 2) "int 2.9")
+(assert (== (int -2.9) -2) "int -2.9")
+; a literal that does not fit a double is a compile error naming the problem
+(for src ["(p 1e400)" "(p -1e999)" "(p 1.5e309)"]
+  r=(ak src)
+  (assert (&& (== r.code 1) (has r.err "number too large")) (+ src ": " (show r.code) " " (show r.err))))
+r=(ak "(p 1e308)")
+(assert (&& (== r.code 0) (== r.out "1e+308\n")) "1e308 literal")
+; json refuses the same text with its own error
+(assert (has (msg (\ () (unjson "[1e400]"))) "bad number") "unjson 1e400")

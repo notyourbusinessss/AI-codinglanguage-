@@ -374,7 +374,7 @@ SYMTAB=nil
 (= (flr x) (? (isbig x) x ($ffloor (tonum x))))      ; a BigInt is already whole
 (= (cel x) (? (isbig x) x ($fceil (tonum x))))
 (= (rnd x) x=(tonum x) f=($ffloor x) (? (>= ($fsub x f) 0.5) ($fadd f 1) f))        ; ties go up like Math.round; x+0.5 itself would round up 0.49999999999999994 and odd integers above 2^52
-(= (int x) (? (isbig x) x ($ftrunc (tonum x))))
+(= (int x) (? (isbig x) x (: x=(tonum x) (? (|| (!= x x) (== (absn x) ($fdiv 1 0))) ($throwk 2 (strcat2 "int: cannot convert " (show x))) ($ftrunc x)))))
 (= (minmax sign a)
   (: l=(? (&& #a==1 (|| (islist a[0]) (ismap a[0]))) (toarr a[0]) a) r=nil first=true
      (for x l x=(? (isbig x) x (tonum x)) (? (|| first (? sign<0 (lt2 x r) (gt2 x r))) r=x) first=false) r))
