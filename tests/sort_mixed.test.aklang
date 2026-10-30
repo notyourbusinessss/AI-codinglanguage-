@@ -1,0 +1,21 @@
+; sort raises like `<` when two items are of different kinds (#157)
+(= (msg f) (try (: (f) "no error") e=>e))
+(= (kind f) (try (: (f) "no error") e=>(errkind e)))
+(for [name l] [["str num" [3 "a" 1]] ["nil" [3 nil 1]] ["list num" [[1] 2]] ["nested" [[1 "a"] [1 2]]] ["bool" [true false]] ["map vs num" [{:a 1} 1]]]
+  (assert (== (kind (\ () (sort l))) "type") (+ name ": " (msg (\ () (sort l)))))
+  (assert (has (msg (\ () (sort l))) "cannot compare") (+ name ": " (msg (\ () (sort l))))))
+; the same words as `<`
+(assert (== (msg (\ () (sort [3 "a"]))) (msg (\ () (< 3 "a")))) "same text as <")
+; a key function is checked too
+(assert (has (msg (\ () (sort (\ (x) x.k) [{:k 1} {:k "a"}]))) "cannot compare") "keyfn")
+; lists of one kind, and 0 or 1 items, still sort
+(assert (== (sort []) []) "empty")
+(assert (== (sort [nil]) [nil]) "one nil")
+(assert (== (sort ["b" "a" "c"]) ["a" "b" "c"]) "strings")
+(assert (== (sort [3 1 2.5 -1]) [-1 1 2.5 3]) "numbers")
+(assert (== (sort [10n 2 3]) [2 3 10n]) "big and num")
+(assert (== (sort [[2 "b"] [1 "z"] [1 "a"]]) [[1 "a"] [1 "z"] [2 "b"]]) "lists")
+(assert (== (sort [[1 2] [1]]) [[1] [1 2]]) "prefix")
+(assert (== (sort {:b 2 :a 1}) [["a" 1] ["b" 2]]) "map entries")
+(assert (== (sort (\ (x) (- x)) [1 3 2]) [3 2 1]) "numeric keys")
+(assert (== (sort (\ (x) x.n) [{:n "b"} {:n "a"}]) [{:n "a"} {:n "b"}]) "string keys")

@@ -330,7 +330,7 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
 
 (= (gen_arith op args)         ; + - * /  folded left; fast path for two doubles
   n=#args
-  (? n==1 (gen_neg args[0])
+  (? n==1 (? (== op "-") (gen_neg args[0]) (gen_arith2 (? (== op "/") "/" "*") ["num" 1] args[0]))       ; (- x) negates, (/ x) is 1/x, (+ x) and (* x) check that x is a number
      n==2 (gen_arith2 op args[0] args[1])
      (: acc=args[0]
         (for e args[1..] acc=["prim" op [acc e] G.curpos])
@@ -346,7 +346,7 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
          (srcx R 1))
   (sw op "+" (af "addsd xmm0, %s" src) "-" (af "subsd xmm0, %s" src) "*" (af "mulsd xmm0, %s" src) (af "divsd xmm0, %s" src))
   b1=(bound x) b2=(bound y)
-  (? (&& !isdiv (! (boundok op b1 b2)))
+  (? (|| isdiv (! (boundok op b1 b2)))
      (: (a "movq rdx, xmm0") (a "add rdx, rdx") (af "cmp rdx, [%d]" (dconst64 0 0x86800000)) (a (++ "jae " slow))))     ; |result| >= 2^53: runtime decides (2^53 itself may be a rounded 2^53+1)
   (a "movq rax, xmm0")
   (label done)

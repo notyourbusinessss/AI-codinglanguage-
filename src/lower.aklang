@@ -125,7 +125,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "sw" (lower (swexpand x) tail)
     "q" (lower_quote x[1])
     "@" (lower_at x tail)
-    "<@" (lower_put x[1..])
+    "<@" (lower_put x)
     ".@" (? (is "str" x[2]) (lower_prim "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
     ".=" (? (is "str" x[2]) (lower_prim "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
     "." (lower_method x tail)
@@ -145,7 +145,9 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
      (const x)))
 
 (= (hash23 s) h=0 (for c (bytes s) h=(h*31+c)&8388607) h)
-(= (lower_put args) ["prim" "<@" (~ a=>(lower a false) args)])
+(= (lower_put x) args=x[1..]
+  (? (&& #args!=3 (! (any isspread args))) (lerr (++ "<@ takes 3 arguments, got " #args) x))
+  ["prim" "<@" (~ a=>(lower a false) args)])
 (= (lower_at x tail)
   (? (&& #x==3 (is "str" x[2])) (lower_prim "dotc" [x[1] x[2] (hash23 x[2])])
      #x==3 ["prim" "@" (~ a=>(lower a false) x[1..])] #x==4 (lower_rt "slice" x[1..]) (lerr "(@ obj index) or (@ obj lo hi)" x)))
@@ -302,7 +304,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 
 (= (lower_set x) t=x[1]
   (? #x!=3 (lerr "(<- name value)" x))
-  (? (&& (isform t "@") #t==3) (lower_put [t[1] t[2] x[2]])
+  (? (&& (isform t "@") #t==3) (lower_put [(S "<@") t[1] t[2] x[2]])
      (! (issym t)) (lerr "<- target must be a name" x)
      (: v=(lookup ($ t))
         (? v==nil (lerr (++ "<-: undefined variable " ($ t)) x))
@@ -433,6 +435,14 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
   f=(joinpath dir x[1]) (for e [".aklang" ".ak"] (? (&& !(ex f) (ex (++ f e))) f=(++ f e)))      ; (use "x") finds x.aklang, or a legacy x.ak
   (? !(ex f) (err (++ "use: file not found: " x[1])))
   f)
+(= (normpath f)               ; ./a and a/../a name the same file, for the circular-use check
+  parts=[] (for s (split f "/") (? (|| s=="" s==".") nil (&& s==".." #parts>0 (!= (lst parts) "..")) (pop parts) (push parts s)))
+  (++ (? (starts f "/") "/" "") (join parts "/")))
+USTK=[]                       ; the files being loaded, outermost first
+(= (usein f at body)          ; run (body) with f on the stack of files being loaded; a file already on it is a cycle
+  k=(normpath f)
+  (? (has USTK k) (xerr (++ "use: circular import " (join (++ USTK [k]) " -> ")) at))
+  (push USTK k) r=(body) (pop USTK) r)
 (= (xerr msg at) (err (++ XFILE ":" (symline at) ":" (symcol at) ": " msg)))
 XFILE=""
 FDEFS={}                      ; function name -> file that defined it (plain `use` clash warning)
@@ -470,7 +480,7 @@ FDEFS={}                      ; function name -> file that defined it (plain `us
   f=(usepath x dir) g=($ x[3])
   (? al[g] (xerr (++ "use: the alias " g " is already taken") x[3]))
   old=FDEFS (<- FDEFS {})                ; a namespace has its own function table
-  forms=(expand_all (parse (rd f) f) (dirname f) {f true} f) (<- XFILE file) (<- FDEFS old)
+  forms=(usein f x[0] (\ () (expand_all (parse (rd f) f) (dirname f) {f true} f))) (<- XFILE file) (<- FDEFS old)
   defs={} (for y forms (defnames y defs))
   al[g]={:defs defs}
   r=[(S "%file") f ..(~ y=>(renamesyms y g defs) forms)]
@@ -484,7 +494,7 @@ FDEFS={}                      ; function name -> file that defined it (plain `us
           (<- XFILE file) (regfn g file))))
   out)
 (= (expand_program forms dir file)
-  (<- FDEFS {})
+  (<- FDEFS {}) (<- USTK [(normpath file)])
   (expand_all forms dir {} file))
 (= (expand x dir seen)
   (? !(is "list" x) x
@@ -494,7 +504,7 @@ FDEFS={}                      ; function name -> file that defined it (plain `us
           f=(usepath x dir)
           (? seen[f] nil
              (: seen[f]=true
-                forms=(expand_all (parse (rd f) f) (dirname f) seen f)
+                forms=(usein f x[0] (\ () (expand_all (parse (rd f) f) (dirname f) seen f)))
                 r=[(S "%file") f ..forms]
                 (? POS[x] POS[r]=POS[x]) r)))
      (: r=(~ y=>(expand y dir seen) x) (? POS[x] POS[r]=POS[x]) r)))

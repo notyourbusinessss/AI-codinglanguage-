@@ -108,7 +108,8 @@ P10=nil
                  e10+#dg-b+(b-a)>400 ($fdiv 1 0)
                  (strtod (strslice dg a b) e10+(#dg-b))))
            nil))))
-(= (num s)
+(= (num s) r=(num0 s) (? (&& (! ($isnil r)) (== (absn r) ($fdiv 1 0))) nil r))      ; Infinity and out-of-range text are not numbers
+(= (num0 s)
   (? ($isnum s) s
      (! (isstr s)) nil
      (: s=(trim s) n=($hlen s)

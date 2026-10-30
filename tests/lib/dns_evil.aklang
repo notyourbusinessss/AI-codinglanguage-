@@ -1,0 +1,23 @@
+; A misbehaving nameserver for the reply-validation tests (#199): ak dns_evil.aklang MODE -> prints its port, then answers every query for bank.example with 6.6.6.6 in the way MODE says, and logs "<name> <qtype>" per query.
+; question: the reply asks about evil.test · qtype: the question has the right name but type AAAA · owner: the record belongs to other.example · port: the right reply, sent from another socket · cname-bad: bank.example CNAME real.example, but the A record belongs to other.example · cname-ok: bank.example CNAME real.example and real.example A 6.6.6.6 · ok: the plain right reply
+mode=(fst (args))
+u=(udpl 0 "127.0.0.1")
+o=(udpl 0 "127.0.0.1")
+(fdw 1 (++ (tostr (tcpp u)) "\n"))
+(= (enc name) (flat [..(~ l=>[#l ..(bytes l)] (split name ".")) [0]]))
+(= (rr name t data) [..(enc name) 0 t 0 1 0 0 0 60 0 #data ..data])
+(wh true
+  [pk ip pt]=(udpfrom2 u 512)
+  b=(bytes pk) i=12 labels=[]
+  (wh b[i]>0 n=b[i] (push labels (frombytes b[i+1..i+1+n])) i+=n+1)
+  qt=b[i+1]*256+b[i+2] name=(join labels ".")
+  (fdw 1 (++ name " " (tostr qt) "\n"))
+  qn=(? (== mode "question") "evil.test" name) qtt=(? (== mode "qtype") 28 qt)
+  ans=(sw mode
+         "owner" [(rr "other.example" 1 [6 6 6 6])]
+         "cname-bad" [(rr name 5 (enc "real.example")) (rr "other.example" 1 [6 6 6 6])]
+         "cname-ok" [(rr name 5 (enc "real.example")) (rr "real.example" 1 [6 6 6 6])]
+         [(rr qn qtt [6 6 6 6])])
+  ans=(? (== qt 28) [] ans)
+  hd=[b[0] b[1] 129 128 0 1 0 #ans 0 0 0 0]
+  (udpto (? (== mode "port") o u) ip pt (frombytes [..hd ..(enc qn) 0 qtt 0 1 ..(flat ans)])))

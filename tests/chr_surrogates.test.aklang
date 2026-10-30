@@ -1,0 +1,17 @@
+; chr and the "\u{..}" escape refuse the surrogate range 0xD800-0xDFFF, which has no UTF-8 form (#201)
+(use "lib/run.aklang" as t)
+(= (msg f) (try (: (f) "no error") e=>e))
+(for [n ok] [[55295 true] [55296 false] [57343 false] [57344 true] [128512 true] [1114111 true] [1114112 false]]
+  m=(msg (\ () (chr n)))
+  (? ok (assert (== m "no error") (+ n ": " m))
+        (assert (has m (+ "chr: invalid code point " ($ n))) (+ n ": " m))))
+(assert (== (ord (chr 55295)) 55295) "ord of 0xD7FF")
+(assert (== (ord (chr 57344)) 57344) "ord of 0xE000")
+(assert (== (#(chr 128512)) 4) "U+1F600 is four bytes")
+(= (ak code) r=(t.run (+ "bin/ak -e '" code "'") nil) r)
+(for src ["(p \"\\u{d800}\")" "(p \"\\u{DFFF}\")" "(p \"\\u{110000}\")"]
+  r=(ak src)
+  (assert (&& (== r.code 1) (has r.err "chr: invalid code point")) (+ src ": " (show r.code) " " (show r.err))))
+(for [src want] [["(p \"\\u{d7ff}\")" (+ (chr 55295) "\n")] ["(p \"\\u{e000}\")" (+ (chr 57344) "\n")] ["(p \"\\u{1f600}\")" "😀\n"]]
+  r=(ak src)
+  (assert (== r.out want) (+ src ": " (show r.out) (show r.err))))

@@ -1,0 +1,21 @@
+; Golden files for `ak fmt`: tests/fmt_golden/NAME.aklang is formatted by the formatter and must print NAME.golden exactly,
+; and formatting the golden text again must change nothing. A roundtrip test proves the meaning survives; this one pins the layout.
+; (Comments are not covered: `ak fmt` drops them, see #34. Add them here when it keeps them.)
+(use "lib/run.aklang" as t)
+dir="tests/fmt_golden"
+files=(sort (ls dir))
+cases=(~? (\ (f) (ends f ".aklang")) files)
+(assert (>= #cases 5) (+ "at least 5 golden cases found (found " #cases ")"))
+again=(+ t.tmpname() ".aklang")
+(for c cases
+  gp=(+ dir "/" (sub c 0 #c-7) ".golden")
+  (assert (ex gp) (+ c " has a .golden file"))
+  want=(rd gp)
+  r=(t.run (+ "bin/ak fmt " dir "/" c) nil)
+  (assert (&& (== r.code 0) (== r.out want)) (+ c ": output differs from the golden file\n--got--\n" r.out r.err "--want--\n" want))
+  (wr again want)
+  r2=(t.run (+ "bin/ak fmt " again) nil)
+  (assert (&& (== r2.code 0) (== r2.out want)) (+ c ": formatting the golden text changes it\n" r2.out r2.err)))
+(rm again)
+(for f files (? (ends f ".golden") (assert (ex (+ dir "/" (sub f 0 #f-7) ".aklang")) (+ f " has no input"))))
+(p (+ #cases " fmt golden cases ok"))

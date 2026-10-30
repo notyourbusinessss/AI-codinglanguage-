@@ -260,6 +260,66 @@ function toJ(x) {
 }
 const LONE_SURR = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 const jstr = x => { if (LONE_SURR.test(x)) throw new SyntaxError('unpaired surrogate escape'); return x; };
+// JSON.parse says why in V8's words; native says "invalid JSON: expected , or ] at position 5" (bytes), so find the error with a port of rt/json.aklang
+function jsonFail(src, v8) {
+  const b = Buffer.from(String(src), 'utf8'), n = b.length; let i = 0;
+  const at = k => k < n ? b[k] : 0, bad = m => { throw new AkError('invalid JSON: ' + m + ' at position ' + i, 'error'); };
+  const ws = () => { while (i < n && (b[i] === 32 || (b[i] >= 9 && b[i] <= 13))) i++; };
+  const hex4 = () => { for (let k = 0; k < 4; k++) if (!/[0-9a-fA-F]/.test(String.fromCharCode(at(i + k)))) bad('bad \\u escape'); const v = parseInt(b.toString('latin1', i, i + 4), 16); i += 4; return v; };
+  const str = () => {
+    i++;
+    for (;;) {
+      if (i >= n) bad('unterminated string');
+      const c = b[i];
+      if (c === 34) { i++; return; }
+      if (c === 92) {
+        i++; const e = at(i); i++;
+        if (e === 117) {
+          const cp = hex4();
+          if (cp >= 0xD800 && cp < 0xDC00) { if (!(i + 1 < n && b[i] === 92 && b[i + 1] === 117)) bad('unpaired surrogate escape'); i += 2; const lo = hex4(); if (lo < 0xDC00 || lo >= 0xE000) bad('unpaired surrogate escape'); }
+          else if (cp >= 0xDC00 && cp < 0xE000) bad('unpaired surrogate escape');
+        } else if (!'ntrbf"\\/'.includes(String.fromCharCode(e)) || e === 0) bad('bad escape');
+      } else if (c < 32) bad('control character in string');
+      else i++;
+    }
+  };
+  const numok = (a, e) => /^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$/.test(b.toString('latin1', a, e));
+  const val = () => {
+    ws();
+    if (i >= n) bad('unexpected end');
+    const c = b[i];
+    if (c === 123) {
+      i++; ws();
+      if (i < n && b[i] === 125) { i++; return; }
+      for (;;) {
+        ws(); if (at(i) !== 34) bad('expected string key');
+        str(); ws(); if (at(i) !== 58) bad('expected :');
+        i++; val(); ws();
+        const d = at(i); i++;
+        if (d === 125) return;
+        if (d !== 44) bad('expected , or }');
+      }
+    }
+    if (c === 91) {
+      i++; ws();
+      if (i < n && b[i] === 93) { i++; return; }
+      for (;;) {
+        val(); ws();
+        const d = i < n ? b[i] : -1; i++;
+        if (d === 93) return;
+        if (d !== 44) bad('expected , or ]');
+      }
+    }
+    if (c === 34) return str();
+    let j = i; while (j < n && /[0-9+\-.eE]/.test(String.fromCharCode(b[j]))) j++;
+    if (j > i) { if (!numok(i, j)) bad('bad number'); i = j; return; }
+    for (const [w, k] of [['true', 4], ['false', 5], ['null', 4]]) if (b.toString('latin1', i, i + k) === w) { i += k; return; }
+    bad('unexpected character');
+  };
+  val(); ws();
+  if (i < n) bad('trailing characters');
+  throw new AkError(v8.message, 'error');
+}
 function fromJ(x) {
   if (Array.isArray(x)) return x.map(fromJ);
   if (x && typeof x === 'object') { const m = new Map(); for (const k of Object.keys(x)) m.set(jstr(k), fromJ(x[k])); return m; }
@@ -268,6 +328,10 @@ function fromJ(x) {
 
 // ---------------------------------------------------------------- builtins
 let ARGV = [];
+// file system errors read like native's: "cannot read /x: no such file or directory" (rt/io.aklang errtext)
+const ERRTEXT = { 1: 'operation not permitted', 2: 'no such file or directory', 5: 'input/output error', 13: 'permission denied', 17: 'file exists', 18: 'cross-device link', 20: 'not a directory', 21: 'is a directory', 24: 'too many open files', 28: 'no space left on device', 30: 'read-only file system', 36: 'file name too long', 39: 'directory not empty', 40: 'too many levels of symbolic links' };
+const ioTry = (what, subject, f) => { try { return f(); } catch (e) { if (e && typeof e.errno === 'number' && e.errno < 0) throw new AkError(what + ' ' + subject + ': ' + (ERRTEXT[-e.errno] || 'errno ' + -e.errno), 'io'); throw e; } };
+const mkre = (p, f) => { try { return new RegExp(p, f); } catch (e) { throw new AkError(e.message, 'error'); } };   // no "SyntaxError: " prefix, like native
 const pth = f => { if (typeof f !== 'string') throw new AkError('path must be a string, got ' + tyOf(f), 'type'); return f; };
 const tyOf = x => {
   if (x == null) return 'nil';
@@ -410,7 +474,7 @@ const B = {
   trim: s => str(s).trim(), up: s => str(s).toUpperCase(), lo: s => str(s).toLowerCase(),
   rep: (s, a, b) => a instanceof RegExp ? s.replace(a.global ? a : new RegExp(a.source, a.flags + 'g'), b) : a === '' ? s : s.split(a).join(b),
   starts: (s, p) => s.startsWith(p), ends: (s, p) => s.endsWith(p),
-  rpt: (s, k) => { k = Math.max(0, Math.trunc(n(k))); if (typeof s === 'string') return s.repeat(k); if (!s.length) return []; if (s.length * k > 134217728) throw new AkError('invalid length: ' + show(s.length * k), 'arith'); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
+  rpt: (s, k) => { k = Math.max(0, Math.trunc(n(k))); if (typeof s === 'string') { const t = Buffer.byteLength(s) * k; if (t > 2147483647) throw new AkError('invalid length: ' + show(t), 'arith'); try { return s.repeat(k); } catch (e) { throw new AkError('invalid length: ' + show(t), 'arith'); } } if (!s.length) return []; if (s.length * k > 134217728) throw new AkError('invalid length: ' + show(s.length * k), 'arith'); const o = []; for (let i = 0; i < k; i++) for (const x of s) o.push(x); return o; },
   fmt: (f, ...a) => { let i = 0; return f.replace(/%(-?)(0?)(\d*)(?:\.(\d+))?([sdfxXbo%])/g, (m, left, zero, w, prec, t) => {
       if (t === '%') return '%';
       const v = a[i++]; let s;
@@ -426,7 +490,7 @@ const B = {
   padl: (s, n, c) => tostr(s).padStart(n, c === undefined ? ' ' : c), padr: (s, n, c) => tostr(s).padEnd(n, c === undefined ? ' ' : c),
   chr: n => { if (!Number.isInteger(n) || n < 0 || n > 0x10FFFF) throw new AkError('chr: invalid code point ' + show(n)); return String.fromCodePoint(n); }, ord: s => s.codePointAt(0),
   num,
-  re: (p, f) => new RegExp(p, f == null ? undefined : f), match: (r, s) => { const m = (r instanceof RegExp ? r : new RegExp(r)).exec(s); return m ? Array.from(m, x => x === undefined ? null : x) : null; },
+  re: (p, f) => mkre(p, f == null ? undefined : f), match: (r, s) => { const m = (r instanceof RegExp ? r : mkre(r)).exec(s); return m ? Array.from(m, x => x === undefined ? null : x) : null; },
   // types / errors
   ty: tyOf, is: (t, x) => tyOf(x) === t,
   err: (...a) => { throw new AkError(a.map(tostr).join(' ')); },
@@ -442,10 +506,10 @@ const B = {
   mksym: (n, l, c) => { const s = new Sym(String(n)); s.line = l; s.col = c; return s; },   // fresh (non-interned) symbol that remembers its source position
   symline: s => s.line ?? 0, symcol: s => s.col ?? 0,
   bytes: s => Array.from(Buffer.from(s, 'utf8')),
-  rd: f => fs.readFileSync(pth(f), 'utf8'),
+  rd: f => ioTry('cannot read', pth(f), () => fs.readFileSync(f, 'utf8')),
   // wr/app/wrx take a string or a list of byte values; wrx also marks the file executable
-  wr: (f, s) => { fs.writeFileSync(pth(f), Array.isArray(s) ? Buffer.from(s) : s); return s; },
-  app: (f, s) => { fs.appendFileSync(pth(f), Array.isArray(s) ? Buffer.from(s) : s); return s; },
+  wr: (f, s) => { ioTry('cannot write', pth(f), () => fs.writeFileSync(f, Array.isArray(s) ? Buffer.from(s) : s)); return s; },
+  app: (f, s) => { ioTry('cannot write', pth(f), () => fs.appendFileSync(f, Array.isArray(s) ? Buffer.from(s) : s)); return s; },
   wrx: (f, s) => { fs.writeFileSync(pth(f), Array.isArray(s) ? Buffer.from(s) : s, { mode: 0o755 }); fs.chmodSync(f, 0o755); return s; },
   // run an executable image (string or byte list) with arguments; never returns (exits with the program's status)
   runx: (img, args) => {
@@ -458,11 +522,24 @@ const B = {
     process.exit(r.status === null ? 1 : r.status);
   },
   rm: f => { fs.rmSync(pth(f), { recursive: true, force: true }); return null; },
-  mkdir: d => { try { fs.mkdirSync(pth(d), { recursive: true }); } catch (e) { throw new AkError('cannot create ' + d + ': ' + (({ ENOENT: 'no such file or directory', EACCES: 'permission denied', ENOTDIR: 'not a directory', EEXIST: 'not a directory', EROFS: 'read-only file system', ENOSPC: 'no space left on device' })[e.code] || 'errno ' + e.errno), 'io'); } return null; },
-  mv: (a, b) => { fs.renameSync(pth(a), pth(b)); return null; },
+  // one directory at a time, like rt/io.aklang: node's recursive mkdir never returns under /proc
+  mkdir: d => {
+    const isd = q => { try { return fs.statSync(q).isDirectory(); } catch (e) { return false; } };
+    if (isd(pth(d))) return null;
+    if (!d.length) throw new AkError('cannot create : no such file or directory', 'io');
+    for (let i = 1; i <= d.length; i++) {
+      if (i < d.length && d[i] !== '/') continue;
+      const q = d.slice(0, i);
+      if (q.length && !isd(q)) {
+        try { fs.mkdirSync(q); } catch (e) { if (!isd(q)) { const c = e.code === 'EEXIST' ? 20 : -e.errno; throw new AkError('cannot create ' + d + ': ' + (ERRTEXT[c] || 'errno ' + c), 'io'); } }
+      }
+    }
+    return null;
+  },
+  mv: (a, b) => { ioTry('cannot rename', pth(a) + ' to ' + pth(b), () => fs.renameSync(a, b)); return null; },
   isdir: p => { pth(p); try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } },
   bcat: (...parts) => { let n = 0; for (const p of parts) n += p.length; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; },
-  ls: d => fs.readdirSync(d == null ? '.' : pth(d)), ex: f => fs.existsSync(pth(f)),
+  ls: d => ioTry('cannot list', d == null ? '.' : pth(d), () => fs.readdirSync(d == null ? '.' : d)), ex: f => fs.existsSync(pth(f)),
   in: inLine, inall: inAll, args: () => ARGV.slice(),
   env: k => k === undefined ? new Map(Object.entries(process.env)) : (process.env[k] ?? null),
   exit: c => { if (c != null && !Number.isInteger(c)) throw new AkError('exit: expected an integer, got ' + tyOf(c), 'type'); flush(); process.exit(c || 0); },
@@ -476,7 +553,7 @@ const B = {
   sleep: ms => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); return null; },
   delay: ms => new Promise(r => setTimeout(r, ms)),
   imp: m => import(m),
-  json: (x, ind) => { if (typeof ind === 'number' && ind > 100) throw new AkError('invalid length: ' + show(ind), 'arith'); return JSON.stringify(toJ(x), null, ind); }, unjson: s => fromJ(JSON.parse(s)),
+  json: (x, ind) => { if (typeof ind === 'number' && ind > 100) throw new AkError('invalid length: ' + show(ind), 'arith'); return JSON.stringify(toJ(x), null, ind); }, unjson: s => { try { return fromJ(JSON.parse(s)); } catch (e) { if (e instanceof SyntaxError) jsonFail(s, e); throw e; } },
   ev: src => {
     const { compile } = require('./ak.js');
     const code = compile(src, { file: '<ev>', ret: true });

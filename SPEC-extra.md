@@ -2,7 +2,7 @@
 Native target only.
 ## Errors, modules, CLI
 Errors have a kind. The `try` handler still receives the message string; inside it `(errkind e)` is `"assert"` (`assert`; throws "assertion failed" or its message when the condition is falsy), `"arith"` (division by zero, integer overflow), `"type"` (wrong operand or argument type, not callable), `"io"` (files, `sh`, sockets), `"index"` (bad or out-of-range index) or `"error"` (`err` and the rest). `(raise "kind" "msg" data)` throws your own kind, and `(errdata e)` returns its data (nil otherwise). Both describe the error being handled, so call them first in the handler, before any code that may throw again. Uncaught errors print `error: msg (file:line:col)` (the innermost call site), then one `  called from file:line:col` per outer call (at most 10), exit 1.
-`(use "f.aklang")` includes a file (two files defining one function warn, later wins). `(use "f.aklang" as g)`: its top-level names are `g.name`, so libraries never clash (top level only). `(q x)`: symbols are a type, `ty`="sym", `(sym "x")`.
+`(use "f.aklang")` includes a file (two files defining one function warn, later wins). `(use "f.aklang" as g)`: its top-level names are `g.name`, so libraries never clash (top level only). A circular `use` (a file reaching itself) is a compile error naming the chain, `use: circular import a.aklang -> b.aklang -> a.aklang`. `(q x)`: symbols are a type, `ty`="sym", `(sym "x")`.
 `ak check f.aklang` compiles without running. `ak fmt` prints the canonical layout (drops comments). Strings across targets: see below. `ak test [paths]` runs every `*.test.aklang` under the paths (default `.`); a test is a program that exits 0; prints PASS/FAIL per file and a summary, exit 1 on any failure or when none is found. `ak repl`: an expression prints its value, a definition `x=1` / `f n = ..` / `(use ..)` is kept and replayed before each entry, so its side effects run again; `:defs` `:reset` `:q`.
 ## Less common builtins and details (kept out of SPEC.md to save tokens)
 math `+ - * / % // ** < > <= >= == != !` `& | ^ << >> >>> bnot` (bit operators work on 32-bit integers like JS: `2**40|0` is 0, `>>>` is unsigned) `sin cos tan asin acos atan atan2 exp log log2 log10 pow cbrt hypot sinh cosh tanh sign` (precedence, tight to loose: `**` · unary · `* / // %` · `+ -` · `<< >>` · `&` · `^` · `|` · `..` · `< > <= >= == !=` · `&&` · `|| ??` · `= += -= *= /= %= **= //= ||= ??=` · `=>`; several-statement lambda: `(\ (x) s1 s2 result)`)
@@ -57,7 +57,7 @@ No libraries: `lib/x11.aklang` speaks the X11 protocol itself over the display's
 
 ## Strings across targets
 A native string is UTF-8 bytes; a JS string is UTF-16 units. For ASCII text the two are identical. The contract for other text:
-- Same on both: `==` `++` `+` `split`/`join`/`starts`/`ends`/`has`/`rep` with a non-empty separator, `trim`, `rpt`, `show`, `json`/`unjson` (including `\u` escapes and surrogate pairs), `chr` and `ord` (code points; `ord` of a string reads its first character), regex with a literal pattern, and `idx` of a character that comes before any non-ASCII text.
+- Same on both: `==` `++` `+` `split`/`join`/`starts`/`ends`/`has`/`rep` with a non-empty separator, `trim`, `rpt`, `show`, `json`/`unjson` (including `\u` escapes and surrogate pairs), `chr` and `ord` (code points, never the surrogates 0xD800-0xDFFF, which `chr` and the `"\u{..}"` escape refuse; `ord` of a string reads its first character), regex with a literal pattern, and `idx` of a character that comes before any non-ASCII text.
 - Counts units, so differs: `#s`, `s[i]`, `s[a..b]`, `take` `drop` `fst` `lst`, `for` over a string, `split s ""`, `idx` after non-ASCII text, `padl` `padr` and `fmt` widths. `(#"é")` is 2 natively and 1 on JS, `(#"😀")` is 4 and 2. A native slice may cut inside a character and give invalid UTF-8.
 - Regex: `.` and classes match one code point natively; on JS only with the `u` flag: `(match (re "^.$" "u") s)`.
 - `up` and `lo` map ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic letters one to one natively; JS also applies special casing (`ß` -> `SS`, a final sigma), which natively stays as it is.
@@ -73,6 +73,12 @@ Portable code treats text as opaque (compare, join, split on ASCII separators) a
 ## Stack overflow and cyclic data (native)
 - Unbounded recursion raises `error: stack overflow` (kind `error`, catchable with `try`, with the usual location and `called from` lines) instead of a segmentation fault. The check is at every function entry and covers both the machine stack and the value stack, also inside a coroutine (8 MB each).
 - `show`, `p`, `$`, `json` and `==` on a list or map that contains itself raise `cyclic structure or nesting deeper than 10000` (kind `error`).
+
+## `sort` compares like `<` (native)
+`sort` orders numbers (BigInts too), strings and lists (element by element) and raises `cannot compare num and str` for two items of different kinds, as `<` does. Booleans and nil have no order. The same applies to the keys of `(sort f xs)`.
+
+## Float overflow (native)
+`+ - * /` on finite numbers never give `Infinity`: an infinite result raises `arith: float overflow`. `num` returns nil for text that is `Infinity` or too large for a double (`"1e400"`), `int` of NaN or an infinite value raises, and a source literal such as `1e400` is a compile error. `pow`, `exp` and the other math functions follow IEEE and may still return `Infinity`.
 
 ## BigInt, `fmt` and `json` rules (native)
 - `(ty 10n)` is `"big"`. `abs min max sum int flr cel` and `fmt "%d"` accept BigInts; `sqrt rpt` and the other number builtins raise `expected number, got big`. A BigInt and a number never mix in `+ - *` (`cannot add big and num`), but they compare and sort.

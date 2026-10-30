@@ -1,0 +1,40 @@
+; #113 #114 #118: the JS target words file, JSON, regex and size errors like native, and checks builtin argument counts at compile time
+(use "lib/run.aklang" as t)
+(= (both code)
+  f=(+ "/tmp/aktest-cross-" ($ (rand 1000000000)) ".aklang")
+  (wr f code)
+  n=(t.run (+ "bin/ak " f) nil)
+  j=(t.run (+ "timeout 10 node boot/ak.js " f) nil)
+  (rm f)
+  [n j])
+(= (same code)
+  [n j]=(both code)
+  (assert (&& (== n.out j.out) (== n.code j.code) (== (lines n.err) (lines j.err))) (+ code "\nnative: " (show n) "\njs: " (show j))))
+(= (lines s) (~ l=>(trim l) (split s "\n")))
+; the exact commands from the issues
+(for c ["(try (rd \"/nonexistent\") e=>(p (errkind e) e))" "(try (wr \"/nonexistent/x\" \"a\") e=>(p (errkind e) e))"
+        "(try (app \"/nonexistent/x\" \"a\") e=>(p (errkind e) e))" "(try (ls \"/nonexistent\") e=>(p (errkind e) e))"
+        "(try (mv \"/nonexistent\" \"/tmp/aktest-cross-nowhere\") e=>(p (errkind e) e))" "(try (rd \"/tmp\") e=>(p (errkind e) e))"
+        "(try (unjson \"[1,2\") e=>(p (errkind e) e))" "(try (re \"(\") e=>(p (errkind e) e))" "(try (rpt \"a\" 1e10) e=>(p (errkind e) e))"
+        "(try (mkdir \"/proc/x\") e=>(p (errkind e) e))" "(try (mkdir \"/sys/x\") e=>(p (errkind e) e))"]
+  (same c))
+; bad JSON of every shape the native parser names
+(for j ["" "[" "[1" "[1 2]" "{" "{1:2}" "{\"a\" 1}" "{\"a\":1 \"b\":2}" "\"abc" "\"a\\qb\"" "\"\\u12\"" "\"\\ud800\"" "[01]" "[1.]" "-" "tru" "nul" "[1] x" "{\"a\":}" "@"]
+  (same (+ "(try (unjson " (show j) ") e=>(p (errkind e) e))")))
+; wrong argument counts are compile errors with the same words on both targets
+(for c ["abs 1 2" "take 2 [1 2 3] 9" "rep \"ab\" 1" "starts \"abc\"" "trim" "ord" "!" "-" "<" "bnot" "<@" "<@ [1] 0"]
+  (same (+ "p (" c ")")))
+; a valid call still works and a spread is not counted
+(same "p (abs -3) (take 2 [1 2 3]) (rep \"abc\" \"b\" \"x\") (+ 5) (* 5) (/ 4) (- 5)")
+(same "xs=[2 [5 6 7]]\np (take ..xs) (max ..[1 2])")
+; unary + and * are the number itself and / is the reciprocal
+r=(t.run "bin/ak -e 'p (+ 5) (* 5) (/ 4) (- 5)'" nil)
+(assert (== r.out "5 5 0.25 -5\n") (show r))
+; boot/arity.json is the JS target's copy of native's builtin argument counts: one argument too many (or too few) is a native compile error for every entry
+tab=(unjson (rd "boot/arity.json"))
+(for name (keys tab)
+  [mn mx]=tab[name]
+  (for k [(? mx<1e9 mx+1) (? mn>0 mn-1)]
+    (? k!=nil
+       (: r=(t.run (+ "bin/ak -e '(" name (rpt " 1" k) ")'") nil)
+          (assert (has r.err (+ name " takes ")) (+ name " with " ($ k) " arguments: " (show r)))))))

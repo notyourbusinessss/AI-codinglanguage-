@@ -7,6 +7,52 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 
 ### Changed
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
+- More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
+
+## 0.7.68 (2026-10-30)
+
+### Fixed
+- One-operand `(+ x)`, `(* x)` and `(/ x)` negated x on native; now `(+ x)` and `(* x)` are x and `(/ x)` is 1/x, like the JS target (#209). `(<@ ..)` with other than 3 operands is a compile error, not `internal: unknown IR node nil`.
+
+## 0.7.67 (2026-10-30)
+
+### Fixed
+- JS target: `mkdir` creates one directory at a time like native, so `(mkdir "/proc/x")` fails at once with `cannot create /proc/x: no such file or directory` instead of spinning forever (#114).
+
+## 0.7.66 (2026-10-30)
+
+### Fixed
+- JS target: `rd wr app ls mv`, `unjson`, `re` and `rpt` give native's error text (`cannot read /x: no such file or directory`, `invalid JSON: expected , or ] at position 5`, `invalid length: n`) instead of Node's `Error: ENOENT ...` / `SyntaxError ...` (#113).
+
+## 0.7.65 (2026-10-30)
+
+### Fixed
+- JS target: a builtin called with the wrong number of arguments is a compile error with native's text (`abs takes 1 argument, got 2`), from `boot/arity.json` (#118).  `(+)` and `(*)` stay valid on the JS target (0 and 1), as `tests/lang.test.js` expects. The native half (`(!)`, `(-)`) was fixed earlier; `tests/cross_errors.test.aklang` compares both targets and checks the table against native.
+
+## 0.7.64 (2026-10-30)
+
+### Fixed
+- `sort` raises `cannot compare num and str` (kind `type`) for two items of different kinds, the same text and rule as `<`, instead of silently putting strings before numbers before lists with nil last. Numbers (BigInts included), strings and lists of those still sort; lists compare element by element, and a key function is checked the same way. Sorting booleans, or nil together with anything, raises like `(< true false)` (#157)
+
+## 0.7.63 (2026-10-30)
+
+### Fixed
+- Float overflow is an error, not `Infinity` (#155). `+ - * /` of finite numbers whose result is infinite raise `arith: float overflow` (kind `arith`); `(num "1e400")` and `(num "Infinity")` return nil like `(num "NaN")`; `(int x)` of NaN or an infinite value raises `int: cannot convert NaN`; a literal that does not fit a double (`1e400`) is a compile error `number too large`. The math functions (`pow`, `exp`, ...) still follow IEEE and may return `Infinity`.
+
+## 0.7.62 (2026-10-29)
+
+### Fixed
+- `chr` and the `"\u{..}"` string escape refuse the surrogate code points 0xD800-0xDFFF (`chr: invalid code point 55296`) instead of building bytes that are not valid UTF-8; `json`, `unjson` and the websocket text frames already refused them (#201)
+
+## 0.7.61 (2026-10-29)
+
+### Fixed
+- A circular `use` (a file that uses itself, or A uses B and B uses A, with or without `as`) stops the compiler with `use: circular import a.aklang -> b.aklang -> a.aklang` and exit 1 for run, check, build and test, instead of hanging without output. A file used from two places without a cycle still loads once (#202)
+
+## 0.7.60 (2026-10-29)
+
+### Fixed
+- The DNS client ignores a reply that does not answer its query: the question section must match the name, type and class asked, records must be owned by the queried name or a name on its CNAME chain, and a datagram from an address or port other than the nameserver asked is dropped. A forged reply with a guessed id can no longer poison a lookup or the TTL cache (#199)
 
 ### Fixed
 - `httpd` refuses a handler-set `Content-Length` that does not equal the body length, and a handler-set `Transfer-Encoding`, with a 500 instead of a framing mismatch that desyncs the keep-alive connection (#200)
