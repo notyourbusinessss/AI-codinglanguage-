@@ -1,0 +1,54 @@
+; Edge cases of (use "f" as g), run with the native binary and `ak check`.
+(use "lib/run.aklang" as t)
+root=(trim (sh "pwd"))
+ak=(+ root "/bin/ak")
+tmp=(trim (sh "mktemp -d"))
+(= (shq s) (+ "'" (rep s "'" "'\\''") "'"))
+(= (w n s) (sh (+ "mkdir -p $(dirname " (shq (+ tmp "/" n)) ")")) (wr (+ tmp "/" n) s) (+ tmp "/" n))
+n=0 bad=0
+(= (ck name ok info) (<- n n+1) (? (! ok) (: (<- bad bad+1) (p "FAIL" name "\n  " (show info)))))
+; stdout and exit status; an error expectation is a regex on stderr
+(= (runf file dir) (t.run (+ "cd " (shq dir) " && " ak " " (shq file)) nil))
+(= (both name file want dir)
+  r=(runf file dir)
+  (ck name (? want.err (&& (== r.code 1) (re want.err r.err) (== r.out (?? want.out ""))) (&& (== r.code 0) (== r.out want.out) (== r.err ""))) r))
+x=(w "x.aklang" "(= (f) \"xf\")\nv=5\n")
+b=(w "b.aklang" "(use \"x.aklang\" as y)\n(= (g) y.f())\n")
+
+; a library that itself uses "as": its own alias is private, so the outside sees only its definitions
+(both "library with its own use as: b.g() works" (w "m1.aklang" "(use \"b.aklang\" as b)\n(p b.g())\n") {:out "xf\n"} root)
+m1b=(w "m1b.aklang" "(use \"b.aklang\" as b)\n(p b.y.f())\n")
+(both "library with its own use as: b.y.f is a clean error" m1b {:err "b has no definition named y"} root)
+
+; the same file plain and with an alias
+(both "same file plain and as" (w "m2.aklang" "(use \"x.aklang\")\n(use \"x.aklang\" as y)\n(p f() y.f() v y.v)\n") {:out "xf xf 5 5\n"} root)
+(both "same file as first, then plain" (w "m2b.aklang" "(use \"x.aklang\" as y)\n(use \"x.aklang\")\n(p f() y.f() v y.v)\n") {:out "xf xf 5 5\n"} root)
+
+; a parameter or local named like the alias shadows it only inside its function
+(both "parameter and local named like the alias" (w "m3.aklang" "(use \"x.aklang\" as y)\n(= (h y) y+1)\n(= (k) (= y 3) y)\n(p h(2) k() y.f())\n") {:out "3 3 xf\n"} root)
+
+; assignment through the alias, from inside a function and a closure
+(both "assign y.v, read it inside a function and closures" (w "m4.aklang" "(use \"x.aklang\" as y)\n(<- y.v 9)\n(p y.v)\n(= (z) (<- y.v y.v+1) y.v)\n(p z() y.v)\n(p (~ n=>y.v+n [1 2]))\n(= (mk) n=>y.v+n)\n(p mk()(5))\n") {:out "9\n10 10\n[11 12]\n15\n"} root)
+
+; a library in another folder, found relative to the file that uses it and not to the working directory
+(w "sub/lib.aklang" "(= (hi) \"hi\")\n(= (bad) (err \"boom\"))\n")
+m5=(w "m5.aklang" "(use \"sub/lib.aklang\" as s)\n(p s.hi())\n")
+(both "library in a subfolder" m5 {:out "hi\n"} root)
+(both "library in a subfolder, run from another directory" m5 {:out "hi\n"} "/tmp")
+(both "error inside a namespaced library exits 1" (w "m5b.aklang" "(use \"sub/lib.aklang\" as s)\n(s.bad())\n") {:err "error: boom"} root)
+
+; the same errors under ak check
+(= (chk name file pat)
+  r=(t.run (+ ak " check " (shq file)) nil)
+  (ck name (&& (== r.code 1) (re pat r.err) (== r.out "")) r))
+(chk "check: unknown name" (w "c1.aklang" "(use \"x.aklang\" as y)\n(p y.nope)\n") "c1\\.aklang:2:4: y has no definition named nope")
+(chk "check: alias already taken" (w "c2.aklang" "(use \"x.aklang\" as y)\n(use \"b.aklang\" as y)\n") "the alias y is already taken")
+(chk "check: only at the top level" (w "c3.aklang" "(? true (use \"x.aklang\" as y))\n") "top level")
+(chk "check: nested alias of a library" m1b "b has no definition named y")
+(for f ["m1" "m2" "m3" "m4" "m5"]
+  r=(t.run (+ ak " check " (shq (+ tmp "/" f ".aklang"))) nil)
+  (ck (+ "check accepts " f) (&& (== r.out "ok\n") (== r.code 0)) r))
+(sh (+ "rm -rf " (shq tmp)))
+(assert (== bad 0) (+ bad " use-as checks failed"))
+(assert (>= n 18) "too few use-as checks ran")
+(p (+ n " use-as checks passed"))
