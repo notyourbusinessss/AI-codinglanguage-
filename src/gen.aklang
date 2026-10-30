@@ -330,7 +330,7 @@ NUMINTRIN=["#" "num" "$ldb" "$type" "$hlen" "$bitshi" "$bitslo" "$ld16" "$toint"
 
 (= (gen_arith op args)         ; + - * /  folded left; fast path for two doubles
   n=#args
-  (? n==1 (gen_neg args[0])
+  (? n==1 (? (== op "-") (gen_neg args[0]) (gen_arith2 (? (== op "/") "/" "*") ["num" 1] args[0]))       ; (- x) negates, (/ x) is 1/x, (+ x) and (* x) check that x is a number
      n==2 (gen_arith2 op args[0] args[1])
      (: acc=args[0]
         (for e args[1..] acc=["prim" op [acc e] G.curpos])

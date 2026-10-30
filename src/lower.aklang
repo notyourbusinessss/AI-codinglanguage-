@@ -125,7 +125,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
     "sw" (lower (swexpand x) tail)
     "q" (lower_quote x[1])
     "@" (lower_at x tail)
-    "<@" (lower_put x[1..])
+    "<@" (lower_put x)
     ".@" (? (is "str" x[2]) (lower_prim "dotc" [x[1] x[2] (hash23 x[2])]) (lower_rt "dot" [x[1] x[2]]))
     ".=" (? (is "str" x[2]) (lower_prim "setdotc" [x[1] x[2] (hash23 x[2]) x[3]]) (lower_rt "setdot" x[1..]))
     "." (lower_method x tail)
@@ -145,7 +145,9 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
      (const x)))
 
 (= (hash23 s) h=0 (for c (bytes s) h=(h*31+c)&8388607) h)
-(= (lower_put args) ["prim" "<@" (~ a=>(lower a false) args)])
+(= (lower_put x) args=x[1..]
+  (? (&& #args!=3 (! (any isspread args))) (lerr (++ "<@ takes 3 arguments, got " #args) x))
+  ["prim" "<@" (~ a=>(lower a false) args)])
 (= (lower_at x tail)
   (? (&& #x==3 (is "str" x[2])) (lower_prim "dotc" [x[1] x[2] (hash23 x[2])])
      #x==3 ["prim" "@" (~ a=>(lower a false) x[1..])] #x==4 (lower_rt "slice" x[1..]) (lerr "(@ obj index) or (@ obj lo hi)" x)))
@@ -302,7 +304,7 @@ OPASSIGN=["+=" "-=" "*=" "/=" "%=" "**=" "//=" "||=" "??="]
 
 (= (lower_set x) t=x[1]
   (? #x!=3 (lerr "(<- name value)" x))
-  (? (&& (isform t "@") #t==3) (lower_put [t[1] t[2] x[2]])
+  (? (&& (isform t "@") #t==3) (lower_put [(S "<@") t[1] t[2] x[2]])
      (! (issym t)) (lerr "<- target must be a name" x)
      (: v=(lookup ($ t))
         (? v==nil (lerr (++ "<-: undefined variable " ($ t)) x))

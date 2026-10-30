@@ -9,6 +9,26 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - Tests written in Ak (part of #120): `tests/*.test.aklang` run with `bin/ak test tests` (helper `tests/lib/run.aklang`); the version, directory-floor, native ELF and corpus checks moved there from `tests/*.js`. The corpus check skips the two Node-only programs (`17-http`, `22-async`), which `tests/native_diff.js` still runs on the JS target.
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 
+## 0.7.68 (2026-10-30)
+
+### Fixed
+- One-operand `(+ x)`, `(* x)` and `(/ x)` negated x on native; now `(+ x)` and `(* x)` are x and `(/ x)` is 1/x, like the JS target (#209). `(<@ ..)` with other than 3 operands is a compile error, not `internal: unknown IR node nil`.
+
+## 0.7.67 (2026-10-30)
+
+### Fixed
+- JS target: `mkdir` creates one directory at a time like native, so `(mkdir "/proc/x")` fails at once with `cannot create /proc/x: no such file or directory` instead of spinning forever (#114).
+
+## 0.7.66 (2026-10-30)
+
+### Fixed
+- JS target: `rd wr app ls mv`, `unjson`, `re` and `rpt` give native's error text (`cannot read /x: no such file or directory`, `invalid JSON: expected , or ] at position 5`, `invalid length: n`) instead of Node's `Error: ENOENT ...` / `SyntaxError ...` (#113).
+
+## 0.7.65 (2026-10-30)
+
+### Fixed
+- JS target: a builtin called with the wrong number of arguments is a compile error with native's text (`abs takes 1 argument, got 2`), from `boot/arity.json` (#118). The native half (`(!)`, `(-)`) was fixed earlier; `tests/cross_errors.test.aklang` compares both targets and checks the table against native.
+
 ## 0.7.64 (2026-10-30)
 
 ### Fixed
