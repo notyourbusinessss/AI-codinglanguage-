@@ -27,7 +27,7 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ## 0.7.65 (2026-10-30)
 
 ### Fixed
-- JS target: a builtin called with the wrong number of arguments is a compile error with native's text (`abs takes 1 argument, got 2`), from `boot/arity.json` (#118). The native half (`(!)`, `(-)`) was fixed earlier; `tests/cross_errors.test.aklang` compares both targets and checks the table against native.
+- JS target: a builtin called with the wrong number of arguments is a compile error with native's text (`abs takes 1 argument, got 2`), from `boot/arity.json` (#118).  `(+)` and `(*)` stay valid on the JS target (0 and 1), as `tests/lang.test.js` expects. The native half (`(!)`, `(-)`) was fixed earlier; `tests/cross_errors.test.aklang` compares both targets and checks the table against native.
 
 ## 0.7.64 (2026-10-30)
 

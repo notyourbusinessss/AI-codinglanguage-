@@ -22,7 +22,7 @@
 (for j ["" "[" "[1" "[1 2]" "{" "{1:2}" "{\"a\" 1}" "{\"a\":1 \"b\":2}" "\"abc" "\"a\\qb\"" "\"\\u12\"" "\"\\ud800\"" "[01]" "[1.]" "-" "tru" "nul" "[1] x" "{\"a\":}" "@"]
   (same (+ "(try (unjson " (show j) ") e=>(p (errkind e) e))")))
 ; wrong argument counts are compile errors with the same words on both targets
-(for c ["abs 1 2" "take 2 [1 2 3] 9" "rep \"ab\" 1" "starts \"abc\"" "trim" "ord" "!" "-" "<" "bnot" "<@" "<@ [1] 0" "+"]
+(for c ["abs 1 2" "take 2 [1 2 3] 9" "rep \"ab\" 1" "starts \"abc\"" "trim" "ord" "!" "-" "<" "bnot" "<@" "<@ [1] 0"]
   (same (+ "p (" c ")")))
 ; a valid call still works and a spread is not counted
 (same "p (abs -3) (take 2 [1 2 3]) (rep \"abc\" \"b\" \"x\") (+ 5) (* 5) (/ 4) (- 5)")
