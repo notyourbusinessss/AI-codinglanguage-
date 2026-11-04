@@ -13,3 +13,8 @@ r=(ak "(chdir \"/\") (p (path.abs \"x\"))" "PWD=/tmp ")
 r=(ak "(p (== path.cwd() (cwd)))" "")
 (assert (== r.out "true\n") r.out)
 (sh "rm -rf /tmp/ak-pathcwd")
+; through a symlinked directory the physical path is returned, like the cwd builtin
+(sh "rm -rf /tmp/ak-pathcwd2 /tmp/ak-pathlink && mkdir /tmp/ak-pathcwd2 && ln -s /tmp/ak-pathcwd2 /tmp/ak-pathlink")
+r=(ak "(chdir \"/tmp/ak-pathlink\") (p path.cwd() (== path.cwd() (cwd)))" "PWD=/tmp/ak-pathlink ")
+(assert (== r.out "/tmp/ak-pathcwd2 true\n") r.out)
+(sh "rm -rf /tmp/ak-pathcwd2 /tmp/ak-pathlink")
