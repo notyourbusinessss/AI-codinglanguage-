@@ -16,16 +16,13 @@
 ; Not supported: HTTP/2, Upgrade (see lib/ws.aklang for WebSocket).
 (use "async.aklang" as a)
 (use "tls.aklang" as t)
+(use "url.aklang" as u)
+(= urldec u.urldec)                  ; shared with lib/http.aklang (lib/url.aklang)
+(= parsequery u.parsequery)
 (= (reason c)
   (sw c 100 "Continue" 200 "OK" 201 "Created" 202 "Accepted" 204 "No Content" 301 "Moved Permanently" 302 "Found" 303 "See Other" 304 "Not Modified" 307 "Temporary Redirect" 308 "Permanent Redirect"
         400 "Bad Request" 401 "Unauthorized" 403 "Forbidden" 404 "Not Found" 405 "Method Not Allowed" 408 "Request Timeout" 409 "Conflict" 411 "Length Required" 413 "Payload Too Large" 414 "URI Too Long"
         415 "Unsupported Media Type" 417 "Expectation Failed" 422 "Unprocessable Entity" 429 "Too Many Requests" 431 "Request Header Fields Too Large" 500 "Internal Server Error" 501 "Not Implemented" 503 "Service Unavailable" 505 "HTTP Version Not Supported" ""))
-(= (urldec s plus=false)                ; %XX escapes (and + as a space when plus) -> bytes
-  out=[] d=(bytes s) i=0
-  (wh i<#d
-    c=d[i] v=(? (&& c==37 i+2<#d) (num (++ "0x" s[i+1..i+3])) nil)
-    (? (isnum v) (: (push out v) i+=3) (: (push out (? (&& plus c==43) 32 c)) i+=1)))
-  (frombytes out))
 (= (dotseg s) (has ["." "%2e"] (lo s)))
 (= (dotseg2 s) (has [".." ".%2e" "%2e." "%2e%2e"] (lo s)))
 (= (segsof p)                           ; raw path -> decoded segments with the dot segments resolved, or nil when it holds an encoded NUL
@@ -37,9 +34,6 @@
              (push out (urldec s))))
         out)))
 (= (pathof segs) (++ "/" (join (~ s=>(rep s "/" "%2F") segs) "/")))
-(= (parsequery q)                       ; "a=1&b=x%20y&a=3" -> {"a" "3" "b" "x y"} (the last value of a repeated name wins)
-  m={} (for kv (split q "&") (? (!= kv "") (: j=(idx kv "=") m[(urldec (? j>=0 kv[..j] kv) true)]=(? j>=0 (urldec kv[j+1..] true) ""))))
-  m)
 (= (hostok h)                           ; Host value: uri-host [":" port] (RFC 9112 3.2): a name, IPv4 or [IPv6] address; no spaces, / ? # @ or commas; port 0-65535
   br=(starts h "[") i=(idx h (? br "]" ":"))
   nm=(? br (? i>0 h[1..i] "") (? i<0 h h[..i])) rs=(? br (? i>0 h[i+1..] "") (? i<0 "" h[i..]))
