@@ -1,0 +1,78 @@
+; lib/httpd streamed responses (#218): a handler returns :stream (\ (w) ..) and writes chunks as they become ready
+(use "../lib/http.aklang" as h)
+(use "lib/run.aklang" as t)
+base=(+ "/tmp/akhs-" ($ (now)) "-" ($ (rand 1000000000)))
+n=0
+(= (is name got want) (<- n n+1) (assert (== got want) (+ name ": got " (show got) " want " (show want))))
+(= (waitline f) (wh (|| (! (ex f)) (! (has (rd f) "\n"))) (sleep 50)) (split (trim (rd f)) "\n"))
+pid=(trim (sh (+ "bin/ak tests/lib/httpd_stream_srv.aklang >" base ".o 2>" base ".e & echo $!")))
+(= (finish) (sh (+ "kill " pid " 2>/dev/null; rm -rf " base "*")))
+; a raw request: everything the server sends until it closes or goes quiet for ms
+(= (raw p req ms)
+  c=(tcpc "127.0.0.1" p) (fdw c req) out="" d=nil
+  (wh (!= d "") d=(try (fdr c 65536 ms) e=>"") (? (== d nil) d="") out+=d (? (has out "\r\n0\r\n\r\n") d=""))
+  (fdc c) out)
+(= (count p) (unjson (h.get (+ "http://127.0.0.1:" p "/count")).body))
+r=(try (:
+  p=(num (waitline (+ base ".o"))[0])
+  u=(+ "http://127.0.0.1:" p)
+  ; five events 100 ms apart: the client sees the first long before the last is produced
+  evs=[] t0=(now)
+  rr=(h.sse (+ u "/events") nil nil (\ (e) (push evs [(- (now) t0) e.data])))
+  (is "events: status" rr.status 200)
+  (is "events: data" (~ x=>x[1] evs) ["0" "1" "2" "3" "4"])
+  (is "events: the first arrives early" (< evs[0][0] 250) true)
+  (is "events: the last arrives late" (> evs[4][0] 350) true)
+  ; framing on the wire
+  x=(raw p "GET /pieces HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n" 2000)
+  (is "chunked head" (has (lo x) "transfer-encoding: chunked") true)
+  (is "no content-length" (has (lo x) "content-length") false)
+  (is "chunks, empty writes skipped" (has x "\r\n1\r\na\r\n3\r\nbcd\r\n2\r\ncd\r\n2\r\nef\r\n0\r\n\r\n") true)
+  ; HTTP/1.0: no chunking, the body ends with the connection
+  x=(raw p "GET /pieces HTTP/1.0\r\n\r\n" 2000)
+  (is "1.0: no chunked" (has (lo x) "transfer-encoding") false)
+  (is "1.0: connection close" (has (lo x) "connection: close") true)
+  (is "1.0: body" (ends x "\r\n\r\nabcdcdef") true)
+  ; HEAD: the head only, the function is not run
+  c0=(count p)
+  x=(raw p "HEAD /events HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n" 1000)
+  (is "HEAD: head" (starts x "HTTP/1.1 200 OK") true)
+  (is "HEAD: no body" (ends x "\r\n\r\n") true)
+  (is "HEAD: the stream function did not run" (count p).started c0.started)
+  ; 204: no body and no chunking
+  x=(raw p "GET /204 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n" 1000)
+  (is "204: no framing headers" [(has (lo x) "transfer-encoding") (has (lo x) "content-length") (has x "never")] [false false false])
+  (is "204: the function did not run" (count p).started c0.started)
+  ; keep-alive: two streamed responses and an ordinary one on one connection
+  c=(tcpc "127.0.0.1" p) got=""
+  (for path ["/pieces" "/pieces" "/plain"]
+    (fdw c (+ "GET " path " HTTP/1.1\r\nHost: x\r\n\r\n"))
+    (wh (! (|| (has got "\r\n0\r\n\r\n") (has got "plain"))) got+=(fdr c 65536 2000))
+    (? (has got "plain") nil (: (is "keep-alive: one stream" (ends got "\r\n0\r\n\r\n") true) got="")))
+  (is "keep-alive: ordinary reply after streams" (has got "plain") true)
+  (fdc c)
+  ; handler mistakes are a 500 before anything of the stream is sent
+  (for [path want] [["/cl" "content-length"] ["/te" "transfer-encoding"] ["/both" ":body"] ["/notfn" "function"]]
+    x=(raw p (+ "GET " path " HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n") 1000)
+    (is (+ path ": 500") (starts x "HTTP/1.1 500") true)
+    (is (+ path ": nothing streamed") (has x "hello") false))
+  ; a stream that fails halfway leaves the body unterminated, so the client sees a truncated reply
+  e=(try (h.get (+ u "/boom")) x=>x)
+  (is "failed stream is a truncated body" (has e "truncated") true)
+  x=(raw p "GET /close HTTP/1.1\r\nHost: x\r\n\r\n" 1000)
+  (is "handler Connection: close is honoured" (has (lo x) "connection: close") true)
+  ; a client that goes away ends the handler: the write error stops it
+  c=(tcpc "127.0.0.1" p) (fdw c "GET /forever HTTP/1.1\r\nHost: x\r\n\r\n") (fdr c 65536 2000) (fdc c)
+  k=0 (wh (&& (< (count p).aborted 1) k<40) (sleep 100) k+=1)
+  (is "the handler stopped after the client left" (count p).aborted 1)
+  ; a large body is not held in memory: 200 MB through a raw reader, server memory stays small
+  c=(tcpc "127.0.0.1" p) (fdw c "GET /big?mb=200 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+  total=0 d=nil (wh (!= d "") d=(fdr c 1048576 20000) total+=(len d))
+  (fdc c)
+  (is "200 MB arrive" (> total 209715200) true)
+  rss=(num (h.get (+ u "/rss")).body)
+  (is "bounded memory" (< rss 150000) true)
+  true) e=>e)
+(finish)
+(assert (== r true) (+ "httpd_stream: " (show r)))
+(assert (> n 25) (+ "too few checks ran: " n))
