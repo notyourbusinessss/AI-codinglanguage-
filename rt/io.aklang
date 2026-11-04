@@ -23,10 +23,14 @@
   (? fd<0 (ioerr "cannot read" f fd))
   s=(readfd2 fd) ($syscall 3 fd)
   (? ($isnum s) (ioerr "cannot read" f s)) s)
+(= (wrdata s)                       ; what wr/app/wrx may write: a string, a u8 array or a list of integers 0..255
+  (? (isstr s) s (istyped s) s
+     (islist s) (: (for i #s b=(lget s i) (? (|| (! ($isnum b)) (! (isint b)) b<0 b>255) ($throwk 3 (strcat2 "expected string or byte list of 0..255, got element " (show b))))) (frombytes s))
+     ($throwk 3 (strcat2 "expected string, got " (ty s)))))
 (= (wrfile f s flags mode)
+  d=(wrdata s)
   fd=($syscall 2 ($addr (cstr f)) flags+524288 mode)
   (? fd<0 (ioerr "cannot write" f fd))
-  d=(? (islist s) (frombytes s) (istyped s) s (tostr s))
   e=(rawwrite fd d ($hlen d)) ($syscall 3 fd)
   (? e<0 (ioerr "cannot write" f e)) s)
 (= (wr f s) (wrfile f s 577 420))
