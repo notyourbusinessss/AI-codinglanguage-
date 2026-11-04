@@ -16,4 +16,4 @@ true false 5
 false linger takes seconds or false bad value for socket option rcvbuf unknown socket option: bogus
 1 true
 hello group
-nil cannot join 10.0.0.1
+nil cannot join 10.0.0.1 (invalid argument)
