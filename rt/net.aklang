@@ -249,7 +249,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
           (? r>0 (: k+=r end=(+ (now) ms))
              (: left=(- end (now)) (? left<=0 (netfail "write timed out")) (fdpoll [] [fd] left)))))))
 (= (unixc path)                         ; connect to a Unix-domain socket (a file path): the fd
-  (needstr path)
+  (needstr path) (nonul path "path")
   fd=($syscall 41 1 524289 0)
   (? fd<0 (neterr "socket failed" fd))
   sa=($newb 1 110 110) ($stb sa 0 1)
@@ -258,7 +258,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (? r<0 (: ($syscall 3 fd) (neterr (strcat2 "cannot connect to " path) r)))
   fd)
 (= (unixl path backlog=128)             ; listen on a Unix-domain socket (a file path that must not exist yet; remove it after use): the fd, to accept with tcpa
-  (needstr path) (needbacklog backlog)
+  (needstr path) (nonul path "path") (needbacklog backlog)
   (? (|| (== #path 0) (> #path 107)) (netfail (strcat2 "bad Unix socket path " path)))
   fd=($syscall 41 1 524289 0)
   (? fd<0 (neterr "socket failed" fd))
