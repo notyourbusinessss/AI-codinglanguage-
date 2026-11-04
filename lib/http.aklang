@@ -235,15 +235,15 @@
   (req "POST" url (form m) (? (any k=>(== (lo k) "content-type") (keys hh)) hh (set hh "Content-Type" "application/x-www-form-urlencoded")) opts))
 (= (linesplit f)                        ; an on-data function that calls f once per line (without its \n or \r\n); {:b ..} keeps the unfinished line
   st={:b ""}
-  {:on (\ (d)
+  {:feed (\ (d)
          st.b=(++ st.b d) k=(idx st.b "\n")
          (wh k>=0
            l=st.b[..k] st.b=st.b[k+1..]
            (f (? (ends l "\r") l[..-1] l))
            k=(idx st.b "\n")))
-   :end (\ () (? (> #st.b 0) (: l=st.b st.b="" (f (? (ends l "\r") l[..-1] l)))))})
+   :flush (\ () (? (> (len st.b) 0) (: l=st.b st.b="" (f (? (ends l "\r") l[..-1] l)))))})
 (= (eachline url headers opts f)        ; GET url and call f with every line of a 2xx body as it arrives (an unfinished last line when the body ends); the result is that of get, with an empty :body
   sp=(linesplit f)
-  rr=(get url headers (set (?? opts {}) "on-data" sp.on))
-  (sp.end) rr)
+  rr=(get url headers (set (?? opts {}) "on-data" sp.feed))
+  sp.flush() rr)
 (= (download url path opts=nil) (req "GET" url nil nil (set (?? opts {}) "to" path))) ; body of a 2xx reply -> file path, not held in memory; :size = bytes written

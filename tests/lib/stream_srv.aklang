@@ -35,7 +35,7 @@ l=(tcpl 0 "127.0.0.1")
        target=(split buf " ")[1] path=(? (starts target "http://") (: k=(idx target[7..] "/") (? k>=0 target[7+k..] "/")) target)
        (serve w path)
        (? cn (tl.close cn)))
-    e=>nil)
+    e=>(fdw 2 (++ "stream_srv: " e "\n")))
   (try (fdc c) e=>nil))
-(a.spawn (\ () (wh true (a.spawn handle (tcpa l)))))      ; one task per connection: a slow reply does not hold up the next request
+(a.spawn (\ () (wh true (a.wait l) (a.spawn handle (tcpa l)))))      ; one task per connection: a slow reply does not hold up the next request
 a.run()
