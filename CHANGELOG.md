@@ -10,6 +10,13 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
+## 0.7.71 (2026-10-30)
+
+### Fixed
+- `lib/httpd.aklang` reads and drops the trailer section after the last chunk (RFC 9112 7.1.2); before, a trailer field stayed in the buffer and was parsed as the next request on the connection (request smuggling). The trailer counts against `:maxhead` (431), and a trailer line without a colon is 400 (#212).
+- `lib/httpd.aklang` accepts the absolute-form request target (`GET http://host/path?q`: the authority replaces the Host header, an empty authority or userinfo is 400) and `OPTIONS *` (`req.path` is `*`, `s.router` matches it with a route pattern `*`); `GET *` and `GET foo` stay 400 (#213).
+- `lib/httpd.aklang` answers 400 for a NUL byte in the request head and 501 for a method that is not upper-case token text (`get`); custom upper-case methods still reach the handler (#214).
+
 ## 0.7.68 (2026-10-30)
 
 ### Fixed
