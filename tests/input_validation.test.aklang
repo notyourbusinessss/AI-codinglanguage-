@@ -65,7 +65,7 @@ r=(ev "(p \"x\") (exit 0)")
 r=(ev "(p \"x\") (exit 3)")
 (ck "exit 3 status" (&& (== r.code 3) (== r.out "x\n")) r)
 r=(ev "(p \"x\") (exit 300)")
-(ck "exit 300 status" (&& (== r.code 44) (== r.out "x\n")) r)
+(ck "exit 300 status" (&& (== r.code 1) (== r.out "x\n") (has r.err "exit: code must be 0 to 255")) r)
 ; sizes: each must raise within the timeout, and the program must go on
 r=(ev "(p 0 (try (: (rpt \"a\" 1e10) \"no error\") e=>\"caught\"))\n(p 1 (try (: (rpt \"a\" 1e300) \"no error\") e=>\"caught\"))\n(p 2 (try (: (rpt [1] 1e300) \"no error\") e=>\"caught\"))\n(p 3 (try (: (padl \"a\" 1e10) \"no error\") e=>\"caught\"))\n(p 4 (try (: (padr \"a\" 1e10) \"no error\") e=>\"caught\"))\n(p 5 (try (: (0..1e10) \"no error\") e=>\"caught\"))\n(p 6 (try (: (0..1e10 3) \"no error\") e=>\"caught\"))\n(p 7 (try (: (json [1 2 3] 1e300) \"no error\") e=>\"caught\"))\n(p \"alive\")")
 (ck "huge sizes raise" (== r.out "0 caught\n1 caught\n2 caught\n3 caught\n4 caught\n5 caught\n6 caught\n7 caught\nalive\n") r)

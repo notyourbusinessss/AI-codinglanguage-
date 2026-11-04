@@ -278,6 +278,7 @@ POSIX path helpers that give the same results as Node's `path.posix` (both targe
 (use "lib/path.aklang" as path)
 p path.join("a" "b/../c") path.norm("/a//b/./c/..") path.dir("/a/b.txt") path.base("/a/b.txt") path.base("/a/b.txt" ".txt")
 p path.ext("archive.tar.gz") path.ext(".bashrc") path.isabs("/x") path.rel("/a/b" "/a/c") path.abs("/x/./y/../z/")
+; path.cwd() asks the process (physical path, like the cwd builtin), so path.abs follows chdir and ignores a stale $PWD
 p path.join()
 ```
 ```output

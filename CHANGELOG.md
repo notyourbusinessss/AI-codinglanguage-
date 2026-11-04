@@ -10,6 +10,26 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
+## 0.7.87 (2026-11-04)
+
+### Fixed
+- `lib/path` takes the current directory from the process (`pwd -P`) instead of the `PWD` variable (#237): `path.cwd`, `path.abs` and `path.rel` are right after `chdir` and with a stale or caller-set `PWD`. Still works on both targets.
+
+## 0.7.86 (2026-11-04)
+
+### Fixed
+- `exit` rejects codes outside 0 to 255 (#231): `(exit 256)` used to report success and `(exit 300)` became 44. It now raises `exit: code must be 0 to 255` (also for -1 and 1e9); `(exit)`, `(exit nil)` and 0..255 are unchanged.
+
+## 0.7.85 (2026-11-04)
+
+### Fixed
+- A NUL byte in a path or a `run`/`sh` argument raises `path contains a NUL byte` (or `argument ...`) instead of silently cutting the name there (#236): `(rd "a\u{0}.txt")` no longer reads `a`. Covers every file builtin, `unixl`/`unixc`, `run` arguments, `:env` values and `sh`. Non-ASCII names are unchanged.
+
+## 0.7.84 (2026-11-04)
+
+### Fixed
+- `wr`, `app`, `wrx` and `sh` check their argument (#224): `(sh nil)` and `(sh ["echo"])` no longer run the text `nil` or a list, and `(wr f ["a" "b"])` no longer writes NUL bytes. Content must be a string, a `u8` array or a list of integers 0..255, the command a string; anything else raises `expected string, got T` before a file is opened or a shell started.
+
 ## 0.7.83 (2026-11-04)
 
 ### Changed

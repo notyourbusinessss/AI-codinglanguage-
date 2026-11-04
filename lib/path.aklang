@@ -17,7 +17,7 @@
 (= (join ..parts)                       ; join with /, then normalise; no part at all is "."
   ps=(~? s=>s!="" parts)
   (? #ps==0 "." (norm (cat ps))))
-(= (cwd) (?? (env "PWD") (trim (sh "pwd"))))
+(= (cwd) (trim (sh "pwd -P")))                ; asks the process (not $PWD, which chdir does not update); same on both targets
 (= (abs p)                              ; absolute and normalised, no trailing /
   r=(norm (? (isabs p) p (++ (cwd) "/" p)))
   (? (&& #r>1 (ends r "/")) r[..#r-1] r))
