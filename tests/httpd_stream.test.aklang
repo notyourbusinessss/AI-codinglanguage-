@@ -65,6 +65,15 @@ r=(try (:
   c=(tcpc "127.0.0.1" p) (fdw c "GET /forever HTTP/1.1\r\nHost: x\r\n\r\n") (fdr c 65536 2000) (fdc c)
   k=0 (wh (&& (< (count p).aborted 1) k<40) (sleep 100) k+=1)
   (is "the handler stopped after the client left" (count p).aborted 1)
+  ; a client that stops reading is dropped after :wms (2000 ms here) and does not block the others
+  a0=(count p).aborted
+  c=(tcpc "127.0.0.1" p) (fdw c "GET /stall HTTP/1.1\r\nHost: x\r\n\r\n")
+  t0=(now) (is "a slow reader does not block other requests" (h.get (+ u "/plain")).body "plain")
+  k=0 (wh (&& (== (count p).aborted a0) k<80) (sleep 100) k+=1)
+  (is "the stalled stream ended" (count p).aborted a0+1)
+  (is "...after about :wms" (&& (> (- (now) t0) 1500) (< (- (now) t0) 7000)) true)
+  (is "...with a write timeout" (h.get (+ u "/lasterr")).body "write timed out")
+  (fdc c)
   ; a large body is not held in memory: 200 MB through a raw reader, server memory stays small
   c=(tcpc "127.0.0.1" p) (fdw c "GET /big?mb=200 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
   total=0 d=nil (wh (!= d "") d=(fdr c 1048576 20000) total+=(len d))

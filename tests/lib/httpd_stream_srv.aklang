@@ -7,7 +7,12 @@ started=0 ended=0 aborted=0
   mb=(num (?? rq.query.mb "1")) piece=(rpt "x" 4194304)
   {:status 200 :headers {"Content-Type" "application/octet-stream"} :stream (\ (w) (for i (// mb 4) (w piece)))})
 (= (forever rq) {:status 200 :stream (\ (w) (try (wh true (w "tick\n") (a.sleep 30)) e=>(: (<- aborted aborted+1) (raise "io" e nil))))})
-h=(s.router [["GET" "/events" events]
+(= (stall rq) piece=(rpt "x" 1048576)
+  {:status 200 :stream (\ (w) (try (wh true (w piece)) e=>(: (<- aborted aborted+1) (<- lasterr e) (raise "io" e nil))))})
+lasterr=""
+h=(s.router [["GET" "/stall" stall]
+             ["GET" "/lasterr" (\ (rq) lasterr)]
+             ["GET" "/events" events]
              ["GET" "/big" big]
              ["GET" "/forever" forever]
              ["GET" "/plain" (\ (rq) "plain")]
