@@ -10,12 +10,15 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
-## 0.7.80 (2026-11-04)
+## 0.7.81 (2026-11-04)
 
 ### Changed
 - Socket errors say why (#216): `tcpl`, `unixl`, `unixc`, `udpl`, `tcpa`, `fdr`, `fdraw`, `fdw`, `udpto`, `udpfrom`, `sockopt`, `getsockopt`, `shutw`, `shutr`, `peer`, `sockname`, `mcastjoin` and `fdwait` append the reason in parentheses to their old message, for example `cannot listen on port 80 (address already in use)`, `read failed (connection reset by peer)`, `send failed (message too long)`. The old text stays as the prefix. `errtext` knows ten more errno values.
 - `tcpa fd ms` takes an optional timeout and returns nil when nobody connects within `ms` milliseconds (other async tasks keep running while it waits); `tcpl port host backlog` and `unixl path backlog` take a listen backlog from 1 to 65535 (default 128, else `invalid backlog: n`); `lib/httpd.aklang` passes its new `:backlog` option on (#223).
 - Non-ASCII host names are sent to DNS as Punycode (#217): `dns`, `dnsrr`, `tcpc` and every other host lookup convert `bücher.example` to `xn--bcher-kva.example` (new `idna` and `punyenc`, RFC 3492; labels are lower-cased, `。` `．` `｡` separate labels, invalid UTF-8 or a label over 63 bytes raises `bad host name`). `lib/http` sends the A-label in `Host`, `CONNECT` and SNI, `lib/tls` checks the certificate against it and `lib/pki` `host_match` accepts either spelling. ASCII names are unchanged.
+
+### Added
+- `lib/url.aklang` and `lib/http.aklang`: percent-encoding (#230). `h.urlenc` (RFC 3986 unreserved set, UTF-8 bytes as `%XX`), `h.urldec`, `h.qs` (query string from a map), `h.form` and `h.postform` (`application/x-www-form-urlencoded`). `lib/httpd.aklang` uses the same `urldec` and `parsequery`. A URL with a raw space or control byte raises `illegal character in the URL` instead of writing a broken request line; a redirect `Location` with one is encoded.
 
 ## 0.7.77 (2026-11-04)
 
