@@ -157,22 +157,27 @@
   ce=(lo (trim (?? hd["content-encoding"] "")))
   (? (&& opts.gzip (! to) (> #out 0) (has ["gzip" "x-gzip" "deflate"] ce))
      out=(? (== ce "deflate") (try (z.zlib out bs.max) e=>(z.inflate out bs.max)) (z.gunzip out bs.max)))
+  recv=(&& opts["on-data"] (! to) st>=200 st<300)     ; the body goes to opts["on-data"]: piece by piece as it arrives, or (gzip and deflate cannot be decoded halfway) once, decoded, at the end
+  (? (&& recv (! bs.streamed) (> #out 0)) (: (opts["on-data"] out) out=""))
   (? (&& (has [301 302 303 307 308] st) hd.location hops>=5) (netfail "too many redirects"))
   (? (&& (has [301 302 303 307 308] st) hd.location)
      (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)
         ; credentials stay with the host they were meant for
         hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))
         (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) next (? st>=307 body) hs opts hops+1))
-     (? to {:status st :headers hd :body "" :size bs.n} {:status st :headers hd :body out})))
-(= (sinkfor bs opts st)                 ; where the body goes once the status is known: the file opts.to for a 2xx reply, else bs.out
+     (? (|| to recv) {:status st :headers hd :body "" :size bs.n} {:status st :headers hd :body out})))
+(= (zipped opts hd) (&& opts.gzip (has ["gzip" "x-gzip" "deflate"] (lo (trim (?? hd["content-encoding"] ""))))))
+(= (sinkfor bs opts st hd)              ; where the body goes once the status is known: the file opts.to or the function opts["on-data"] for a 2xx reply, else bs.out (an encoded body is collected first and decoded in done)
   to=(? (&& opts.to st>=200 st<300) opts.to nil)
   (? to (wr to ""))
-  bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
+  f=(? (&& opts["on-data"] st>=200 st<300 (! to) (! (zipped opts hd))) opts["on-data"] nil)
+  bs.streamed=(!= f nil)
+  bs.sink=(? to d=>(app to d) f d=>(: (f d) nil) d=>(: bs.out=(++ bs.out d)))
   to)
 (= (h2req c method sec host port path auth h body headers opts hops)   ; the request over HTTP/2 on c (ALPN picked h2), then the common end
   bs={:n 0 :rest "" :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil :to nil}
   lh={} (for k (keys h) lh[(lo k)]=h[k])
-  hooks={:head (\ (st hd) bs.to=(sinkfor bs opts st)) :data (\ (d) (feed bs d))}
+  hooks={:head (\ (st hd) bs.to=(sinkfor bs opts st hd)) :data (\ (d) (feed bs d))}
   r=(try (x2.request c method (? sec "https" "http") auth path lh body hooks) e=>(: (try c.c() x=>nil) (netfail e)))
   c.c()
   st=r.status hd=r.headers cl=(? hd["content-length"] (clen hd["content-length"]) nil)
@@ -211,9 +216,7 @@
   cl=(? hd["content-length"] (clen hd["content-length"]) nil)
   (? (&& hd["content-length"] (== cl nil)) (: c.c() (netfail "bad Content-Length in the response")))
   bs={:n 0 :rest rest :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil}
-  to=(? (&& opts.to st>=200 st<300) opts.to nil)
-  (? to (wr to ""))
-  bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
+  to=(sinkfor bs opts st hd)
   (? (|| (== (up method) "HEAD") st==204 st==304 (&& st>=100 st<200)) nil        ; these replies have no body, whatever Content-Length says
      (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest bs)
      (!= cl nil) (readn c rest cl bs)
