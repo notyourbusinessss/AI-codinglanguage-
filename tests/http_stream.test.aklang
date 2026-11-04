@@ -56,6 +56,16 @@ r=(try (:
   e=(try (h.get (+ u "/chunked") nil {"on-data" (\ (d) (raise "io" "enough" nil))}) x=>x)
   (is "a callback that raises stops the request" e "enough")
   (is "an option that is not a function" (has (try (h.get (+ u "/chunked") nil {"on-data" 5}) x=>x) "on-data") true)
+  ; h.eachline: one call per line (\n or \r\n), also for the last line without one
+  got=[] t0=(now)
+  rr=(h.eachline (+ u "/chunked") nil nil (\ (l) (push got [(- (now) t0) l])))
+  (is "eachline: lines" (~ x=>x[1] got) ["one" "two" "tre"])
+  (is "eachline: the first line comes early" (< got[0][0] 350) true)
+  (is "eachline: the response" [rr.status rr.body] [200 ""])
+  got=[] rr=(h.eachline (+ u "/length") nil nil (\ (l) (push got l)))
+  (is "eachline: a last line without newline" got ["abcdefghijkl"])
+  got=[] rr=(h.eachline (+ u "/missing") nil nil (\ (l) (push got l)))
+  (is "eachline: an error reply is not streamed" [rr.status rr.body got] [404 "missing" []])
   ; https
   d=(+ base ".d/") (sh (+ "mkdir " d "; cd " d "; openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout ca.key -out ca.pem -subj /CN=ca -days 3 -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign 2>/dev/null; printf 'basicConstraints=CA:FALSE\nsubjectAltName=DNS:localhost\n' > ext; openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out s.key 2>/dev/null; openssl req -new -key s.key -subj /CN=s -out s.csr; openssl x509 -req -in s.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 3 -extfile ext -out s.pem 2>/dev/null"))
   roots=(~ x=>(k.cert_parse x) (k.pem_certs (rd (+ d "ca.pem"))))
