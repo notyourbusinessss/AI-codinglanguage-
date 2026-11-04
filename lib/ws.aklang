@@ -1,6 +1,6 @@
 ; WebSocket (RFC 6455) client and server (native only), over any stream {:r n=>bytes ("" at the end) :w s=>nil :c ()=>nil}: a TCP/Unix socket, TLS (wss://) or your own.
 ;   (use "lib/ws.aklang" as w)
-;   client:  ws=(w.connect "ws://host:port/path" opts)      wss:// goes through lib/tls.aklang; opts (map): :protocols ["chat"] :headers {"Origin" ".."} :maxsize :roots :ms :rms
+;   client:  ws=(w.connect "ws://host:port/path" opts)      wss:// goes through lib/tls.aklang; opts (map): :protocols ["chat"] :headers {"Origin" ".."} :maxsize :roots :ms :rms :total (connect + handshake, ms)
 ;   server:  ws=(w.accept (w.fdstream fd) opts)             reads the upgrade request from an accepted socket and answers it; nil (after a 400/426) when it is not a valid upgrade; opts: :protocols [..] (the first one the client offers wins) :maxsize
 ;   (w.send ws text)  (w.sendb ws bytes)  (w.ping ws data)  (w.recv ws)  (w.close ws code reason)
 ;   (w.recv ws) -> the next message as a string (ws.bin tells whether it was a binary message), or nil once the peer has closed; ping is answered with pong, pong is ignored, fragments are joined.
@@ -107,10 +107,12 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   ws.protocol=p ws)
 (= (connect url opts=nil)
   opts=(?? opts {}) sch=(lo (?? (fst (split url "://")) ""))
+  (? opts.total (: (needms opts.total) opts=(set opts "deadline" (+ (now) opts.total))))     ; :total = the connect and the handshake together, in ms
   (? (! (has ["ws" "wss"] sch)) (raise "io" (++ "websocket: unsupported URL: " url) nil))
   [sec host port path user]=(h.parseurl (++ "http" url[2..]))
   s=(h.dial sec host port (set opts "rms" (?? opts.rms 60000)))
-  (try (client s (? port==(? sec 443 80) (h.hostpart host) (++ (h.hostpart host) ":" port)) path opts) e=>(: (try s.c() x=>nil) (raise "io" e nil))))
+  ws=(try (client s (? port==(? sec 443 80) (h.hostpart host) (++ (h.hostpart host) ":" port)) path opts) e=>(: (try s.c() x=>nil) (raise "io" e nil)))
+  (s.sd nil) ws)
 (= (reply s code text extra)
   (s.w (++ "HTTP/1.1 " code " " text "\r\n" extra "Content-Length: 0\r\nConnection: close\r\n\r\n")))
 (= (accept s opts=nil)
