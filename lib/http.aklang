@@ -225,4 +225,7 @@
   (done method sec host port path st hd out bs to body headers opts hops))))
 (= (get url headers=nil opts=nil) (req "GET" url nil headers opts))
 (= (post url body headers=nil opts=nil) (req "POST" url body headers opts))
+(= (postform url m headers=nil opts=nil)    ; POST m (a map) as application/x-www-form-urlencoded (see h.form); headers may add to or override Content-Type
+  hh=(?? headers {})
+  (req "POST" url (form m) (? (any k=>(== (lo k) "content-type") (keys hh)) hh (set hh "Content-Type" "application/x-www-form-urlencoded")) opts))
 (= (download url path opts=nil) (req "GET" url nil nil (set (?? opts {}) "to" path))) ; body of a 2xx reply -> file path, not held in memory; :size = bytes written
