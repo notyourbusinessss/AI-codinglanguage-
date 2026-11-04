@@ -10,6 +10,11 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
+## 0.7.78 (2026-11-04)
+
+### Changed
+- Socket errors say why (#216): `tcpl`, `unixl`, `unixc`, `udpl`, `tcpa`, `fdr`, `fdraw`, `fdw`, `udpto`, `udpfrom`, `sockopt`, `getsockopt`, `shutw`, `shutr`, `peer`, `sockname`, `mcastjoin` and `fdwait` append the reason in parentheses to their old message, for example `cannot listen on port 80 (address already in use)`, `read failed (connection reset by peer)`, `send failed (message too long)`. The old text stays as the prefix. `errtext` knows ten more errno values.
+
 ## 0.7.77 (2026-11-04)
 
 ### Fixed
