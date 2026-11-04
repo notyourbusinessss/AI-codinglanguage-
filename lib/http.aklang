@@ -5,6 +5,7 @@
 ; An error (kind "io") is raised for unresolvable hosts, refused connections, certificate or handshake failures and truncated replies.
 ;   (h.download url path)  streams a 2xx body into the file path ({:status .. :size n}); other statuses keep their body in :body
 ; Request, header and URL text with CR, LF or NUL is refused (no request injection). A body over :max bytes (default 64 MiB, 1 TiB with download) or a head over 1 MiB raises.
+; Host names: a URL with non-ASCII letters in the host ("http://bücher.example/") is sent as its IDNA form (xn--bcher-kva.example) in DNS, the Host header, CONNECT and TLS SNI; certificates are matched in that form.
 ; Proxies: HTTP_PROXY / HTTPS_PROXY (and lower case) are used unless NO_PROXY lists the host (names, .suffix, *) or it is loopback; opts :proxy "http://[user:pass@]host:port" forces one, :proxy false none. https goes through CONNECT; the proxy itself may be http:// or https:// (TLS to the proxy, verified like any server).
 ; Compression: {:gzip true} sends Accept-Encoding: gzip, deflate and decodes gzip / deflate bodies (lib/inflate.aklang; :max also limits the decoded size). Not applied to h.download.
 ; Interim 1xx replies (100 Continue, 103 Early Hints; up to 8) are skipped and the final reply is returned; 101 is final.
