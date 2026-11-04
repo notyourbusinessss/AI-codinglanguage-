@@ -93,22 +93,22 @@
   fd)
 (= (tcpp fd)                            ; local port of a socket
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
-  (? (< ($syscall 51 fd ($addr sa) ($addr ln)) 0) (netfail "getsockname failed"))
+  r=($syscall 51 fd ($addr sa) ($addr ln)) (? r<0 (neterr "getsockname failed" r))
   (+ (* 256 ($ldb sa 2)) ($ldb sa 3)))
 (= (tcpa fd)                            ; accept one connection (blocks)
   r=-4 (wh r==-4 r=($syscall 288 fd 0 0 524288))   ; accept4 with SOCK_CLOEXEC: sh children do not inherit the connection
   (? r<0 (neterr "accept failed" r)) r)
 (= (sockend call fd what)               ; getsockname (51) / getpeername (52) -> {:ip "127.0.0.1" :port 80}, or {:ip "::1" ..}; a Unix socket gives {:ip nil :port 0}
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
-  (? (< ($syscall call fd ($addr sa) ($addr ln)) 0) (netfail (strcat2 what " failed")))
+  r=($syscall call fd ($addr sa) ($addr ln)) (? r<0 (neterr (strcat2 what " failed") r))
   f=($ldb sa 0) port=(+ (* 256 ($ldb sa 2)) ($ldb sa 3))
   (? (== f 2) {:ip (join (~ i=>(tostr ($ldb sa 4+i)) 0..4) ".") :port port}
      (== f 10) {:ip (ip6fmt (~ i=>($ldb sa 8+i) 0..16)) :port port}
      {:ip nil :port 0}))
 (= (sockname fd) (sockend 51 fd "getsockname"))   ; the local address of a socket: {:ip :port}
 (= (peer fd) (sockend 52 fd "getpeername"))       ; the remote address of a connected socket (an accepted or connected TCP fd): {:ip :port}
-(= (shutw fd) (? (< ($syscall 48 fd 1) 0) (netfail "shutdown failed")) nil)    ; half-close: no more writing, the peer reads end-of-file and can still answer
-(= (shutr fd) (? (< ($syscall 48 fd 0) 0) (netfail "shutdown failed")) nil)
+(= (shutw fd) r=($syscall 48 fd 1) (? r<0 (neterr "shutdown failed" r)) nil)    ; half-close: no more writing, the peer reads end-of-file and can still answer
+(= (shutr fd) r=($syscall 48 fd 0) (? r<0 (neterr "shutdown failed" r)) nil)
 (= (sonat x) (&& ($isnum x) (isint x) (>= x 0)))   ; a whole number >= 0 (isint alone accepts true)
 (= (soi32 v) b=($newb 1 4 4) (for k 4 ($stb b k (% v 256)) v=(// v 256)) b)
 (= (sold32 b o) (+ ($ldb b o) (* 256 ($ldb b o+1)) (* 65536 ($ldb b o+2)) (* 16777216 ($ldb b o+3))))
@@ -123,29 +123,29 @@
      (: (? (&& (!= on false) (! (sonat on))) (netfail "linger takes seconds or false"))
         b=($newb 1 8 8) ($stb b 0 (? (== on false) 0 1))
         x=(soi32 (? (== on false) 0 on)) (for k 4 ($stb b 4+k ($ldb x k)))
-        (? (< ($syscall 54 fd 1 13 ($addr b) 8) 0) (netfail "cannot set linger")))
+        r=($syscall 54 fd 1 13 ($addr b) 8) (? r<0 (neterr "cannot set linger" r)))
      (== name "mcastif")
      (: a=(? (isstr on) (dotted on) nil)
         (? (&& (isstr on) ($isnil a)) (netfail "mcastif takes an IPv4 address"))
         (? (&& (! (isstr on)) (|| (! (sonat on)) fam!=10)) (netfail "mcastif takes an IPv4 address or, on an IPv6 socket, an interface index"))
         v=(? a (frombytes a) (soi32 on))
-        (? (< ($syscall 54 fd (? a 0 41) (? a 32 17) ($addr v) 4) 0) (netfail "cannot set mcastif")))
+        r=($syscall 54 fd (? a 0 41) (? a 32 17) ($addr v) 4) (? r<0 (neterr "cannot set mcastif" r)))
      (: o=(sockopts name fam)
         (? ($isnil o) (netfail (strcat2 "unknown socket option: " (tostr name))))
         n=(? (== on true) 1 (== on false) 0 on)
         (? (! (sonat n)) (netfail (strcat2 "bad value for socket option " name)))
         v=(soi32 n)
-        (? (< ($syscall 54 fd o[0] o[1] ($addr v) 4) 0) (netfail (strcat2 "cannot set " name)))
+        r=($syscall 54 fd o[0] o[1] ($addr v) 4) (? r<0 (neterr (strcat2 "cannot set " name) r))
         (? (&& fam==10 (starts name "mcast")) ($syscall 54 fd 0 (? (== name "mcastttl") 33 34) ($addr v) 4))))      ; a dual-stack socket sends IPv4 multicast too
   nil)
 (= (getsockopt fd name)                 ; read an option back: flags as true/false, integers as numbers, "linger" as seconds or false
   (needfd fd) fam=(sofam fd) b=($newb 1 8 8) ln=(soi32 8)
   (? (== name "linger")
-     (: (? (< ($syscall 55 fd 1 13 ($addr b) ($addr ln)) 0) (netfail "cannot read linger"))
+     (: r=($syscall 55 fd 1 13 ($addr b) ($addr ln)) (? r<0 (neterr "cannot read linger" r))
         (? (== (sold32 b 0) 0) false (sold32 b 4)))
      (: o=(sockopts name fam)
         (? ($isnil o) (netfail (strcat2 "unknown socket option: " (tostr name))))
-        (? (< ($syscall 55 fd o[0] o[1] ($addr b) ($addr ln)) 0) (netfail (strcat2 "cannot read " name)))
+        r=($syscall 55 fd o[0] o[1] ($addr b) ($addr ln)) (? r<0 (neterr (strcat2 "cannot read " name) r))
         v=(sold32 b 0) (? (== o[2] "b") (!= v 0) v))))
 (= (mcast fd group iface join)
   (needfd fd) g=(? (isstr group) (?? (dotted group) (ip6 group)) nil)
@@ -158,7 +158,7 @@
      (: (? (&& iface (! (sonat iface))) (netfail "the interface of an IPv6 group is an interface index"))
         b=($newb 1 20 20) (for i 16 ($stb b i g[i])) x=(soi32 (?? iface 0)) (for k 4 ($stb b 16+k ($ldb x k)))
         r=($syscall 54 fd 41 (? join 20 21) ($addr b) 20)))
-  (? r<0 (netfail (strcat2 (? join "cannot join " "cannot leave ") group)))
+  (? r<0 (neterr (strcat2 (? join "cannot join " "cannot leave ") group) r))
   nil)
 (= (mcastjoin fd group iface=nil) (mcast fd group iface true))   ; join a multicast group (an IPv4 or IPv6 address string) on a UDP socket; iface: a local IPv4 address (IPv4) or an interface index (IPv6), default: the system picks
 (= (mcastleave fd group iface=nil) (mcast fd group iface false))
@@ -181,7 +181,7 @@ NETHOOK=nil                             ; set by lib/async.aklang while its task
 (= (errwhy e) (? e==111 "refused" e==113 "no route" e==101 "network unreachable" e==110 "timed out" "failed"))
 (= (tryconn ip port ms)                 ; one connect attempt: the fd, or a reason string
   fd=($syscall 41 (sockfam ip) (? (|| ms NETHOOK) 526337 524289) 0)    ; SOCK_STREAM | SOCK_CLOEXEC (| SOCK_NONBLOCK when there is a timeout or inside an async task)
-  (? fd<0 (? (== #ip 16) "no IPv6 support" (netfail "socket failed")) (tryconn2 fd ip port ms)))
+  (? fd<0 (? (== #ip 16) "no IPv6 support" (neterr "socket failed" fd)) (tryconn2 fd ip port ms)))
 (= (tryconn2 fd ip port ms)
   sa=(sockaddr ip port)
   r=($syscall 42 fd ($addr sa) (socklen ip))
@@ -268,7 +268,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (needlist fds) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) n=#fds b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// fds[i] (** 256 k)) 256))) ($stb b 8*i+4 1))
   r=($syscall 7 ($addr b) n (?? ms -1))
-  (? r<0 (? r==-4 [] (netfail "poll failed"))
+  (? r<0 (? r==-4 [] (neterr "poll failed" r))
      (: out=[] (for i n (? (== (% (// ($ldb b 8*i+6) 32) 2) 1) (netfail (strcat2 "fdwait: bad file descriptor " (tostr fds[i])))) (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out fds[i]))) out)))
 (= (fdwp fd s off n)                    ; write without blocking: the bytes taken (0 when the buffer is full), at most n of s from byte offset off
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) (needfd fd) (flush)
@@ -279,13 +279,13 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (needlist rd) (needlist wr) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) nr=#rd n=nr+#wr b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// (? i<nr rd[i] wr[i-nr]) (** 256 k)) 256))) ($stb b 8*i+4 (? i<nr 1 4)))
   r=($syscall 7 ($addr b) n (?? ms -1))
-  (? r<0 (? r==-4 [[] []] (netfail "poll failed"))
+  (? r<0 (? r==-4 [[] []] (neterr "poll failed" r))
      (: out=[[] []] (for i n (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out[(? i<nr 0 1)] (? i<nr rd[i] wr[i-nr])))) out)))
 
 ; ---- UDP and DNS ----
 (= (udp)                                ; a UDP socket: dual-stack IPv6 (IPv4 destinations are sent as ::ffff:a.b.c.d) where the machine has IPv6, else IPv4
   fd=($syscall 41 10 524290 0)
-  (? fd<0 (: fd=($syscall 41 2 524290 0) (? fd<0 (netfail "socket failed")))
+  (? fd<0 (: fd=($syscall 41 2 524290 0) (? fd<0 (neterr "socket failed" fd)))
      (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))
   fd)
 (= (sockdom fd)                         ; 2 (AF_INET) or 10 (AF_INET6): the family of a socket

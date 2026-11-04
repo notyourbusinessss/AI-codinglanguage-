@@ -9,7 +9,7 @@ s=(tcpa l)
 (is "peer of the client is the server" (peer c) {:ip "127.0.0.1" :port port})
 (is "accepted peer is the client's own address" (peer s) (sockname c))
 (is "client port is not the server's" (!= (sockname c).port port) true)
-(is "peer of an unconnected listener raises" (try (: (peer l) "no error") e=>e) "getpeername failed")
+(is "peer of an unconnected listener raises" (try (: (peer l) "no error") e=>e) "getpeername failed (not connected)")
 (sockopt c "nodelay") (sockopt c "keepalive" true) (sockopt c "keepalive" false) (sockopt s "reuseaddr" 1)
 (is "unknown option" (try (: (sockopt c "nope") "no error") e=>e) "unknown socket option: nope")
 ; half-close: the client says "hi", shuts its write side, and still reads the answer
