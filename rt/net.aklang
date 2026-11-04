@@ -347,6 +347,49 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
        (: (push out (strslice r i+1 i+1+c)) i+=c+1))
     c=($ldb r i))
   (join out "."))
+(= (cpgood cp k)                        ; is cp a code point that a UTF-8 sequence of k bytes may encode (no overlong form, surrogate or value above U+10FFFF)?
+  (&& (>= cp (sw k 2 128 3 2048 4 65536 0)) cp<=1114111 (! (&& cp>=55296 cp<=57343))))
+(= (u8cps s)                            ; the code points of a UTF-8 string, or nil if it is not valid UTF-8
+  b=(bytes s) i=0 n=#b out=[] ok=true
+  (wh (&& ok i<n)
+    c=b[i] k=(? c<128 1 (&& c>=192 c<224) 2 (&& c>=224 c<240) 3 (&& c>=240 c<248) 4 0)
+    (? (|| k==0 i+k>n) ok=false
+       (: cp=(? k==1 c (- c (sw k 2 192 3 224 240))) j=1
+          (wh (&& ok j<k) d=b[i+j] (? (== (// d 64) 2) cp=(+ (* cp 64) (- d 128)) ok=false) j+=1)
+          (? (&& ok (cpgood cp k)) (push out cp) ok=false) i+=k)))
+  (? ok out nil))
+(= (pdigit d) (chr (? d<26 (+ 97 d) (+ 22 d))))      ; 0-25 "a"-"z", 26-35 "0"-"9"
+(= (padapt delta np first)              ; RFC 3492 section 6.1 bias adaptation
+  delta=(? first (// delta 700) (// delta 2)) delta+=(// delta np) k=0
+  (wh delta>455 delta=(// delta 35) k+=36)
+  (+ k (// (* 36 delta) (+ delta 38))))
+(= (punycps cps)                        ; RFC 3492 encoder (section 6.3) for a list of code points
+  n=128 delta=0 bias=72 out="" h=0 total=#cps
+  (for c cps (? c<128 (: out=(++ out (chr c)) h+=1)))
+  b=h (? b>0 out=(++ out "-"))
+  (wh h<total
+    m=2147483647 (for c cps (? (&& c>=n c<m) m=c))
+    delta+=(* (- m n) (+ h 1)) n=m
+    (for c cps
+      (? c<n delta+=1)
+      (? (== c n)
+         (: q=delta k=36 more=true
+            (wh more
+              t=(? k<=bias 1 k>=bias+26 26 (- k bias))
+              (? q<t more=false (: out=(++ out (pdigit (+ t (% (- q t) (- 36 t))))) q=(// (- q t) (- 36 t)) k+=36)))
+            out=(++ out (pdigit q)) bias=(padapt delta (+ h 1) (== h b)) delta=0 h+=1)))
+    delta+=1 n+=1)
+  out)
+(= (punyenc s)                          ; Punycode (RFC 3492) of a UTF-8 string, without the "xn--" prefix: "bücher" -> "bcher-kva"
+  cps=(u8cps s) (? ($isnil cps) (netfail "bad host name")) (punycps cps))
+(= (idnalabel l)                        ; one label: all-ASCII stays as it is; any other is lower-cased and becomes "xn--" + punycode
+  (? (all (\ (c) c<128) (bytes l)) l (++ "xn--" (punyenc (lo l)))))
+(= (idna name)                          ; the ASCII (A-label) form of a host name for DNS, SNI and the Host header: "bücher.example" -> "xn--bcher-kva.example"; U+3002, U+FF0E and U+FF61 separate labels; "bad host name" for invalid UTF-8, a label over 63 bytes or a name over 253 once encoded
+  (? (all (\ (c) c<128) (bytes name)) name
+     (: nm=(rep (rep (rep name "。" ".") "．" ".") "｡" ".")
+        r=(join (~ idnalabel (split nm ".")) ".")
+        (? (|| (any (\ (l) #l>63) (split r ".")) #r>254) (netfail "bad host name"))
+        r)))
 (= (dnspk name qtype)                   ; [id packet] asking for the records of type qtype (1 = A, 28 = AAAA, 2 NS, 5 CNAME, 12 PTR, 15 MX, 16 TXT, 33 SRV)
   q=(randbytes 2) pk=[..q 1 0 0 1 0 0 0 0 0 0]
   nm=(? (ends name ".") name[..-1] name)     ; one trailing dot is fine; empty labels, labels over 63 and names over 253 bytes, spaces, NUL and control bytes are not

@@ -16,10 +16,11 @@
                ["xn--bcher-kva.example" "xn--bcher-kva.example"]]
   got=(idna s)
   (assert (== got want) (+ "idna " (show s) ": " (show got))))
-(raises (\ () (idna (+ (rpt "ü" 40) ".example"))) "bad host name")      ; the label is over 63 bytes once encoded
-(raises (\ () (idna (+ "a" (chr 55357)))) "bad host name")
+(raises (\ () (idna (+ (rpt "日本語" 30) ".example"))) "bad host name")      ; the label is over 63 bytes once encoded
+(raises (\ () (idna (frombytes [98 237 160 128 46 120]))) "bad host name")      ; a UTF-16 surrogate
+(raises (\ () (idna (frombytes [98 192 128 46 120]))) "bad host name")      ; an overlong form
 (raises (\ () (idna (frombytes [98 195 40 46 120]))) "bad host name")      ; not UTF-8
-(raises (\ () (idna (+ (rpt "ü" 20) "." (rpt "ü" 20) "." (rpt "ü" 20) "." (rpt "ü" 20) "." (rpt "ü" 20)))) "bad host name")
+(raises (\ () (idna (join (rpt [(rpt "ü" 20)] 11) "."))) "bad host name")      ; over 253 bytes in all
 ; the query: a name server that never answers keeps the packet for us to read
 u=(udpl 0 "127.0.0.1")
 conf=(+ t.tmpname() ".conf")
