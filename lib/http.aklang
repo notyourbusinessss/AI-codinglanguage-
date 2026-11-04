@@ -246,4 +246,17 @@
   sp=(linesplit f)
   rr=(get url headers (set (?? opts {}) "on-data" sp.feed))
   sp.flush() rr)
+(= (ssefield ev l)                      ; one non-blank line of an event stream into the event under construction
+  k=(idx l ":") name=(? k>=0 l[..k] l) v=(? k>=0 (? (starts l[k+1..] " ") l[k+2..] l[k+1..]) "")
+  (sw name "data" ev.data=(? ev.data==nil v (++ ev.data "\n" v)) "event" ev.event=v "id" ev.id=v
+            "retry" (? (all (\ (c) (&& c>=48 c<=57)) (bytes v)) ev.retry=(num v)) nil))
+(= (sse url headers opts f)             ; GET url as an event stream and call f with each event {:event "message" :data "a\nb" :id nil :retry nil} as it arrives (server-sent events: a blank line ends an event, ":" lines are comments, an event without data lines is dropped, an unfinished event at the end of the stream is dropped); returns what get returns
+  ev={:event nil :data nil :id nil :retry nil}
+  sp=(linesplit (\ (l)
+    (? (== l "")
+       (: (? ev.data!=nil (f {:event (?? ev.event "message") :data ev.data :id ev.id :retry ev.retry}))
+          ev.event=nil ev.data=nil ev.id=nil ev.retry=nil)
+       (starts l ":") nil
+       (ssefield ev l))))
+  (get url (set (?? headers {}) "Accept" "text/event-stream") (set (?? opts {}) "on-data" sp.feed)))
 (= (download url path opts=nil) (req "GET" url nil nil (set (?? opts {}) "to" path))) ; body of a 2xx reply -> file path, not held in memory; :size = bytes written
