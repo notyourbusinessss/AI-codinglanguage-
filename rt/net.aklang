@@ -97,7 +97,7 @@
   (+ (* 256 ($ldb sa 2)) ($ldb sa 3)))
 (= (tcpa fd)                            ; accept one connection (blocks)
   r=-4 (wh r==-4 r=($syscall 288 fd 0 0 524288))   ; accept4 with SOCK_CLOEXEC: sh children do not inherit the connection
-  (? r<0 (netfail "accept failed")) r)
+  (? r<0 (neterr "accept failed" r)) r)
 (= (sockend call fd what)               ; getsockname (51) / getpeername (52) -> {:ip "127.0.0.1" :port 80}, or {:ip "::1" ..}; a Unix socket gives {:ip nil :port 0}
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
   (? (< ($syscall call fd ($addr sa) ($addr ln)) 0) (netfail (strcat2 what " failed")))
@@ -203,7 +203,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (needms ms) (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 0 fd ($addr b) n))
-        (? r<0 (netfail "read failed") (strslice b 0 r)))))
+        (? r<0 (neterr "read failed" r) (strslice b 0 r)))))
 (= (fdr fd n=nil ms=nil)                    ; read up to n (default 65536) bytes; "" at end of stream; with ms: nil if nothing arrives within ms milliseconds
   n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   b0=(lget fd)
@@ -234,7 +234,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (wh k<n
     r=($syscall 44 fd ($addr d)+off+k n-k 16384 0 0)
     (? r==-88 r=($syscall 1 fd ($addr d)+off+k n-k))
-    (? r==-4 nil r<0 (netfail "write failed") k+=r))
+    (? r==-4 nil r<0 (neterr "write failed" r) k+=r))
   nil)
 (= (fdw fd s ms=nil)                    ; write everything (string, byte list or u8 array); with ms: raises "write timed out" if the peer takes nothing for ms milliseconds
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) n=($hlen d)
@@ -274,7 +274,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) (needfd fd) (flush)
   r=($syscall 44 fd ($addr d)+off n 16448 0 0)                  ; MSG_NOSIGNAL | MSG_DONTWAIT
   (? r==-88 r=($syscall 1 fd ($addr d)+off (min n 4096)))      ; not a socket (a pipe): after fdpoll said writable, PIPE_BUF bytes fit
-  (? r==-11 0 r==-4 0 r<0 (netfail "write failed") r))
+  (? r==-11 0 r==-4 0 r<0 (neterr "write failed" r) r))
 (= (fdpoll rd wr ms=nil)                ; wait for readable fds in rd and writable fds in wr: [readable writable] (ms<0: forever); a hung up or failed fd counts as ready
   (needlist rd) (needlist wr) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) nr=#rd n=nr+#wr b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// (? i<nr rd[i] wr[i-nr]) (** 256 k)) 256))) ($stb b 8*i+4 (? i<nr 1 4)))
@@ -302,13 +302,13 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (? (|| (! (islist ip)) (&& (!= #ip 4) (!= #ip 16)) (! (all (\ (v) (&& ($isnum v) (isint v) v>=0 v<=255)) ip))) (netfail "udpto needs an address like 127.0.0.1 or ::1, or a host name"))
   (needport port 1) d=(? (islist s) (frombytes s) (tostr s)) [sa n]=(udpaddr fd ip port)
   r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) n)
-  (? r<0 (netfail "send failed")) nil)
+  (? r<0 (neterr "send failed" r)) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
   n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
-        (? r<0 (netfail "receive failed") (strslice b 0 r)))))
+        (? r<0 (neterr "receive failed" r) (strslice b 0 r)))))
 (= (udpl port host="0.0.0.0")           ; a UDP socket bound to host:port (port 0 picks a free one; see tcpp), to serve with udpfrom2 and udpto; an IPv6 host ("::1", "::" for both families) makes an IPv6 socket
   (needport (?? port 0) 0) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
@@ -324,7 +324,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 ($addr sa) ($addr ln)))
-        (? r<0 (netfail "receive failed")
+        (? r<0 (neterr "receive failed" r)
            (: v6=(~ i=>($ldb sa 8+i) 0..16)
               ip=(? (!= ($ldb sa 0) 10) [($ldb sa 4) ($ldb sa 5) ($ldb sa 6) ($ldb sa 7)]
                     (&& (all (\ (x) (== x 0)) v6[..10]) (== v6[10] 255) (== v6[11] 255)) v6[12..]

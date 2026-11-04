@@ -1,9 +1,9 @@
 ; socket errors say why (#216): the old text stays as the prefix, the reason follows in parentheses
-(= (msg f) (try (: (f) "no error") e=>e))
-(= (io f want)
-  m=(msg f)
-  (assert (has m want) (+ "wanted " (show want) ", got " (show m)))
-  (assert (== (try (f) e=>(errkind e)) "io") (+ want ": kind")))
+(= (io f want)                          ; runs f once: the message has the wanted text and the error kind is io
+  r=(try (: (f) nil) e=>[e (errkind e)])
+  (assert (islist r) (+ want ": no error"))
+  (assert (has r[0] want) (+ "wanted " (show want) ", got " (show r[0])))
+  (assert (== r[1] "io") (+ want ": kind")))
 l=(tcpl 0 "127.0.0.1") q=(tcpp l)
 (io (\ () (tcpl q "127.0.0.1")) (+ "cannot listen on port " ($ q) " (address already in use)"))
 (io (\ () (tcpl 0 "10.255.255.1")) "cannot listen on port 0 (cannot assign requested address)")
