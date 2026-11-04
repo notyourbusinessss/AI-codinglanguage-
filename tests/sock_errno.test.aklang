@@ -1,0 +1,26 @@
+; socket errors say why (#216): the old text stays as the prefix, the reason follows in parentheses
+(= (msg f) (try (: (f) "no error") e=>e))
+(= (io f want)
+  m=(msg f)
+  (assert (has m want) (+ "wanted " (show want) ", got " (show m)))
+  (assert (== (try (f) e=>(errkind e)) "io") (+ want ": kind")))
+l=(tcpl 0 "127.0.0.1") q=(tcpp l)
+(io (\ () (tcpl q "127.0.0.1")) (+ "cannot listen on port " ($ q) " (address already in use)"))
+(io (\ () (tcpl 0 "10.255.255.1")) "cannot listen on port 0 (cannot assign requested address)")
+(io (\ () (udpl q "10.255.255.1")) "cannot bind UDP port ")
+(io (\ () (udpl q "10.255.255.1")) "(cannot assign requested address)")
+(sh "rm -f /tmp/aktest-sockerr.sock")
+u=(unixl "/tmp/aktest-sockerr.sock")
+(io (\ () (unixl "/tmp/aktest-sockerr.sock")) "cannot listen on /tmp/aktest-sockerr.sock (address already in use)")
+(io (\ () (unixc "/tmp/aktest-sockerr-missing.sock")) "cannot connect to /tmp/aktest-sockerr-missing.sock (no such file or directory)")
+(fdc u) (sh "rm -f /tmp/aktest-sockerr.sock")
+; a reset connection is told apart from a clean close
+c=(tcpc "127.0.0.1" q) s=(tcpa l)
+(sockopt c "linger" 0) (fdc c) (sleep 50)
+(io (\ () (fdr s)) "read failed (connection reset by peer)")
+(fdc s)
+; a datagram over 64 KB
+(io (\ () (udpto (udp) "127.0.0.1" 9 (rpt "a" 70000))) "send failed (message too long)")
+; a bad descriptor
+(io (\ () (sockopt 99 "nodelay")) "(bad file descriptor)")
+(fdc l)
