@@ -103,11 +103,13 @@
                  (wh (&& (! err) #buf<n) b=(more c buf) (? (== b nil) err=[400 "truncated body"] buf=b))
                  (? err err [buf[..n] buf[n..]]))))
      ["" buf]))
-(= (response code headers body head)    ; the bytes of a response (no body for HEAD, 1xx, 204, 304); raises for a status or header text that would break the framing
+(= (chkhead code headers)               ; raises for a status or header text that would break the framing
   (assert (&& (isnum code) code%1==0 code>=100 code<=599) "bad status code " (show code))
   (for [k v] headers
     (assert (&& (isstr k) (!= k "") (! (any (\ (c) (has [0 9 10 13 32 58] c)) (bytes k)))) "bad header name " (show k))
-    (assert (! (any (\ (c) (has [0 10 13] c)) (bytes (tostr v)))) "bad value for header " k))
+    (assert (! (any (\ (c) (has [0 10 13] c)) (bytes (tostr v)))) "bad value for header " k)))
+(= (response code headers body head)    ; the bytes of a response (no body for HEAD, 1xx, 204, 304); raises for a status or header text that would break the framing
+  (chkhead code headers)
   nob=(|| head (has [204 304] code) (&& code>=100 code<200))
   hs={} (for [k v] headers hs[(lo k)]=v)
   (? (! (has (keys hs) "content-length")) hs["content-length"]=#body)
@@ -116,7 +118,7 @@
 (= (normalize r)                        ; a handler's result -> {:status :headers :body}
   (? (isstr r) {:status 200 :headers {"content-type" "text/plain; charset=utf-8"} :body r}
      (islist r) {:status r[0] :headers {"content-type" r[1]} :body (tostr (?? r[2] ""))}
-     (ismap r) {:status (?? r.status 200) :headers (?? r.headers {}) :body (tostr (?? r.body ""))}
+     (ismap r) {:status (?? r.status 200) :headers (?? r.headers {}) :body (tostr (?? r.body "")) :stream r.stream :hasbody (!= r.body nil)}
      {:status 500 :headers {"content-type" "text/plain"} :body "handler returned nothing usable"}))
 (= (step c handler opts buf n st)           ; handle the request at the start of buf; the bytes left over to carry on with, or nil to close the connection
   k=(idx buf "\r\n\r\n")
