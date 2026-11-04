@@ -1,0 +1,42 @@
+; non-ASCII host names go to DNS as punycode (#217): RFC 3492 encoder, IDNA labels, the query on the wire
+(use "lib/run.aklang" as t)
+(= (raises f want)
+  r=(try (: (f) nil) e=>e)
+  (assert (&& (isstr r) (has r want)) (+ "wanted " (show want) ", got " (show r))))
+; RFC 3492 section 7.1 sample strings and a few well-known ones
+(for [s want] [["ليهمابتكلموشعربي؟" "egbpdaj6bu4bxfgehfvwxn"] ["他们为什么不说中文" "ihqwcrb4cv8a8dqg056pqjye"]
+               ["Pročprostěnemluvíčesky" "Proprostnemluvesky-uyb24dma41a"] ["3年B組金八先生" "3B-ww4c5e180e575a65lsy2b"]
+               ["bücher" "bcher-kva"] ["münchen" "mnchen-3ya"] ["☃" "n3h"] ["日本語" "wgv71a119e"] ["abc" "abc-"] ["" ""]]
+  got=(punyenc s)
+  (assert (== got want) (+ "punyenc " (show s) ": " (show got))))
+; host names: ASCII is unchanged, other labels become xn-- labels in lower case
+(for [s want] [["example.com" "example.com"] ["Example.COM." "Example.COM."] ["bücher.example" "xn--bcher-kva.example"]
+               ["BÜCHER.Example" "xn--bcher-kva.Example"] ["www.münchen.de" "www.xn--mnchen-3ya.de"] ["☃.net" "xn--n3h.net"]
+               ["bücher。example" "xn--bcher-kva.example"] ["bücher．example" "xn--bcher-kva.example"] ["日本語.jp" "xn--wgv71a119e.jp"]
+               ["xn--bcher-kva.example" "xn--bcher-kva.example"]]
+  got=(idna s)
+  (assert (== got want) (+ "idna " (show s) ": " (show got))))
+(raises (\ () (idna (+ (rpt "日本語" 30) ".example"))) "bad host name")      ; the label is over 63 bytes once encoded
+(raises (\ () (idna (frombytes [98 237 160 128 46 120]))) "bad host name")      ; a UTF-16 surrogate
+(raises (\ () (idna (frombytes [98 192 128 46 120]))) "bad host name")      ; an overlong form
+(raises (\ () (idna (frombytes [98 195 40 46 120]))) "bad host name")      ; not UTF-8
+(raises (\ () (idna (join (rpt [(rpt "ü" 20)] 11) "."))) "bad host name")      ; over 253 bytes in all
+; the query: a name server that never answers keeps the packet for us to read
+u=(udpl 0 "127.0.0.1")
+conf=(+ t.tmpname() ".conf")
+(wr conf "nameserver 127.0.0.1\noptions timeout:1 attempts:1\n")
+(= (query code)
+  r=(t.run (+ "AK_RESOLV=" conf " AK_DNS=127.0.0.1:" ($ (tcpp u)) " bin/ak -e '" code "'") nil)
+  (assert (== r.code 0) (+ "child failed: " r.err))
+  r.out)
+(query "(p (try (dns \"bücher.example\") e=>e))")
+pk=(udpfrom2 u 512 2000)
+(assert pk "the query never arrived")
+want=[13 ..(bytes "xn--bcher-kva") 7 ..(bytes "example") 0]
+got=(bytes pk[0])[12..12+#want]
+(assert (== got want) (+ "the name on the wire: " (show got)))
+; the same through tcpc, and a name that is already in A-label form is not changed
+(query "(p (try (tcpc \"bücher.example\" 80) e=>e))")
+pk=(udpfrom2 u 512 2000)
+(assert (== (bytes pk[0])[12..12+#want] want) "tcpc sends the A-label too")
+(rm conf) (fdc u)

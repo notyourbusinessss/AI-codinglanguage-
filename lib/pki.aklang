@@ -212,8 +212,8 @@ CURVES={"2a8648ce3d030107" {:name "P-256" :bytes 32
     (? (&& i>0 (!= x.pathlen nil) x.pathlen<i-1) (err "certificate: path length constraint violated"))
     (? (&& i>0 x.nc) (nc_check x.nc chain[0]))))
 (= (cert_valid cert now) (&& cert.nb<=now now<=cert.na))
-(= (host_match cert host)
-  h=(lo host) v4=(dotted host) v6=(? v4 nil (ip6 host))
+(= (host_match cert host)               ; a certificate name is compared in its A-label form (xn--...), so an IDN host is converted first
+  host=(idna host) h=(lo host) v4=(dotted host) v6=(? v4 nil (ip6 host))
   (? v4 (has cert.ips host)
      v6 (has cert.ips (ip6fmt v6))
      (any p=>(name_match p h) cert.san)))

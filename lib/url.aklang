@@ -1,0 +1,31 @@
+; Percent-encoding (RFC 3986), shared by lib/http.aklang and lib/httpd.aklang.
+;   (use "lib/url.aklang" as u)
+;   (u.urlenc "a b&c/é")             -> "a%20b%26c%2F%C3%A9"   everything except A-Z a-z 0-9 - . _ ~ becomes %XX of its UTF-8 bytes (numbers are written out; other values raise)
+;   (u.urldec s)  (u.urldec s true)  -> the bytes of %XX escapes (a stray % stays); with true, + is a space (query strings and forms)
+;   (u.qs {"a" 1 "b" "x y"})         -> "a=1&b=x%20y"          a query string: keys and values encoded, a list value repeats the key, nil values are skipped
+;   (u.form {"a b" "c"})             -> "a+b=c"                application/x-www-form-urlencoded: like qs, but a space is +
+;   (u.parsequery "a=1&b=x%20y")     -> {"a" "1" "b" "x y"}    the last value of a repeated name wins
+(= (hexd n) (chr (? n<10 (+ 48 n) (+ 55 n))))
+(= (urlenc s plus=false)
+  (? (! (|| (isstr s) (isnum s))) (raise "type" (++ "urlenc takes a string or a number, got " (ty s)) nil))
+  out=[] (for c (bytes (tostr s))
+    (? (|| (&& c>=48 c<=57) (&& c>=65 c<=90) (&& c>=97 c<=122) c==45 c==46 c==95 c==126) (push out (chr c))
+       (&& plus c==32) (push out "+")
+       (: (push out "%") (push out (hexd (// c 16))) (push out (hexd (% c 16))))))
+  (join out ""))
+(= (urldec s plus=false)                ; %XX escapes (and + as a space when plus) -> bytes
+  out=[] d=(bytes s) i=0
+  (wh i<#d
+    c=d[i] v=(? (&& c==37 i+2<#d) (num (++ "0x" s[i+1..i+3])) nil)
+    (? (isnum v) (: (push out v) i+=3) (: (push out (? (&& plus c==43) 32 c)) i+=1)))
+  (frombytes out))
+(= (qpairs m plus)
+  out=[] (for k (keys m)
+    v=m[k] vs=(? (islist v) v ($isnil v) [] [v])
+    (for x vs (push out (++ (urlenc k plus) "=" (urlenc x plus)))))
+  (join out "&"))
+(= (qs m) (qpairs m false))
+(= (form m) (qpairs m true))
+(= (parsequery q)                       ; "a=1&b=x%20y&a=3" -> {"a" "3" "b" "x y"} (the last value of a repeated name wins)
+  m={} (for kv (split q "&") (? (!= kv "") (: j=(idx kv "=") m[(urldec (? j>=0 kv[..j] kv) true)]=(? j>=0 (urldec kv[j+1..] true) ""))))
+  m)

@@ -1,0 +1,42 @@
+; IDN host names in lib/http, TLS and certificate matching use the A-label (#217)
+(use "../lib/http.aklang" as h)
+(use "../lib/tls.aklang" as tl)
+(use "../lib/pki.aklang" as k)
+(use "lib/run.aklang" as t)
+base=(+ "/tmp/akidna-" ($ (now)) "-" ($ (rand 1000000000)))
+n=0
+(= (is name got want) (<- n n+1) (assert (== got want) (+ name ": got " (show got) " want " (show want))))
+(= (waitline f) (wh (|| (! (ex f)) (! (has (rd f) "\n"))) (sleep 50)) (split (trim (rd f)) "\n"))
+pids=[]
+(= (finish) (sh (+ "kill " (join pids " ") " 2>/dev/null; rm -rf " base "*")))
+r=(try (:
+  ; plain http through a "proxy" that answers with the request line and the Host header it saw
+  (<- pids (+> pids (trim (sh (+ "bin/ak tests/lib/http_echo.aklang 2 >" base ".p 2>&1 & echo $!")))))
+  pp=(num (waitline (+ base ".p"))[0])
+  rr=(h.get "http://bücher.example:81/x" nil {:proxy (+ "http://127.0.0.1:" pp)})
+  (is "Host and request line" rr.body "GET http://xn--bcher-kva.example:81/x HTTP/1.1|xn--bcher-kva.example:81|")
+  rr=(h.get "http://BÜCHER.Example/y" nil {:proxy (+ "http://127.0.0.1:" pp)})
+  (is "upper case IDN" rr.body "GET http://xn--bcher-kva.Example/y HTTP/1.1|xn--bcher-kva.Example|")
+  ; TLS: a certificate for the A-label, SNI in A-label form
+  d=(+ base ".d/") (sh (+ "mkdir " d "; cd " d "; openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout ca.key -out ca.pem -subj /CN=ca -days 3 -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign 2>/dev/null; printf 'basicConstraints=CA:FALSE\nsubjectAltName=DNS:xn--bcher-kva.example,DNS:*.xn--mnchen-3ya.de\n' > ext; openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out s.key 2>/dev/null; openssl req -new -key s.key -subj /CN=s -out s.csr; openssl x509 -req -in s.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 3 -extfile ext -out s.pem 2>/dev/null"))
+  roots=(~ x=>(k.cert_parse x) (k.pem_certs (rd (+ d "ca.pem"))))
+  (<- pids (+> pids (trim (sh (+ "bin/ak tests/lib/httpd_tls_srv.aklang " d "s.pem " d "s.key >" base ".o 2>" base ".e & echo $!")))))
+  p=(num (waitline (+ base ".o"))[0])
+  cn=(tl.connect "bücher.example" p {:fd (tcpc "127.0.0.1" p) :roots roots})
+  (tl.write cn "GET / HTTP/1.0\r\n\r\n")
+  body="" x=(tl.read cn) (wh (&& x x!="") body=(++ body x) x=(tl.read cn))
+  (is "SNI is the A-label" (has body "hello xn--bcher-kva.example GET:") true)
+  (tl.close cn)
+  ; the certificate matches the host in either spelling, wildcards too
+  c=(k.cert_parse (fst (k.pem_certs (rd (+ d "s.pem")))))
+  (is "A-label matches" (k.host_match c "xn--bcher-kva.example") true)
+  (is "U-label matches" (k.host_match c "bücher.example") true)
+  (is "upper case U-label matches" (k.host_match c "BÜCHER.example") true)
+  (is "wildcard on an IDN suffix" (k.host_match c "www.münchen.de") true)
+  (is "another name does not match" (k.host_match c "büchern.example") false)
+  ; a name the certificate does not cover is refused
+  (is "wrong IDN host" (try (tl.connect "bücherx.example" p {:fd (tcpc "127.0.0.1" p) :roots roots}) e=>(has e "does not match")) true)
+  true) e=>e)
+(finish)
+(assert (== r true) (+ "idna_http: " (show r)))
+(assert (> n 8) (+ "too few checks ran: " n))

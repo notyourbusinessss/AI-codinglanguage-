@@ -5,6 +5,9 @@
 ; An error (kind "io") is raised for unresolvable hosts, refused connections, certificate or handshake failures and truncated replies.
 ;   (h.download url path)  streams a 2xx body into the file path ({:status .. :size n}); other statuses keep their body in :body
 ; Request, header and URL text with CR, LF or NUL is refused (no request injection). A body over :max bytes (default 64 MiB, 1 TiB with download) or a head over 1 MiB raises.
+; Streaming: {"on-data" f} in the options calls f with each piece of a 2xx body (after chunked decoding) as it arrives; :body stays "" and :size counts the bytes; other statuses keep their body in :body. :max and the stall timeouts apply (raise in f to stop; a stream that never ends needs a larger :max). With {:gzip true} an encoded body is decoded as a whole, so f is called once at the end. (h.eachline url headers opts f) calls f per line; (h.sse url headers opts f) calls f with each server-sent event {:event :data :id :retry}.
+; Percent-encoding (lib/url.aklang): (h.urlenc "a b&c/é") -> "a%20b%26c%2F%C3%A9", (h.urldec s [plus]), (h.qs {"a" 1 "b" "x y"}) -> "a=1&b=x%20y", (h.form m) (spaces as +), (h.postform url m [headers opts]) POSTs a form. A URL with a space or control byte raises "illegal character in the URL" before anything is sent; a redirect Location with one is encoded.
+; Host names: a URL with non-ASCII letters in the host ("http://bücher.example/") is sent as its IDNA form (xn--bcher-kva.example) in DNS, the Host header, CONNECT and TLS SNI; certificates are matched in that form.
 ; Proxies: HTTP_PROXY / HTTPS_PROXY (and lower case) are used unless NO_PROXY lists the host (names, .suffix, *) or it is loopback; opts :proxy "http://[user:pass@]host:port" forces one, :proxy false none. https goes through CONNECT; the proxy itself may be http:// or https:// (TLS to the proxy, verified like any server).
 ; Compression: {:gzip true} sends Accept-Encoding: gzip, deflate and decodes gzip / deflate bodies (lib/inflate.aklang; :max also limits the decoded size). Not applied to h.download.
 ; Interim 1xx replies (100 Continue, 103 Early Hints; up to 8) are skipped and the final reply is returned; 101 is final.
@@ -21,6 +24,12 @@
     n=#d-i x=d[i]*65536+(? n>1 d[i+1]*256 0)+(? n>2 d[i+2] 0)
     out+=(++ al[(// x 262144)] al[(% (// x 4096) 64)] (? n>1 al[(% (// x 64) 64)] "=") (? n>2 al[(% x 64)] "=")) i+=3)
   out)
+(use "url.aklang" as ul)
+(= urlenc ul.urlenc)                     ; percent-encoding helpers, see lib/url.aklang
+(= urldec ul.urldec)
+(= parsequery ul.parsequery)
+(= qs ul.qs)
+(= form ul.form)
 (= (pctdec s)                           ; %XX escapes of userinfo -> bytes
   out=[] d=(bytes s) i=0
   (wh i<#d
@@ -42,6 +51,7 @@
         ps=(? (== ps "") "" ps[1..]))
      (: j=(idx hp ":") host=(? j>=0 hp[..j] hp) ps=(? j>=0 hp[j+1..] "")))
   (? (== host "") (netfail (++ "no host in URL: " u)))
+  host=(idna host)                      ; a non-ASCII name travels as punycode: DNS, the Host header, SNI and CONNECT all use the A-label form
   port=(? (== ps "") (? sec 443 80)
          (: ok=(all (\ (c) (&& c>=48 c<=57)) (bytes ps)) v=(? (&& ok #ps<6) (num ps) nil)
             (? (&& v v>=1 v<=65535) v (netfail (++ "bad port in URL: " u)))))
@@ -106,7 +116,7 @@
 (= (feed bs d)                          ; one piece of body: counted against bs.max, then handed to bs.sink
   bs.n=bs.n+#d
   (? bs.n>bs.max (netfail (++ "response body over the limit of " bs.max " bytes (option :max)")))
-  (bs.sink d) nil)
+  (? (> #d 0) (bs.sink d)) nil)
 (= (readn c have n bs)                  ; n body bytes: have first, then more from c
   (? n>bs.max (netfail (++ "response body over the limit of " bs.max " bytes (option :max)")))
   (feed bs have[..n]) got=(min #have n) bs.rest=(? #have>n have[n..] "")
@@ -125,7 +135,8 @@
     (wh (! (has have "\r\n")) d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d)
     k=(idx have "\r\n") fin=(== k 0) have=have[k+2..])
   bs.rest=have)
-(= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path
+(= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path; a space or control byte in it is written %XX like browsers do
+  loc=(frombytes (flat (~ c=>(? (|| c<=32 c==127) (bytes (ul.urlenc (frombytes [c]))) [c]) (bytes loc))))
   origin=(++ (? sec "https://" "http://") (hostpart host) (? port==(? sec 443 80) "" (++ ":" port)))
   dir=(join (split (split path "?")[0] "/")[..-1] "/")
   (? (|| (starts loc "http://") (starts loc "https://")) loc
@@ -147,22 +158,27 @@
   ce=(lo (trim (?? hd["content-encoding"] "")))
   (? (&& opts.gzip (! to) (> #out 0) (has ["gzip" "x-gzip" "deflate"] ce))
      out=(? (== ce "deflate") (try (z.zlib out bs.max) e=>(z.inflate out bs.max)) (z.gunzip out bs.max)))
+  recv=(&& opts["on-data"] (! to) st>=200 st<300)     ; the body goes to opts["on-data"]: piece by piece as it arrives, or (gzip and deflate cannot be decoded halfway) once, decoded, at the end
+  (? (&& recv (! bs.streamed) (> #out 0)) (: (opts["on-data"] out) out=""))
   (? (&& (has [301 302 303 307 308] st) hd.location hops>=5) (netfail "too many redirects"))
   (? (&& (has [301 302 303 307 308] st) hd.location)
      (: next=(resolve sec host port path hd.location) [nsec nhost nport npath nuser]=(parseurl next)
         ; credentials stay with the host they were meant for
         hs=(? (&& (== (lo nhost) (lo host)) nport==port) headers (: o={} (for [k v] (?? headers {}) (? (! (has ["authorization" "cookie" "proxy-authorization"] (lo k))) o[k]=v)) o))
         (req (? (&& (has [301 302 303] st) method!="HEAD") "GET" method) next (? st>=307 body) hs opts hops+1))
-     (? to {:status st :headers hd :body "" :size bs.n} {:status st :headers hd :body out})))
-(= (sinkfor bs opts st)                 ; where the body goes once the status is known: the file opts.to for a 2xx reply, else bs.out
+     (? (|| to recv) {:status st :headers hd :body "" :size bs.n} {:status st :headers hd :body out})))
+(= (zipped opts hd) (&& opts.gzip (has ["gzip" "x-gzip" "deflate"] (lo (trim (?? hd["content-encoding"] ""))))))
+(= (sinkfor bs opts st hd)              ; where the body goes once the status is known: the file opts.to or the function opts["on-data"] for a 2xx reply, else bs.out (an encoded body is collected first and decoded in done)
   to=(? (&& opts.to st>=200 st<300) opts.to nil)
   (? to (wr to ""))
-  bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
+  f=(? (&& opts["on-data"] st>=200 st<300 (! to) (! (zipped opts hd))) opts["on-data"] nil)
+  bs.streamed=(!= f nil)
+  bs.sink=(? to d=>(app to d) f d=>(: (f d) nil) d=>(: bs.out=(++ bs.out d)))
   to)
 (= (h2req c method sec host port path auth h body headers opts hops)   ; the request over HTTP/2 on c (ALPN picked h2), then the common end
   bs={:n 0 :rest "" :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil :to nil}
   lh={} (for k (keys h) lh[(lo k)]=h[k])
-  hooks={:head (\ (st hd) bs.to=(sinkfor bs opts st)) :data (\ (d) (feed bs d))}
+  hooks={:head (\ (st hd) bs.to=(sinkfor bs opts st hd)) :data (\ (d) (feed bs d))}
   r=(try (x2.request c method (? sec "https" "http") auth path lh body hooks) e=>(: (try c.c() x=>nil) (netfail e)))
   c.c()
   st=r.status hd=r.headers cl=(? hd["content-length"] (clen hd["content-length"]) nil)
@@ -175,7 +191,8 @@
 (= (req1 lv method url body headers opts hops)
   [sec host port path user]=(parseurl url) opts=(?? opts {})
   (? (&& opts.total (! opts.deadline)) (: (needms opts.total) opts=(set opts "deadline" (+ (now) opts.total))))     ; one deadline for the request, its redirects and its body
-  (chk "method" method " :/") (chk "URL" url "") (chk "host" host "")
+  (? (&& opts["on-data"] (!= (ty opts["on-data"]) "fn")) (raise "type" (++ "option on-data must be a function, got " (ty opts["on-data"])) nil))
+  (chk "method" method " :/") (chk "URL" url "") (? (any c=>(|| c<=32 c==127) (bytes url)) (netfail "illegal character in the URL: a space or control byte must be written %XX (see h.urlenc)")) (chk "host" host "")
   px=(proxyfor sec host opts)
   pp=(? px (parseurl px) nil)
   auth=(? port==(? sec 443 80) (hostpart host) (++ (hostpart host) ":" port))
@@ -201,9 +218,7 @@
   cl=(? hd["content-length"] (clen hd["content-length"]) nil)
   (? (&& hd["content-length"] (== cl nil)) (: c.c() (netfail "bad Content-Length in the response")))
   bs={:n 0 :rest rest :max (?? opts.max (? opts.to 1099511627776 67108864)) :out "" :sink nil}
-  to=(? (&& opts.to st>=200 st<300) opts.to nil)
-  (? to (wr to ""))
-  bs.sink=(? to d=>(app to d) d=>(: bs.out=(++ bs.out d)))
+  to=(sinkfor bs opts st hd)
   (? (|| (== (up method) "HEAD") st==204 st==304 (&& st>=100 st<200)) nil        ; these replies have no body, whatever Content-Length says
      (has (lo (?? hd["transfer-encoding"] "")) "chunked") (readchunks c rest bs)
      (!= cl nil) (readn c rest cl bs)
@@ -216,4 +231,33 @@
   (done method sec host port path st hd out bs to body headers opts hops))))
 (= (get url headers=nil opts=nil) (req "GET" url nil headers opts))
 (= (post url body headers=nil opts=nil) (req "POST" url body headers opts))
+(= (postform url m headers=nil opts=nil)    ; POST m (a map) as application/x-www-form-urlencoded (see h.form); headers may add to or override Content-Type
+  hh=(?? headers {})
+  (req "POST" url (form m) (? (any k=>(== (lo k) "content-type") (keys hh)) hh (set hh "Content-Type" "application/x-www-form-urlencoded")) opts))
+(= (linesplit f)                        ; an on-data function that calls f once per line (without its \n or \r\n); {:b ..} keeps the unfinished line
+  st={:b ""}
+  {:feed (\ (d)
+         st.b=(++ st.b d) k=(idx st.b "\n")
+         (wh k>=0
+           l=st.b[..k] st.b=st.b[k+1..]
+           (f (? (ends l "\r") l[..-1] l))
+           k=(idx st.b "\n")))
+   :flush (\ () (? (> (len st.b) 0) (: l=st.b st.b="" (f (? (ends l "\r") l[..-1] l)))))})
+(= (eachline url headers opts f)        ; GET url and call f with every line of a 2xx body as it arrives (an unfinished last line when the body ends); the result is that of get, with an empty :body
+  sp=(linesplit f)
+  rr=(get url headers (set (?? opts {}) "on-data" sp.feed))
+  sp.flush() rr)
+(= (ssefield ev l)                      ; one non-blank line of an event stream into the event under construction
+  k=(idx l ":") name=(? k>=0 l[..k] l) v=(? k>=0 (? (starts l[k+1..] " ") l[k+2..] l[k+1..]) "")
+  (sw name "data" ev.data=(? ev.data==nil v (++ ev.data "\n" v)) "event" ev.event=v "id" ev.id=v
+            "retry" (? (all (\ (c) (&& c>=48 c<=57)) (bytes v)) ev.retry=(num v)) nil))
+(= (sse url headers opts f)             ; GET url as an event stream and call f with each event {:event "message" :data "a\nb" :id nil :retry nil} as it arrives (server-sent events: a blank line ends an event, ":" lines are comments, an event without data lines is dropped, an unfinished event at the end of the stream is dropped); returns what get returns
+  ev={:event nil :data nil :id nil :retry nil}
+  sp=(linesplit (\ (l)
+    (? (== l "")
+       (: (? ev.data!=nil (f {:event (?? ev.event "message") :data ev.data :id ev.id :retry ev.retry}))
+          ev.event=nil ev.data=nil ev.id=nil ev.retry=nil)
+       (starts l ":") nil
+       (ssefield ev l))))
+  (get url (set (?? headers {}) "Accept" "text/event-stream") (set (?? opts {}) "on-data" sp.feed)))
 (= (download url path opts=nil) (req "GET" url nil nil (set (?? opts {}) "to" path))) ; body of a 2xx reply -> file path, not held in memory; :size = bytes written

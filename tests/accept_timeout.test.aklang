@@ -1,0 +1,53 @@
+; tcpa takes an optional timeout and tcpl / unixl an optional backlog (#223)
+(use "lib/run.aklang" as t)
+(= (raises f want)
+  r=(try (: (f) nil) e=>e)
+  (assert (&& (isstr r) (has r want)) (+ "wanted " (show want) ", got " (show r))))
+l=(tcpl 0 "127.0.0.1") q=(tcpp l)
+; nobody connects: nil after about the timeout
+t0=(now) r=(tcpa l 120) dt=(- (now) t0)
+(assert ($isnil r) (+ "tcpa should time out with nil, got " (show r)))
+(assert (&& (>= dt 100) (< dt 1000)) (+ "tcpa 120 waited " dt " ms"))
+(assert ($isnil (tcpa l 0)) "tcpa 0 polls")
+; somebody connects: the fd, also when the connection came first
+c=(tcpc "127.0.0.1" q)
+s=(tcpa l 1000)
+(assert (isint s) (+ "tcpa should give an fd, got " (show s)))
+(fdw c "x") (assert (== (fdr s 1) "x") "the accepted fd works")
+(fdc c) (fdc s)
+; the old form still blocks until a client comes
+c=(tcpc "127.0.0.1" q) s=(tcpa l) (assert (isint s) "tcpa without a timeout") (fdc c) (fdc s)
+; bad timeouts
+(for v ["a" true (pow 0 -1)] (raises (\ () (tcpa l v)) "expected number"))
+; backlog
+(for v [0 65536 -1 1.5 "a" true nil]
+  (? ($isnil v) nil (: (raises (\ () (tcpl 0 "127.0.0.1" v)) "invalid backlog") (raises (\ () (unixl "/tmp/aktest-backlog.sock" v)) "invalid backlog"))))
+(assert (! (ex "/tmp/aktest-backlog.sock")) "a refused backlog leaves no socket file")
+b=(tcpl 0 "127.0.0.1" 1024) (fdc b)
+b=(tcpl 0 "0.0.0.0" 1) (fdc b)
+b=(tcpl 0 "127.0.0.1" 65535) (fdc b)
+(sh "rm -f /tmp/aktest-backlog.sock")
+u=(unixl "/tmp/aktest-backlog.sock" 5) (fdc u) (sh "rm -f /tmp/aktest-backlog.sock")
+; the backlog the kernel was given shows in ss -ltn (Send-Q of a listening socket); skipped when ss is missing
+(? (== (t.run "command -v ss" nil).code 0)
+  (: b=(tcpl 0 "127.0.0.1" 1024) bp=(tcpp b) d=(tcpl 0 "127.0.0.1") dp=(tcpp d)
+     o=(t.run (+ "ss -ltn 'sport = :" ($ bp) "'") nil).out
+     (assert (has o "1024") (+ "backlog 1024 not in ss output: " (show o)))
+     o=(t.run (+ "ss -ltn 'sport = :" ($ dp) "'") nil).out
+     (assert (has o "128") (+ "default backlog 128 not in ss output: " (show o)))
+     (fdc b) (fdc d)))
+(fdc l)
+; lib/httpd.aklang passes :backlog on
+(use "../lib/httpd.aklang" as hs)
+(raises (\ () (hs.listen 0 (\ (r) "x") {:backlog 0})) "invalid backlog")
+h=(hs.listen 0 (\ (r) "x") {:backlog 777})
+(? (== (t.run "command -v ss" nil).code 0)
+  (assert (has (t.run (+ "ss -ltn 'sport = :" ($ (tcpp h)) "'") nil).out "777") "httpd :backlog reaches listen"))
+(fdc h)
+; inside an async task the other tasks keep running while tcpa waits
+r=(t.run "bin/ak tests/lib/async_accept.aklang" nil)
+(assert (== r.code 0) (+ "child failed: " r.err))
+f=(split (trim r.out) " ")
+(assert (&& (== f[0] "ticks") (== f[2] "gap") (== f[4] "got") (== f[5] "nil")) (+ "child output: " (show r.out)))
+(assert (>= (num f[1]) 7) (+ "the ticker should have run: " (show r.out)))
+(assert (< (num f[3]) 400) (+ "the ticker was frozen: " (show r.out)))

@@ -1,0 +1,6 @@
+; Test server for tests/urlenc.test.aklang (#230): ak url_srv.aklang -> prints its port, then answers every request (a 302 to "/land here?x=a b" for /redir) with "<method> <target>|<content-type>|<body>" and serves forever (the test kills it).
+(use "../../lib/httpd.aklang" as s)
+(= (echo rq) (++ rq.method " " rq.target "|" (?? rq.headers["content-type"] "") "|" (?? rq.body "")))
+l=(s.listen 0 (\ (rq) (? (== rq.path "/redir") {:status 302 :headers {"Location" "/land here?x=a b"}} (echo rq))) {:maxreq 100})
+(fdw 1 (++ (tcpp l) "\n"))
+s.run()

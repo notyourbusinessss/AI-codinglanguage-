@@ -1,0 +1,41 @@
+; socket errors say why (#216): the old text stays as the prefix, the reason follows in parentheses
+(= (io f want)                          ; runs f once: the message has the wanted text and the error kind is io
+  r=(try (: (f) nil) e=>[e (errkind e)])
+  (assert (islist r) (+ want ": no error"))
+  (assert (has r[0] want) (+ "wanted " (show want) ", got " (show r[0])))
+  (assert (== r[1] "io") (+ want ": kind")))
+l=(tcpl 0 "127.0.0.1") q=(tcpp l)
+(io (\ () (tcpl q "127.0.0.1")) (+ "cannot listen on port " ($ q) " (address already in use)"))
+(io (\ () (tcpl 0 "10.255.255.1")) "cannot listen on port 0 (cannot assign requested address)")
+(io (\ () (udpl q "10.255.255.1")) "cannot bind UDP port ")
+(io (\ () (udpl q "10.255.255.1")) "(cannot assign requested address)")
+(sh "rm -f /tmp/aktest-sockerr.sock")
+u=(unixl "/tmp/aktest-sockerr.sock")
+(io (\ () (unixl "/tmp/aktest-sockerr.sock")) "cannot listen on /tmp/aktest-sockerr.sock (address already in use)")
+(io (\ () (unixc "/tmp/aktest-sockerr-missing.sock")) "cannot connect to /tmp/aktest-sockerr-missing.sock (no such file or directory)")
+(fdc u) (sh "rm -f /tmp/aktest-sockerr.sock")
+; a reset connection is told apart from a clean close
+c=(tcpc "127.0.0.1" q) s=(tcpa l)
+(sockopt c "linger" 0) (fdc c) (sleep 50)
+(io (\ () (fdr s)) "read failed (connection reset by peer)")
+(fdc s)
+; a datagram over 64 KB
+(io (\ () (udpto (udp) "127.0.0.1" 9 (rpt "a" 70000))) "send failed (message too long)")
+; a bad descriptor
+(io (\ () (sockopt 99 "nodelay")) "(bad file descriptor)")
+(fdc l)
+; writing to a peer that has gone away
+l=(tcpl 0 "127.0.0.1") q=(tcpp l) c=(tcpc "127.0.0.1" q) s=(tcpa l)
+(fdc s) (sleep 50)
+(io (\ () (wh true (fdw c (rpt "a" 65536)) (sleep 5))) "write failed (")
+(fdc c)
+; shutdown and names of a descriptor that is not a socket
+(io (\ () (shutw 0)) "shutdown failed (not a socket)")
+(io (\ () (peer 0)) "getpeername failed (not a socket)")
+; reading from a closed descriptor
+x=(tcpc "127.0.0.1" q)
+(fdc x)
+(io (\ () (fdr x)) "read failed (bad file descriptor)")
+; a privileged port is refused to an ordinary user (root may bind it)
+(? (!= (trim (sh "id -u")) "0") (io (\ () (tcpl 80)) "cannot listen on port 80 (permission denied)"))
+(fdc l)

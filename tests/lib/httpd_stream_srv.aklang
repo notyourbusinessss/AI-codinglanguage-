@@ -1,0 +1,31 @@
+; Test server for streamed httpd responses (#218): ak httpd_stream_srv.aklang -> prints its port, then serves forever (the test kills it).
+(use "../../lib/httpd.aklang" as s)
+(use "../../lib/async.aklang" as a)
+started=0 ended=0 aborted=0
+(= (events rq) {:status 200 :headers {"Content-Type" "text/event-stream"} :stream (\ (w) (<- started started+1) (for i 5 (w (++ "data: " i "\n\n")) (a.sleep 100)) (<- ended ended+1))})
+(= (big rq)
+  mb=(num (?? rq.query.mb "1")) piece=(rpt "x" 4194304)
+  {:status 200 :headers {"Content-Type" "application/octet-stream"} :stream (\ (w) (for i (// mb 4) (w piece)))})
+(= (forever rq) {:status 200 :stream (\ (w) (try (wh true (w "tick\n") (a.sleep 30)) e=>(: (<- aborted aborted+1) (raise "io" e nil))))})
+(= (stall rq) piece=(rpt "x" 1048576)
+  {:status 200 :stream (\ (w) (try (wh true (w piece)) e=>(: (<- aborted aborted+1) (<- lasterr e) (raise "io" e nil))))})
+lasterr=""
+h=(s.router [["GET" "/stall" stall]
+             ["GET" "/lasterr" (\ (rq) lasterr)]
+             ["GET" "/events" events]
+             ["GET" "/big" big]
+             ["GET" "/forever" forever]
+             ["GET" "/plain" (\ (rq) "plain")]
+             ["GET" "/204" (\ (rq) {:status 204 :stream (\ (w) (<- started started+1) (w "never"))})]
+             ["GET" "/pieces" (\ (rq) {:status 200 :stream (\ (w) (w "a") (w "") (w [98 99 100]) (w "cd") (w (frombytes [101 102])))})]
+             ["GET" "/cl" (\ (rq) {:status 200 :headers {"Content-Length" "5"} :stream (\ (w) (w "hello"))})]
+             ["GET" "/te" (\ (rq) {:status 200 :headers {"Transfer-Encoding" "chunked"} :stream (\ (w) (w "hello"))})]
+             ["GET" "/both" (\ (rq) {:status 200 :body "x" :stream (\ (w) (w "hello"))})]
+             ["GET" "/notfn" (\ (rq) {:status 200 :stream "hello"})]
+             ["GET" "/boom" (\ (rq) {:status 200 :stream (\ (w) (w "first") (assert false "boom"))})]
+             ["GET" "/close" (\ (rq) {:status 200 :headers {"connection" "close"} :stream (\ (w) (w "bye"))})]
+             ["GET" "/count" (\ (rq) (json {:started started :ended ended :aborted aborted}))]
+             ["GET" "/rss" (\ (rq) (trim (sh "grep VmHWM /proc/$PPID/status | tr -dc 0-9")))]])
+l=(s.listen 0 h {:maxreq 10 :wms 2000})
+(fdw 1 (++ (tcpp l) "\n"))
+s.run()

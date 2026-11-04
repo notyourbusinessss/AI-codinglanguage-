@@ -33,6 +33,8 @@
 (= (hx x) (? x<16 (strslice "0123456789abcdef" x x+1) (strcat2 (hx (// x 16)) (strslice "0123456789abcdef" (% x 16) (% x 16)+1))))
 (= (needms ms)                         ; nil (no timeout) or a finite number, else "expected number, got T"
   (? (&& (! ($isnil ms)) (|| (! ($isnum ms)) (!= (- ms ms) 0))) (bad ms)) ms)
+(= (needbacklog n)                      ; an integer 1 to 65535, else "invalid backlog: n"
+  (? (|| (! ($isnum n)) (! (isint n)) n<1 n>65535) ($throwk 2 (strcat2 "invalid backlog: " (tostr n)))) n)
 (= (needport p lo)                      ; an integer port from lo to 65535, else "invalid port: p"
   (? (|| (! ($isnum p)) (! (isint p)) p<lo p>65535) ($throwk 2 (strcat2 "invalid port: " (tostr p)))) p)
 (= (dotted h)                           ; "a.b.c.d" -> [a b c d], or nil
@@ -72,42 +74,45 @@
           (for ns (nameservers)
             (? (! res) (: res=(dnsq name ns[0] ns[1] o[0] 12)))))
         (? (&& res res[0]==0) res[1] []))))
-(= (hostips h)                          ; all addresses of a host (IPv4 as 4 bytes, IPv6 as 16, IPv4 first): literal, localhost, /etc/hosts, then DNS
-  d=(dotted h) v6=(? d nil (ip6 h)) l=(lo h) l=(? (ends l ".") l[..-1] l)      ; names are case-insensitive and "name." is the same name
+(= (hostips h)                          ; all addresses of a host (IPv4 as 4 bytes, IPv6 as 16, IPv4 first): literal, localhost, /etc/hosts, then DNS; a non-ASCII name is looked up in its punycode form
+  h=(? (isstr h) (idna h) h) d=(dotted h) v6=(? d nil (ip6 h)) l=(lo h) l=(? (ends l ".") l[..-1] l)      ; names are case-insensitive and "name." is the same name
   (? d [d] v6 [v6] (== l "localhost") [[127 0 0 1]]
      (: r=(hostsips l) (? #r r (dnsips h)))))
 (= (hostip h) r=(hostips h) (? #r r[0] nil))
 (= (hostip4 h) r=(~? a=>(== #a 4) (hostips h)) (? #r r[0] nil))
 (= (netfail what) ($throwk 4 what))
-(= (tcpl port host="0.0.0.0")           ; listening socket fd (port 0 picks a free one; see tcpp)
-  (needport (?? port 0) 0) ip=(hostip host)
+(= (neterr what r) ($throwk 4 (strcat2 what (strcat2 " (" (strcat2 (errtext 0-r) ")")))))     ; "cannot listen on port 80 (address already in use)" (r = the negative errno of the failed syscall)
+(= (tcpl port host="0.0.0.0" backlog=128)   ; listening socket fd (port 0 picks a free one; see tcpp); backlog = the queue of connections not yet accepted (1 to 65535)
+  (needport (?? port 0) 0) (needbacklog backlog) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
   fd=($syscall 41 (sockfam ip) 524289 0)
-  (? fd<0 (netfail (? (== #ip 16) "no IPv6 support on this machine" "socket failed")))
+  (? fd<0 (? (== #ip 16) (netfail "no IPv6 support on this machine") (neterr "socket failed" fd)))
   one=($newb 1 4 4) ($stb one 0 1) ($syscall 54 fd 1 2 ($addr one) 4)
   (? (== #ip 16) (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))      ; IPV6_V6ONLY off: "::" also takes IPv4 connections
   sa=(sockaddr ip (?? port 0))
-  (? (|| (< ($syscall 49 fd ($addr sa) (socklen ip)) 0) (< ($syscall 50 fd 128) 0))
-     (: ($syscall 3 fd) (netfail (strcat2 "cannot listen on port " (tostr port)))))
+  r=($syscall 49 fd ($addr sa) (socklen ip)) r=(? r<0 r ($syscall 50 fd backlog))
+  (? r<0 (: ($syscall 3 fd) (neterr (strcat2 "cannot listen on port " (tostr port)) r)))
   fd)
 (= (tcpp fd)                            ; local port of a socket
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
-  (? (< ($syscall 51 fd ($addr sa) ($addr ln)) 0) (netfail "getsockname failed"))
+  r=($syscall 51 fd ($addr sa) ($addr ln)) (? r<0 (neterr "getsockname failed" r))
   (+ (* 256 ($ldb sa 2)) ($ldb sa 3)))
-(= (tcpa fd)                            ; accept one connection (blocks)
-  r=-4 (wh r==-4 r=($syscall 288 fd 0 0 524288))   ; accept4 with SOCK_CLOEXEC: sh children do not inherit the connection
-  (? r<0 (netfail "accept failed")) r)
+(= (tcpa fd ms=nil)                     ; accept one connection (blocks; with ms: nil if nobody connects within ms milliseconds, inside an async task the other tasks run meanwhile)
+  (needfd fd) (needms ms)
+  (? (&& (isnum ms) (! (waitr fd ms))) nil
+     (: r=-4 (wh r==-4 r=($syscall 288 fd 0 0 524288))   ; accept4 with SOCK_CLOEXEC: sh children do not inherit the connection
+        (? r<0 (neterr "accept failed" r)) r)))
 (= (sockend call fd what)               ; getsockname (51) / getpeername (52) -> {:ip "127.0.0.1" :port 80}, or {:ip "::1" ..}; a Unix socket gives {:ip nil :port 0}
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
-  (? (< ($syscall call fd ($addr sa) ($addr ln)) 0) (netfail (strcat2 what " failed")))
+  r=($syscall call fd ($addr sa) ($addr ln)) (? r<0 (neterr (strcat2 what " failed") r))
   f=($ldb sa 0) port=(+ (* 256 ($ldb sa 2)) ($ldb sa 3))
   (? (== f 2) {:ip (join (~ i=>(tostr ($ldb sa 4+i)) 0..4) ".") :port port}
      (== f 10) {:ip (ip6fmt (~ i=>($ldb sa 8+i) 0..16)) :port port}
      {:ip nil :port 0}))
 (= (sockname fd) (sockend 51 fd "getsockname"))   ; the local address of a socket: {:ip :port}
 (= (peer fd) (sockend 52 fd "getpeername"))       ; the remote address of a connected socket (an accepted or connected TCP fd): {:ip :port}
-(= (shutw fd) (? (< ($syscall 48 fd 1) 0) (netfail "shutdown failed")) nil)    ; half-close: no more writing, the peer reads end-of-file and can still answer
-(= (shutr fd) (? (< ($syscall 48 fd 0) 0) (netfail "shutdown failed")) nil)
+(= (shutw fd) r=($syscall 48 fd 1) (? r<0 (neterr "shutdown failed" r)) nil)    ; half-close: no more writing, the peer reads end-of-file and can still answer
+(= (shutr fd) r=($syscall 48 fd 0) (? r<0 (neterr "shutdown failed" r)) nil)
 (= (sonat x) (&& ($isnum x) (isint x) (>= x 0)))   ; a whole number >= 0 (isint alone accepts true)
 (= (soi32 v) b=($newb 1 4 4) (for k 4 ($stb b k (% v 256)) v=(// v 256)) b)
 (= (sold32 b o) (+ ($ldb b o) (* 256 ($ldb b o+1)) (* 65536 ($ldb b o+2)) (* 16777216 ($ldb b o+3))))
@@ -122,29 +127,29 @@
      (: (? (&& (!= on false) (! (sonat on))) (netfail "linger takes seconds or false"))
         b=($newb 1 8 8) ($stb b 0 (? (== on false) 0 1))
         x=(soi32 (? (== on false) 0 on)) (for k 4 ($stb b 4+k ($ldb x k)))
-        (? (< ($syscall 54 fd 1 13 ($addr b) 8) 0) (netfail "cannot set linger")))
+        r=($syscall 54 fd 1 13 ($addr b) 8) (? r<0 (neterr "cannot set linger" r)))
      (== name "mcastif")
      (: a=(? (isstr on) (dotted on) nil)
         (? (&& (isstr on) ($isnil a)) (netfail "mcastif takes an IPv4 address"))
         (? (&& (! (isstr on)) (|| (! (sonat on)) fam!=10)) (netfail "mcastif takes an IPv4 address or, on an IPv6 socket, an interface index"))
         v=(? a (frombytes a) (soi32 on))
-        (? (< ($syscall 54 fd (? a 0 41) (? a 32 17) ($addr v) 4) 0) (netfail "cannot set mcastif")))
+        r=($syscall 54 fd (? a 0 41) (? a 32 17) ($addr v) 4) (? r<0 (neterr "cannot set mcastif" r)))
      (: o=(sockopts name fam)
         (? ($isnil o) (netfail (strcat2 "unknown socket option: " (tostr name))))
         n=(? (== on true) 1 (== on false) 0 on)
         (? (! (sonat n)) (netfail (strcat2 "bad value for socket option " name)))
         v=(soi32 n)
-        (? (< ($syscall 54 fd o[0] o[1] ($addr v) 4) 0) (netfail (strcat2 "cannot set " name)))
+        r=($syscall 54 fd o[0] o[1] ($addr v) 4) (? r<0 (neterr (strcat2 "cannot set " name) r))
         (? (&& fam==10 (starts name "mcast")) ($syscall 54 fd 0 (? (== name "mcastttl") 33 34) ($addr v) 4))))      ; a dual-stack socket sends IPv4 multicast too
   nil)
 (= (getsockopt fd name)                 ; read an option back: flags as true/false, integers as numbers, "linger" as seconds or false
   (needfd fd) fam=(sofam fd) b=($newb 1 8 8) ln=(soi32 8)
   (? (== name "linger")
-     (: (? (< ($syscall 55 fd 1 13 ($addr b) ($addr ln)) 0) (netfail "cannot read linger"))
+     (: r=($syscall 55 fd 1 13 ($addr b) ($addr ln)) (? r<0 (neterr "cannot read linger" r))
         (? (== (sold32 b 0) 0) false (sold32 b 4)))
      (: o=(sockopts name fam)
         (? ($isnil o) (netfail (strcat2 "unknown socket option: " (tostr name))))
-        (? (< ($syscall 55 fd o[0] o[1] ($addr b) ($addr ln)) 0) (netfail (strcat2 "cannot read " name)))
+        r=($syscall 55 fd o[0] o[1] ($addr b) ($addr ln)) (? r<0 (neterr (strcat2 "cannot read " name) r))
         v=(sold32 b 0) (? (== o[2] "b") (!= v 0) v))))
 (= (mcast fd group iface join)
   (needfd fd) g=(? (isstr group) (?? (dotted group) (ip6 group)) nil)
@@ -157,7 +162,7 @@
      (: (? (&& iface (! (sonat iface))) (netfail "the interface of an IPv6 group is an interface index"))
         b=($newb 1 20 20) (for i 16 ($stb b i g[i])) x=(soi32 (?? iface 0)) (for k 4 ($stb b 16+k ($ldb x k)))
         r=($syscall 54 fd 41 (? join 20 21) ($addr b) 20)))
-  (? r<0 (netfail (strcat2 (? join "cannot join " "cannot leave ") group)))
+  (? r<0 (neterr (strcat2 (? join "cannot join " "cannot leave ") group) r))
   nil)
 (= (mcastjoin fd group iface=nil) (mcast fd group iface true))   ; join a multicast group (an IPv4 or IPv6 address string) on a UDP socket; iface: a local IPv4 address (IPv4) or an interface index (IPv6), default: the system picks
 (= (mcastleave fd group iface=nil) (mcast fd group iface false))
@@ -180,7 +185,7 @@ NETHOOK=nil                             ; set by lib/async.aklang while its task
 (= (errwhy e) (? e==111 "refused" e==113 "no route" e==101 "network unreachable" e==110 "timed out" "failed"))
 (= (tryconn ip port ms)                 ; one connect attempt: the fd, or a reason string
   fd=($syscall 41 (sockfam ip) (? (|| ms NETHOOK) 526337 524289) 0)    ; SOCK_STREAM | SOCK_CLOEXEC (| SOCK_NONBLOCK when there is a timeout or inside an async task)
-  (? fd<0 (? (== #ip 16) "no IPv6 support" (netfail "socket failed")) (tryconn2 fd ip port ms)))
+  (? fd<0 (? (== #ip 16) "no IPv6 support" (neterr "socket failed" fd)) (tryconn2 fd ip port ms)))
 (= (tryconn2 fd ip port ms)
   sa=(sockaddr ip port)
   r=($syscall 42 fd ($addr sa) (socklen ip))
@@ -202,7 +207,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (needms ms) (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 0 fd ($addr b) n))
-        (? r<0 (netfail "read failed") (strslice b 0 r)))))
+        (? r<0 (neterr "read failed" r) (strslice b 0 r)))))
 (= (fdr fd n=nil ms=nil)                    ; read up to n (default 65536) bytes; "" at end of stream; with ms: nil if nothing arrives within ms milliseconds
   n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   b0=(lget fd)
@@ -233,7 +238,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (wh k<n
     r=($syscall 44 fd ($addr d)+off+k n-k 16384 0 0)
     (? r==-88 r=($syscall 1 fd ($addr d)+off+k n-k))
-    (? r==-4 nil r<0 (netfail "write failed") k+=r))
+    (? r==-4 nil r<0 (neterr "write failed" r) k+=r))
   nil)
 (= (fdw fd s ms=nil)                    ; write everything (string, byte list or u8 array); with ms: raises "write timed out" if the peer takes nothing for ms milliseconds
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) n=($hlen d)
@@ -246,43 +251,45 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
 (= (unixc path)                         ; connect to a Unix-domain socket (a file path): the fd
   (needstr path)
   fd=($syscall 41 1 524289 0)
-  (? fd<0 (netfail "socket failed"))
+  (? fd<0 (neterr "socket failed" fd))
   sa=($newb 1 110 110) ($stb sa 0 1)
   (for i #path ($stb sa 2+i ($ldb path i)))
-  (? (< ($syscall 42 fd ($addr sa) 3+#path) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot connect to " path))))
+  r=($syscall 42 fd ($addr sa) 3+#path)
+  (? r<0 (: ($syscall 3 fd) (neterr (strcat2 "cannot connect to " path) r)))
   fd)
-(= (unixl path)                         ; listen on a Unix-domain socket (a file path that must not exist yet; remove it after use): the fd, to accept with tcpa
-  (needstr path)
+(= (unixl path backlog=128)             ; listen on a Unix-domain socket (a file path that must not exist yet; remove it after use): the fd, to accept with tcpa
+  (needstr path) (needbacklog backlog)
   (? (|| (== #path 0) (> #path 107)) (netfail (strcat2 "bad Unix socket path " path)))
   fd=($syscall 41 1 524289 0)
-  (? fd<0 (netfail "socket failed"))
+  (? fd<0 (neterr "socket failed" fd))
   sa=($newb 1 110 110) ($stb sa 0 1)
   (for i #path ($stb sa 2+i ($ldb path i)))
-  (? (|| (< ($syscall 49 fd ($addr sa) 3+#path) 0) (< ($syscall 50 fd 128) 0)) (: ($syscall 3 fd) (netfail (strcat2 "cannot listen on " path))))
+  r=($syscall 49 fd ($addr sa) 3+#path) r=(? r<0 r ($syscall 50 fd backlog))
+  (? r<0 (: ($syscall 3 fd) (neterr (strcat2 "cannot listen on " path) r)))
   fd)
 (= (fdc fd) ($syscall 3 fd) (? LINEBUF (mapdel LINEBUF (tostr fd))) nil)
 (= (fdwait fds ms=nil)                      ; the fds that are readable (or hung up) within ms milliseconds (ms<0: wait forever); an fd that is not open raises
   (needlist fds) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) n=#fds b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// fds[i] (** 256 k)) 256))) ($stb b 8*i+4 1))
   r=($syscall 7 ($addr b) n (?? ms -1))
-  (? r<0 (? r==-4 [] (netfail "poll failed"))
+  (? r<0 (? r==-4 [] (neterr "poll failed" r))
      (: out=[] (for i n (? (== (% (// ($ldb b 8*i+6) 32) 2) 1) (netfail (strcat2 "fdwait: bad file descriptor " (tostr fds[i])))) (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out fds[i]))) out)))
 (= (fdwp fd s off n)                    ; write without blocking: the bytes taken (0 when the buffer is full), at most n of s from byte offset off
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) (needfd fd) (flush)
   r=($syscall 44 fd ($addr d)+off n 16448 0 0)                  ; MSG_NOSIGNAL | MSG_DONTWAIT
   (? r==-88 r=($syscall 1 fd ($addr d)+off (min n 4096)))      ; not a socket (a pipe): after fdpoll said writable, PIPE_BUF bytes fit
-  (? r==-11 0 r==-4 0 r<0 (netfail "write failed") r))
+  (? r==-11 0 r==-4 0 r<0 (neterr "write failed" r) r))
 (= (fdpoll rd wr ms=nil)                ; wait for readable fds in rd and writable fds in wr: [readable writable] (ms<0: forever); a hung up or failed fd counts as ready
   (needlist rd) (needlist wr) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) nr=#rd n=nr+#wr b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// (? i<nr rd[i] wr[i-nr]) (** 256 k)) 256))) ($stb b 8*i+4 (? i<nr 1 4)))
   r=($syscall 7 ($addr b) n (?? ms -1))
-  (? r<0 (? r==-4 [[] []] (netfail "poll failed"))
+  (? r<0 (? r==-4 [[] []] (neterr "poll failed" r))
      (: out=[[] []] (for i n (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out[(? i<nr 0 1)] (? i<nr rd[i] wr[i-nr])))) out)))
 
 ; ---- UDP and DNS ----
 (= (udp)                                ; a UDP socket: dual-stack IPv6 (IPv4 destinations are sent as ::ffff:a.b.c.d) where the machine has IPv6, else IPv4
   fd=($syscall 41 10 524290 0)
-  (? fd<0 (: fd=($syscall 41 2 524290 0) (? fd<0 (netfail "socket failed")))
+  (? fd<0 (: fd=($syscall 41 2 524290 0) (? fd<0 (neterr "socket failed" fd)))
      (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))
   fd)
 (= (sockdom fd)                         ; 2 (AF_INET) or 10 (AF_INET6): the family of a socket
@@ -299,28 +306,29 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (? (|| (! (islist ip)) (&& (!= #ip 4) (!= #ip 16)) (! (all (\ (v) (&& ($isnum v) (isint v) v>=0 v<=255)) ip))) (netfail "udpto needs an address like 127.0.0.1 or ::1, or a host name"))
   (needport port 1) d=(? (islist s) (frombytes s) (tostr s)) [sa n]=(udpaddr fd ip port)
   r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) n)
-  (? r<0 (netfail "send failed")) nil)
+  (? r<0 (neterr "send failed" r)) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
   n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
-        (? r<0 (netfail "receive failed") (strslice b 0 r)))))
+        (? r<0 (neterr "receive failed" r) (strslice b 0 r)))))
 (= (udpl port host="0.0.0.0")           ; a UDP socket bound to host:port (port 0 picks a free one; see tcpp), to serve with udpfrom2 and udpto; an IPv6 host ("::1", "::" for both families) makes an IPv6 socket
   (needport (?? port 0) 0) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
   fd=($syscall 41 (sockfam ip) 524290 0)
-  (? fd<0 (netfail (? (== #ip 16) "no IPv6 support on this machine" "socket failed")))
+  (? fd<0 (? (== #ip 16) (netfail "no IPv6 support on this machine") (neterr "socket failed" fd)))
   (? (== #ip 16) (: zero=($newb 1 4 4) ($syscall 54 fd 41 26 ($addr zero) 4)))
   sa=(sockaddr ip (?? port 0))
-  (? (< ($syscall 49 fd ($addr sa) (socklen ip)) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot bind UDP port " (tostr port)))))
+  r=($syscall 49 fd ($addr sa) (socklen ip))
+  (? r<0 (: ($syscall 3 fd) (neterr (strcat2 "cannot bind UDP port " (tostr port)) r)))
   fd)
 (= (udpfrom2 fd n=nil ms=nil)           ; like udpfrom, but returns [data ip port] of the sender, so a server can answer with udpto: ip is [a b c d] for IPv4 (also from a dual-stack socket), 16 numbers for IPv6
   n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 ($addr sa) ($addr ln)))
-        (? r<0 (netfail "receive failed")
+        (? r<0 (neterr "receive failed" r)
            (: v6=(~ i=>($ldb sa 8+i) 0..16)
               ip=(? (!= ($ldb sa 0) 10) [($ldb sa 4) ($ldb sa 5) ($ldb sa 6) ($ldb sa 7)]
                     (&& (all (\ (x) (== x 0)) v6[..10]) (== v6[10] 255) (== v6[11] 255)) v6[12..]
@@ -339,9 +347,52 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
        (: (push out (strslice r i+1 i+1+c)) i+=c+1))
     c=($ldb r i))
   (join out "."))
+(= (cpgood cp k)                        ; is cp a code point that a UTF-8 sequence of k bytes may encode (no overlong form, surrogate or value above U+10FFFF)?
+  (&& (>= cp (sw k 2 128 3 2048 4 65536 0)) cp<=1114111 (! (&& cp>=55296 cp<=57343))))
+(= (u8cps s)                            ; the code points of a UTF-8 string, or nil if it is not valid UTF-8
+  b=(bytes s) i=0 n=#b out=[] ok=true
+  (wh (&& ok i<n)
+    c=b[i] k=(? c<128 1 (&& c>=192 c<224) 2 (&& c>=224 c<240) 3 (&& c>=240 c<248) 4 0)
+    (? (|| k==0 i+k>n) ok=false
+       (: cp=(? k==1 c (- c (sw k 2 192 3 224 240))) j=1
+          (wh (&& ok j<k) d=b[i+j] (? (== (// d 64) 2) cp=(+ (* cp 64) (- d 128)) ok=false) j+=1)
+          (? (&& ok (cpgood cp k)) (push out cp) ok=false) i+=k)))
+  (? ok out nil))
+(= (pdigit d) (chr (? d<26 (+ 97 d) (+ 22 d))))      ; 0-25 "a"-"z", 26-35 "0"-"9"
+(= (padapt delta np first)              ; RFC 3492 section 6.1 bias adaptation
+  delta=(? first (// delta 700) (// delta 2)) delta+=(// delta np) k=0
+  (wh delta>455 delta=(// delta 35) k+=36)
+  (+ k (// (* 36 delta) (+ delta 38))))
+(= (punycps cps)                        ; RFC 3492 encoder (section 6.3) for a list of code points
+  n=128 delta=0 bias=72 out="" h=0 total=#cps
+  (for c cps (? c<128 (: out=(++ out (chr c)) h+=1)))
+  b=h (? b>0 out=(++ out "-"))
+  (wh h<total
+    m=2147483647 (for c cps (? (&& c>=n c<m) m=c))
+    delta+=(* (- m n) (+ h 1)) n=m
+    (for c cps
+      (? c<n delta+=1)
+      (? (== c n)
+         (: q=delta k=36 more=true
+            (wh more
+              t=(? k<=bias 1 k>=bias+26 26 (- k bias))
+              (? q<t more=false (: out=(++ out (pdigit (+ t (% (- q t) (- 36 t))))) q=(// (- q t) (- 36 t)) k+=36)))
+            out=(++ out (pdigit q)) bias=(padapt delta (+ h 1) (== h b)) delta=0 h+=1)))
+    delta+=1 n+=1)
+  out)
+(= (punyenc s)                          ; Punycode (RFC 3492) of a UTF-8 string, without the "xn--" prefix: "bücher" -> "bcher-kva"
+  cps=(u8cps s) (? ($isnil cps) (netfail "bad host name")) (punycps cps))
+(= (idnalabel l)                        ; one label: all-ASCII stays as it is; any other is lower-cased and becomes "xn--" + punycode
+  (? (all (\ (c) c<128) (bytes l)) l (++ "xn--" (punyenc (lo l)))))
+(= (idna name)                          ; the ASCII (A-label) form of a host name for DNS, SNI and the Host header: "bücher.example" -> "xn--bcher-kva.example"; U+3002, U+FF0E and U+FF61 separate labels; "bad host name" for invalid UTF-8, a label over 63 bytes or a name over 253 once encoded
+  (? (all (\ (c) c<128) (bytes name)) name
+     (: nm=(rep (rep (rep name "。" ".") "．" ".") "｡" ".")
+        r=(join (~ idnalabel (split nm ".")) ".")
+        (? (|| (any (\ (l) #l>63) (split r ".")) #r>254) (netfail "bad host name"))
+        r)))
 (= (dnspk name qtype)                   ; [id packet] asking for the records of type qtype (1 = A, 28 = AAAA, 2 NS, 5 CNAME, 12 PTR, 15 MX, 16 TXT, 33 SRV)
   q=(randbytes 2) pk=[..q 1 0 0 1 0 0 0 0 0 0]
-  nm=(? (ends name ".") name[..-1] name)     ; one trailing dot is fine; empty labels, labels over 63 and names over 253 bytes, spaces, NUL and control bytes are not
+  name=(idna name) nm=(? (ends name ".") name[..-1] name)     ; non-ASCII labels go out as punycode; one trailing dot is fine; empty labels, labels over 63 and names over 253 bytes, spaces, NUL and control bytes are not
   (? (|| (== nm "") (> #nm 253)) (netfail "bad host name"))
   (for l (split nm ".")
     (? (|| (== l "") #l>63 (any (\ (c) (|| c<33 c>126)) (bytes l))) (netfail "bad host name") (: (push pk #l) (for c (bytes l) (push pk c)))))
