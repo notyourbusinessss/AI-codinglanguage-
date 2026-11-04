@@ -74,8 +74,8 @@
           (for ns (nameservers)
             (? (! res) (: res=(dnsq name ns[0] ns[1] o[0] 12)))))
         (? (&& res res[0]==0) res[1] []))))
-(= (hostips h)                          ; all addresses of a host (IPv4 as 4 bytes, IPv6 as 16, IPv4 first): literal, localhost, /etc/hosts, then DNS
-  d=(dotted h) v6=(? d nil (ip6 h)) l=(lo h) l=(? (ends l ".") l[..-1] l)      ; names are case-insensitive and "name." is the same name
+(= (hostips h)                          ; all addresses of a host (IPv4 as 4 bytes, IPv6 as 16, IPv4 first): literal, localhost, /etc/hosts, then DNS; a non-ASCII name is looked up in its punycode form
+  h=(? (isstr h) (idna h) h) d=(dotted h) v6=(? d nil (ip6 h)) l=(lo h) l=(? (ends l ".") l[..-1] l)      ; names are case-insensitive and "name." is the same name
   (? d [d] v6 [v6] (== l "localhost") [[127 0 0 1]]
      (: r=(hostsips l) (? #r r (dnsips h)))))
 (= (hostip h) r=(hostips h) (? #r r[0] nil))
@@ -392,7 +392,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
         r)))
 (= (dnspk name qtype)                   ; [id packet] asking for the records of type qtype (1 = A, 28 = AAAA, 2 NS, 5 CNAME, 12 PTR, 15 MX, 16 TXT, 33 SRV)
   q=(randbytes 2) pk=[..q 1 0 0 1 0 0 0 0 0 0]
-  nm=(? (ends name ".") name[..-1] name)     ; one trailing dot is fine; empty labels, labels over 63 and names over 253 bytes, spaces, NUL and control bytes are not
+  name=(idna name) nm=(? (ends name ".") name[..-1] name)     ; non-ASCII labels go out as punycode; one trailing dot is fine; empty labels, labels over 63 and names over 253 bytes, spaces, NUL and control bytes are not
   (? (|| (== nm "") (> #nm 253)) (netfail "bad host name"))
   (for l (split nm ".")
     (? (|| (== l "") #l>63 (any (\ (c) (|| c<33 c>126)) (bytes l))) (netfail "bad host name") (: (push pk #l) (for c (bytes l) (push pk c)))))
