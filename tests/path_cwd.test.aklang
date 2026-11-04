@@ -1,0 +1,15 @@
+; lib/path takes the current directory from the process, not from $PWD (#237)
+(use "lib/run.aklang" as t)
+(= (ak code env) (t.run (+ env "bin/ak -e '(use \"lib/path.aklang\" as path) " code "'") nil))
+(sh "rm -rf /tmp/ak-pathcwd && mkdir -p /tmp/ak-pathcwd/sub")
+r=(ak "(chdir \"/tmp/ak-pathcwd\") (p (cwd) path.cwd() (path.abs \"x\") (path.rel \"/tmp/ak-pathcwd/sub\" (path.abs \"x\")))" "")
+(assert (== r.out "/tmp/ak-pathcwd /tmp/ak-pathcwd /tmp/ak-pathcwd/x ../x\n") r.out)
+; a stale or misleading PWD is ignored
+r=(ak "(chdir \"/tmp/ak-pathcwd\") (p path.cwd() (path.abs \"x\"))" "PWD=/nonexistent ")
+(assert (== r.out "/tmp/ak-pathcwd /tmp/ak-pathcwd/x\n") r.out)
+r=(ak "(chdir \"/\") (p (path.abs \"x\"))" "PWD=/tmp ")
+(assert (== r.out "/x\n") r.out)
+; without chdir it still agrees with the builtin
+r=(ak "(p (== path.cwd() (cwd)))" "")
+(assert (== r.out "true\n") r.out)
+(sh "rm -rf /tmp/ak-pathcwd")
