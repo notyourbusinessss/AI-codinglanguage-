@@ -149,7 +149,7 @@ IEOF=false
   s=(strnew n) (for i n ($stb s i ($peek buf+i))) s)
 (= (sh cmd)
   (flush)
-  mem=(scratch) cmd=(tostr cmd)
+  mem=(scratch) cmd=(needstr cmd)
   o1=(putstr mem 2048 "/bin/sh") o2=(putstr mem o1 "sh") o3=(putstr mem o2 "-c") o4=(putstr mem o3 cmd)
   (put64 mem+256 mem+o1) (put64 mem+264 mem+o2) (put64 mem+272 mem+o3) (put64 mem+280 0)
   ($syscall 293 mem+512 0)
