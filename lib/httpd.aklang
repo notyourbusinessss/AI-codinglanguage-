@@ -115,6 +115,37 @@
   (? (! (has (keys hs) "content-length")) hs["content-length"]=#body)
   (? (has [204 304] code) hs=(del hs "content-length"))
   (++ "HTTP/1.1 " code " " (reason code) "\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n" (? nob "" body)))
+(= (swrite c opts s)                    ; write s to c; a plain socket that takes nothing for opts.wms ms raises "write timed out" (other tasks run meanwhile)
+  (? c.cn (cwrite c s)
+     (: d=s n=(len d) k=0 end=(+ (now) opts.wms)
+        (wh k<n
+          r=(fdwp c.fd d k n-k)
+          (? r>0 (: k+=r end=(+ (now) opts.wms)) (> (now) end) (netfail "write timed out") (a.sleep 3))))))
+(= (shead code headers)                 ; status line and headers of a response whose body follows separately (no content-length is added)
+  hs={} (for [k v] headers hs[(lo k)]=v)
+  (++ "HTTP/1.1 " code " " (reason code) "\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n"))
+(= (stream c rq res keep opts)          ; a handler result with :stream f: the head, then f called with a writer (w chunk) for each piece of the body (Transfer-Encoding: chunked for HTTP/1.1, close-delimited for 1.0; HEAD, 204, 304 and 1xx send no body and f is not called); true if the connection can be used again
+  hs={} (for [k v] res.headers hs[(lo k)]=v)
+  (chkhead res.status hs)
+  (assert (== (ty res.stream) "fn") "the :stream of a handler result must be a function, got " (ty res.stream))
+  (assert (! res.hasbody) "a handler result with :stream cannot have a :body")
+  (assert (! (has (keys hs) "content-length")) "a streamed response cannot have a content-length header")
+  (assert (! (has (keys hs) "transfer-encoding")) "a streamed response cannot have a transfer-encoding header")
+  code=res.status
+  nob=(|| (has [204 304] code) (&& code>=100 code<200))
+  chunked=(&& (== rq.version "1.1") (! nob))
+  keep=(&& keep (|| chunked nob))
+  hs["connection"]=(? keep "keep-alive" "close")
+  (? chunked hs["transfer-encoding"]="chunked")
+  (? nob hs=(del hs "transfer-encoding"))
+  (swrite c opts (shead code hs))
+  (? (|| nob (== rq.method "HEAD")) keep
+     (try (: (res.stream (\ (d) s=(? (islist d) (frombytes d) (istyped d) d (tostr d))
+                           (? (> (len s) 0) (swrite c opts (? chunked (++ (fmt "%x" (len s)) "\r\n" s "\r\n") s)))
+                           nil))
+             (? chunked (swrite c opts "0\r\n\r\n"))
+             keep)
+          e=>(: (fdw 2 (++ "httpd: stream error: " e "\n")) false))))
 (= (normalize r)                        ; a handler's result -> {:status :headers :body}
   (? (isstr r) {:status 200 :headers {"content-type" "text/plain; charset=utf-8"} :body r}
      (islist r) {:status r[0] :headers {"content-type" r[1]} :body (tostr (?? r[2] ""))}
@@ -134,10 +165,12 @@
                     res=(normalize (try (handler rq) e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) {:status 500 :headers {"content-type" "text/plain"} :body "internal server error"})))
                     cn=(toks (?? rq.headers.connection "")) rc=(toks (tostr (?? res.headers["connection"] "")))
                     keep=(&& (! (has cn "close")) (? (== rq.version "1.1") true (has cn "keep-alive")) (! (has rc "close")) n+1<opts.maxreq)
-                    out=(try (response res.status (set res.headers "connection" (? keep "keep-alive" "close")) res.body (== rq.method "HEAD"))
+                    (? res.stream
+                       (? (try (stream c rq res keep opts) e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) (try (cwrite c (response 500 {"connection" "close" "content-type" "text/plain"} "internal server error" (== rq.method "HEAD"))) x=>nil) false)) bd[1] nil)
+                       (: out=(try (response res.status (set res.headers "connection" (? keep "keep-alive" "close")) res.body (== rq.method "HEAD"))
                              e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) keep=false (response 500 {"connection" "close" "content-type" "text/plain"} "internal server error" (== rq.method "HEAD"))))
-                    (cwrite c out)
-                    (? keep bd[1] nil))))))))
+                          (cwrite c out)
+                          (? keep bd[1] nil))))))))))
 (= (watch c st)                         ; per connection: when the deadline passes, answer 408 if a request was half-sent, and end the read side so the connection loop finishes
   (wh st.live
     (? (&& st.deadline (> (now) st.deadline))
@@ -161,7 +194,7 @@
   (try (conn c handler opts) e=>(: (fdw 2 (++ "httpd: connection error: " e "\n")) (try (fdc c) x=>nil)))
   opts.active=(- opts.active 1))
 (= (listen port handler opts=nil)
-  opts=(?? opts {}) o={:host (?? opts.host "127.0.0.1") :maxhead (?? opts.maxhead 16384) :maxbody (?? opts.maxbody 1048576) :maxreq (?? opts.maxreq 100) :headms (?? opts.headms 30000) :idlems (?? opts.idlems 60000) :bodyms (?? opts.bodyms 30000) :maxconn opts.maxconn :backlog (?? opts.backlog 128) :active 0 :tls (? opts.tls (t.creds opts.tls) nil)}
+  opts=(?? opts {}) o={:host (?? opts.host "127.0.0.1") :maxhead (?? opts.maxhead 16384) :maxbody (?? opts.maxbody 1048576) :maxreq (?? opts.maxreq 100) :headms (?? opts.headms 30000) :idlems (?? opts.idlems 60000) :bodyms (?? opts.bodyms 30000) :wms (?? opts.wms 60000) :maxconn opts.maxconn :backlog (?? opts.backlog 128) :active 0 :tls (? opts.tls (t.creds opts.tls) nil)}
   l=(tcpl port o.host o.backlog)
   (a.spawn ()=>(wh true (a.wait l)
     fd=(tcpa l)
