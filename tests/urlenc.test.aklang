@@ -1,0 +1,52 @@
+; percent-encoding for lib/http (#230): h.urlenc, h.urldec, h.qs, h.form, h.postform, and no raw space in a request line
+(use "../lib/http.aklang" as h)
+(use "lib/run.aklang" as t)
+(= (raises f want)
+  r=(try (: (f) nil) e=>e)
+  (assert (&& (isstr r) (has r want)) (+ "wanted " (show want) ", got " (show r))))
+(= (is name got want) (assert (== got want) (+ name ": got " (show got) " want " (show want))))
+; RFC 3986 unreserved characters stay, everything else is %XX of its UTF-8 bytes in upper case
+(is "urlenc example" (h.urlenc "a b&c/é") "a%20b%26c%2F%C3%A9")
+(is "unreserved" (h.urlenc "AZaz09-._~") "AZaz09-._~")
+(is "reserved" (h.urlenc "!*'();:@&=+$,/?#[]%") "%21%2A%27%28%29%3B%3A%40%26%3D%2B%24%2C%2F%3F%23%5B%5D%25")
+(is "empty" (h.urlenc "") "")
+(is "emoji" (h.urlenc "😀") "%F0%9F%98%80")
+(is "numbers are written out" (h.urlenc 12.5) "12.5")
+(is "NUL and newline" (h.urlenc "a\x00\nb") "a%00%0Ab")
+(raises (\ () (h.urlenc nil)) "urlenc takes")
+(raises (\ () (h.urlenc [1])) "urlenc takes")
+; urldec is the inverse, + stays a plus unless asked
+(for s ["a b&c/é" "😀 x" "100%" "%41" "a+b" "\x00\x01\xff"]
+  (is (+ "round trip " (show s)) (h.urldec (h.urlenc s)) s))
+(is "urldec plus" (h.urldec "a+b%20c" true) "a b c")
+(is "urldec keeps +" (h.urldec "a+b%20c") "a+b c")
+(is "urldec stray percent" (h.urldec "100%") "100%")
+; queries and forms
+(is "qs" (h.qs {"a" 1 "b" "x y"}) "a=1&b=x%20y")
+(is "qs empty" (h.qs {}) "")
+(is "qs keys and values are encoded" (h.qs {"k&1" "v=2"}) "k%261=v%3D2")
+(is "qs list repeats the key" (h.qs {"a" [1 "b c"] "z" ""}) "a=1&a=b%20c&z=")
+(is "qs skips nil" (h.qs {"a" nil "b" 2}) "b=2")
+(is "form uses plus for space" (h.form {"a b" "c d+e"}) "a+b=c+d%2Be")
+; the server side reads back what the client writes
+(is "parse back" (h.parsequery (h.qs {"a" "x y&z" "é" "1"})) {"a" "x y&z" "é" "1"})
+base=(+ "/tmp/akurl-" ($ (now)) "-" ($ (rand 1000000000)))
+pid=(trim (sh (+ "bin/ak tests/lib/url_srv.aklang >" base ".o 2>" base ".e & echo $!")))
+(wh (|| (! (ex (+ base ".o"))) (! (has (rd (+ base ".o")) "\n"))) (sleep 50))
+p=(num (trim (rd (+ base ".o"))))
+u=(+ "http://127.0.0.1:" p)
+r=(try (:
+  ; a raw space or control byte in the URL raises before anything is sent
+  (raises (\ () (h.get (+ u "/?q=a b"))) "illegal character in the URL")
+  (raises (\ () (h.get (+ u "/a b"))) "illegal character in the URL")
+  (raises (\ () (h.get (+ u "/a\tb"))) "illegal character in the URL")
+  (raises (\ () (h.get (+ u "/a\x7fb"))) "illegal character in the URL")
+  (is "encoded query" (h.get (+ u "/?q=" (h.urlenc "a b&c/é"))).body "GET /?q=a%20b%26c%2F%C3%A9||")
+  (is "qs in a URL" (h.get (+ u "/s?" (h.qs {"n" "x y" "m" 1}))).body "GET /s?n=x%20y&m=1||")
+  (is "postform" (h.postform (+ u "/f") {"a b" "c&d"}).body "POST /f|application/x-www-form-urlencoded|a+b=c%26d")
+  (is "postform keeps other headers" (h.postform (+ u "/f") {"k" "v"} {"X-A" "1"}).status 200)
+  ; a redirect Location with a space is encoded, not refused
+  (is "redirect with a space" (h.get (+ u "/redir")).body "GET /land%20here?x=a%20b||")
+  true) e=>e)
+(sh (+ "kill " pid " 2>/dev/null; rm -f " base "*"))
+(assert (== r true) (+ "urlenc: " (show r)))
