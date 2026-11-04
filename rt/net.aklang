@@ -33,6 +33,8 @@
 (= (hx x) (? x<16 (strslice "0123456789abcdef" x x+1) (strcat2 (hx (// x 16)) (strslice "0123456789abcdef" (% x 16) (% x 16)+1))))
 (= (needms ms)                         ; nil (no timeout) or a finite number, else "expected number, got T"
   (? (&& (! ($isnil ms)) (|| (! ($isnum ms)) (!= (- ms ms) 0))) (bad ms)) ms)
+(= (needbacklog n)                      ; an integer 1 to 65535, else "invalid backlog: n"
+  (? (|| (! ($isnum n)) (! (isint n)) n<1 n>65535) ($throwk 2 (strcat2 "invalid backlog: " (tostr n)))) n)
 (= (needport p lo)                      ; an integer port from lo to 65535, else "invalid port: p"
   (? (|| (! ($isnum p)) (! (isint p)) p<lo p>65535) ($throwk 2 (strcat2 "invalid port: " (tostr p)))) p)
 (= (dotted h)                           ; "a.b.c.d" -> [a b c d], or nil
@@ -80,7 +82,7 @@
 (= (hostip4 h) r=(~? a=>(== #a 4) (hostips h)) (? #r r[0] nil))
 (= (netfail what) ($throwk 4 what))
 (= (neterr what r) ($throwk 4 (strcat2 what (strcat2 " (" (strcat2 (errtext 0-r) ")")))))     ; "cannot listen on port 80 (address already in use)" (r = the negative errno of the failed syscall)
-(= (tcpl port host="0.0.0.0")           ; listening socket fd (port 0 picks a free one; see tcpp)
+(= (tcpl port host="0.0.0.0")   ; listening socket fd (port 0 picks a free one; see tcpp); backlog = the queue of connections not yet accepted (1 to 65535)
   (needport (?? port 0) 0) ip=(hostip host)
   (? ($isnil ip) (netfail (strcat2 "cannot resolve " host)))
   fd=($syscall 41 (sockfam ip) 524289 0)
@@ -95,9 +97,11 @@
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
   r=($syscall 51 fd ($addr sa) ($addr ln)) (? r<0 (neterr "getsockname failed" r))
   (+ (* 256 ($ldb sa 2)) ($ldb sa 3)))
-(= (tcpa fd)                            ; accept one connection (blocks)
-  r=-4 (wh r==-4 r=($syscall 288 fd 0 0 524288))   ; accept4 with SOCK_CLOEXEC: sh children do not inherit the connection
-  (? r<0 (neterr "accept failed" r)) r)
+(= (tcpa fd ms=nil)                     ; accept one connection (blocks; with ms: nil if nobody connects within ms milliseconds, inside an async task the other tasks run meanwhile)
+  (needfd fd) (needms ms)
+  (? (&& (isnum ms) (! (waitr fd ms))) nil
+     (: r=-4 (wh r==-4 r=($syscall 288 fd 0 0 524288))   ; accept4 with SOCK_CLOEXEC: sh children do not inherit the connection
+        (? r<0 (neterr "accept failed" r)) r)))
 (= (sockend call fd what)               ; getsockname (51) / getpeername (52) -> {:ip "127.0.0.1" :port 80}, or {:ip "::1" ..}; a Unix socket gives {:ip nil :port 0}
   sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28)
   r=($syscall call fd ($addr sa) ($addr ln)) (? r<0 (neterr (strcat2 what " failed") r))
@@ -253,7 +257,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   r=($syscall 42 fd ($addr sa) 3+#path)
   (? r<0 (: ($syscall 3 fd) (neterr (strcat2 "cannot connect to " path) r)))
   fd)
-(= (unixl path)                         ; listen on a Unix-domain socket (a file path that must not exist yet; remove it after use): the fd, to accept with tcpa
+(= (unixl path)             ; listen on a Unix-domain socket (a file path that must not exist yet; remove it after use): the fd, to accept with tcpa
   (needstr path)
   (? (|| (== #path 0) (> #path 107)) (netfail (strcat2 "bad Unix socket path " path)))
   fd=($syscall 41 1 524289 0)
