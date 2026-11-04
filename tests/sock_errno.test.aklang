@@ -24,3 +24,18 @@ c=(tcpc "127.0.0.1" q) s=(tcpa l)
 ; a bad descriptor
 (io (\ () (sockopt 99 "nodelay")) "(bad file descriptor)")
 (fdc l)
+; writing to a peer that has gone away
+l=(tcpl 0 "127.0.0.1") q=(tcpp l) c=(tcpc "127.0.0.1" q) s=(tcpa l)
+(fdc s) (sleep 50)
+(io (\ () (wh true (fdw c (rpt "a" 65536)) (sleep 5))) "write failed (")
+(fdc c)
+; shutdown and names of a descriptor that is not a socket
+(io (\ () (shutw 0)) "shutdown failed (not a socket)")
+(io (\ () (peer 0)) "getpeername failed (not a socket)")
+; reading from a closed descriptor
+x=(tcpc "127.0.0.1" q)
+(fdc x)
+(io (\ () (fdr x)) "read failed (bad file descriptor)")
+; a privileged port is refused to an ordinary user (root may bind it)
+(? (!= (trim (sh "id -u")) "0") (io (\ () (tcpl 80)) "cannot listen on port 80 (permission denied)"))
+(fdc l)
