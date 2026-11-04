@@ -10,7 +10,7 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
-## 0.7.82 (2026-11-04)
+## 0.7.83 (2026-11-04)
 
 ### Changed
 - Socket errors say why (#216): `tcpl`, `unixl`, `unixc`, `udpl`, `tcpa`, `fdr`, `fdraw`, `fdw`, `udpto`, `udpfrom`, `sockopt`, `getsockopt`, `shutw`, `shutr`, `peer`, `sockname`, `mcastjoin` and `fdwait` append the reason in parentheses to their old message, for example `cannot listen on port 80 (address already in use)`, `read failed (connection reset by peer)`, `send failed (message too long)`. The old text stays as the prefix. `errtext` knows ten more errno values.
@@ -20,6 +20,7 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 ### Added
 - `lib/url.aklang` and `lib/http.aklang`: percent-encoding (#230). `h.urlenc` (RFC 3986 unreserved set, UTF-8 bytes as `%XX`), `h.urldec`, `h.qs` (query string from a map), `h.form` and `h.postform` (`application/x-www-form-urlencoded`). `lib/httpd.aklang` uses the same `urldec` and `parsequery`. A URL with a raw space or control byte raises `illegal character in the URL` instead of writing a broken request line; a redirect `Location` with one is encoded.
 - `lib/http.aklang` can hand a response body to the program as it arrives (#222): `{"on-data" f}` in the options calls `f` with each piece of a 2xx body (chunked, Content-Length and until-close, https, proxies; `:body` stays empty, `:size` counts the bytes). `h.eachline` calls a function per line and `h.sse` per server-sent event. `{:gzip true}` bodies are decoded as a whole and passed once.
+- `lib/httpd.aklang` streams response bodies (#218): a handler returns `{:status 200 :headers {..} :stream (\ (w) ..)}` and writes chunks with `(w chunk)` as they become ready (chunked for HTTP/1.1, close-delimited for 1.0; HEAD, 204 and 304 send the head only). Server-sent events, long downloads and progress output no longer need the whole body in memory (a 200 MB response is served with a small constant footprint). A failed write or one stalled for `:wms` ms (default 60000) raises inside `w`, so a handler stops when its client leaves. Returning a string, list or map without `:stream` behaves as before.
 
 ## 0.7.77 (2026-11-04)
 
