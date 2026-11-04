@@ -37,6 +37,13 @@ u=(unixl "/tmp/aktest-backlog.sock" 5) (fdc u) (sh "rm -f /tmp/aktest-backlog.so
      (assert (has o "128") (+ "default backlog 128 not in ss output: " (show o)))
      (fdc b) (fdc d)))
 (fdc l)
+; lib/httpd.aklang passes :backlog on
+(use "../lib/httpd.aklang" as hs)
+(raises (\ () (hs.listen 0 (\ (r) "x") {:backlog 0})) "invalid backlog")
+h=(hs.listen 0 (\ (r) "x") {:backlog 777})
+(? (== (t.run "command -v ss" nil).code 0)
+  (assert (has (t.run (+ "ss -ltn 'sport = :" ($ (tcpp h)) "'") nil).out "777") "httpd :backlog reaches listen"))
+(fdc h)
 ; inside an async task the other tasks keep running while tcpa waits
 r=(t.run "bin/ak tests/lib/async_accept.aklang" nil)
 (assert (== r.code 0) (+ "child failed: " r.err))
