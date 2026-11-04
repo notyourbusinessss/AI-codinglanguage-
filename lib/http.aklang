@@ -22,6 +22,12 @@
     n=#d-i x=d[i]*65536+(? n>1 d[i+1]*256 0)+(? n>2 d[i+2] 0)
     out+=(++ al[(// x 262144)] al[(% (// x 4096) 64)] (? n>1 al[(% (// x 64) 64)] "=") (? n>2 al[(% x 64)] "=")) i+=3)
   out)
+(use "url.aklang" as ul)
+(= urlenc ul.urlenc)                     ; percent-encoding helpers, see lib/url.aklang
+(= urldec ul.urldec)
+(= parsequery ul.parsequery)
+(= qs ul.qs)
+(= form ul.form)
 (= (pctdec s)                           ; %XX escapes of userinfo -> bytes
   out=[] d=(bytes s) i=0
   (wh i<#d
