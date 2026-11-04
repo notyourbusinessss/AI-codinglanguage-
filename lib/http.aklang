@@ -10,7 +10,7 @@
 ; Interim 1xx replies (100 Continue, 103 Early Hints; up to 8) are skipped and the final reply is returned; 101 is final.
 ; Connection reuse: s=h.session() then {:pool s} in the options keeps keep-alive connections for the next request to the same host and port (a reply of unknown length or with Connection: close ends the connection); (h.release s) closes them.
 ; HTTP/2: {:h2 true} offers h2 by ALPN on https:// (lib/h2.aklang, one request per connection, no pooling); a server that picks http/1.1 is served as usual. The reply has the same shape.
-; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds, :rms / :wms = how long a read / write may stall before it raises (default 60000).
+; Options (last argument of req/get/post, a map): :roots = CA certificates to trust instead of the system bundle, :ms = connect timeout in milliseconds, :rms / :wms = how long a read / write may stall before it raises (default 60000), :total = the whole request (redirects and body included) in milliseconds, else it raises "request timed out".
 (use "tls.aklang" as t)
 (use "inflate.aklang" as z)
 (use "h2.aklang" as x2)
@@ -49,12 +49,18 @@
 (= (hostpart host) (? (has host ":") (++ "[" host "]") host))   ; as written in a URL or a Host header
 (= (chk what s bad)                     ; s itself, or an error when it holds CR, LF, NUL or a character of bad (request injection)
   (? (|| (has s "\r") (has s "\n") (has s "\x00") (any c=>(has s c) bad)) (netfail (++ "illegal character in the " what)) s))
+(= (tmo dl ms)                          ; the stall timeout ms, cut down to the time left until the deadline dl (nil: none); raises "request timed out" when it has passed
+  (? dl (: left=(- dl (now)) (? left<=0 (netfail "request timed out")) (min ms left)) ms))
+(= (late dl) (&& dl (>= (now) dl)))
 (= (tlsstream host port opts rms)       ; opts.stream = a stream to run TLS over (a CONNECT tunnel)
-  cn=(t.connect host port (set (? opts.h2 (set opts "alpn" ["h2" "http/1.1"]) opts) "rms" rms)) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn) :alpn cn.alpn})
+  cn=(t.connect host port (set (? opts.h2 (set opts "alpn" ["h2" "http/1.1"]) opts) "rms" rms)) {:r n=>(t.read cn n) :w s=>(t.write cn s) :c ()=>(t.close cn) :alpn cn.alpn :sd d=>(: cn.dl=d (? opts.stream (opts.stream.sd d)) nil)})
 (= (open sec host port opts)            ; a stream: {:r (n)=>bytes :w s=>nil :c ()=>nil}; a read or write that stalls for opts.rms / opts.wms ms (default 60000) raises
-  rms=(?? opts.rms 60000) wms=(?? opts.wms 60000)
+  rms=(?? opts.rms 60000) wms=(?? opts.wms 60000) st={:dl opts.deadline}
   (? sec (tlsstream host port opts rms)
-     (: fd=(tcpc host port opts.ms) {:r n=>(: d=(fdr fd n rms) (? (== d nil) (netfail "read timed out") d)) :w s=>(fdw fd s wms) :c ()=>(fdc fd)})))
+     (: fd=(? st.dl (try (tcpc host port (tmo st.dl (?? opts.ms 2147483647))) e=>(? (late st.dl) (netfail "request timed out") (raise "io" e nil))) (tcpc host port opts.ms))
+        {:r n=>(: d=(fdr fd n (tmo st.dl rms)) (? (== d nil) (netfail (? (late st.dl) "request timed out" "read timed out")) d))
+         :w s=>(try (fdw fd s (tmo st.dl wms)) e=>(? (late st.dl) (netfail "request timed out") (raise "io" e nil)))
+         :c ()=>(fdc fd) :sd d=>(: st.dl=d nil)})))
 (= (noproxy host)                       ; is host listed in NO_PROXY (names, .suffixes, *), or a loopback address?
   lh=(lo host)
   es=(~ (\ (e) (: e=(trim (lo e)) e=(? (starts e "*.") e[2..] (starts e ".") e[1..] e) (? (&& (has e ":") (! (starts e "["))) (split e ":")[0] e)))
@@ -164,7 +170,11 @@
   (? (&& cl!=nil (! (|| (== (up method) "HEAD") st==204 st==304)) bs.n!=cl) (netfail "response body truncated"))
   (done method sec host port path st hd bs.out bs bs.to body headers opts hops))
 (= (req method url body=nil headers=nil opts=nil hops=0)
+  lv={:c nil}                           ; the connection in use: closed when the request fails (a timeout must not leave the socket open)
+  (try (req1 lv method url body headers opts hops) e=>(: (? lv.c (try lv.c.c() x=>nil)) (raise "io" e nil))))
+(= (req1 lv method url body headers opts hops)
   [sec host port path user]=(parseurl url) opts=(?? opts {})
+  (? (&& opts.total (! opts.deadline)) (: (needms opts.total) opts=(set opts "deadline" (+ (now) opts.total))))     ; one deadline for the request, its redirects and its body
   (chk "method" method " :/") (chk "URL" url "") (chk "host" host "")
   px=(proxyfor sec host opts)
   pp=(? px (parseurl px) nil)
@@ -180,9 +190,11 @@
   old=(? pool pool.conns[key] nil)
   (? old pool.conns=(del pool.conns key))
   c=(?? old (fresh px pp sec host port opts))
+  (c.sd opts.deadline)                  ; a pooled connection gets this request's deadline
+  lv.c=(? (== c.alpn "h2") nil c)       ; (h2req closes its own)
   (? (== c.alpn "h2") (h2req c method sec host port path auth h body headers opts hops) (:
   ; a pooled connection the server has since closed fails before any reply byte: once more on a new one
-  [rh rest]=(? old (try (exchange c head body) e=>(? (has ["read timed out" "write timed out"] e) (raise "io" e nil) (: (try c.c() e=>nil) c=(fresh px pp sec host port opts) (exchange c head body)))) (exchange c head body))
+  [rh rest]=(? old (try (exchange c head body) e=>(? (has ["read timed out" "write timed out" "request timed out"] e) (raise "io" e nil) (: (try c.c() e=>nil) lv.c=nil c=(fresh px pp sec host port opts) lv.c=c (exchange c head body)))) (exchange c head body))
   lines=(split rh "\r\n") st=(statusof lines[0])
   (? (== st nil) (: c.c() (netfail "bad status line in the response")))
   hd={} (for l lines[1..] k=(idx l ":") (? k>0 (addhd hd (lo l[..k]) (trim l[k+1..]))))
@@ -199,6 +211,7 @@
   out=bs.out
   nobody=(|| (== (up method) "HEAD") (has [204 304] st) (&& st>=100 st<200))
   keep=(&& pool st!=101 (starts lines[0] "HTTP/1.1") (! (has (lo (?? hd.connection "")) "close")) (|| nobody (!= cl nil) (has (lo (?? hd["transfer-encoding"] "")) "chunked")) (== bs.rest ""))
+  lv.c=nil
   (? keep (: pool.conns[key]=c) c.c())
   (done method sec host port path st hd out bs to body headers opts hops))))
 (= (get url headers=nil opts=nil) (req "GET" url nil headers opts))

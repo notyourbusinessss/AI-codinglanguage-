@@ -31,6 +31,8 @@
   (? bs<0 (join (~ x=>(hx x) w) ":")
      (strcat2 (strcat2 (join (~ x=>(hx x) (take bs w)) ":") "::") (join (~ x=>(hx x) (drop (+ bs bl) w)) ":"))))
 (= (hx x) (? x<16 (strslice "0123456789abcdef" x x+1) (strcat2 (hx (// x 16)) (strslice "0123456789abcdef" (% x 16) (% x 16)+1))))
+(= (needms ms)                         ; nil (no timeout) or a finite number, else "expected number, got T"
+  (? (&& (! ($isnil ms)) (|| (! ($isnum ms)) (!= (- ms ms) 0))) (bad ms)) ms)
 (= (needport p lo)                      ; an integer port from lo to 65535, else "invalid port: p"
   (? (|| (! ($isnum p)) (! (isint p)) p<lo p>65535) ($throwk 2 (strcat2 "invalid port: " (tostr p)))) p)
 (= (dotted h)                           ; "a.b.c.d" -> [a b c d], or nil
@@ -164,7 +166,7 @@ NETHOOK=nil                             ; set by lib/async.aklang while its task
 (= (waitr fd ms)                        ; is fd readable within ms milliseconds (ms<0: forever)? inside an async task the other tasks run meanwhile
   (? NETHOOK (NETHOOK fd false ms) (> (len (fdwait [fd] ms)) 0)))
 (= (tcpc host port ms=nil)              ; connect to host:port; tries every address of the name; ms = connect timeout per address (default: the kernel's)
-  (needport port 1) ips=(hostips host)
+  (needport port 1) (needms ms) ips=(hostips host)
   (? (! #ips) (netfail (strcat2 "cannot resolve " host)))
   fd=-1 why="refused"
   (for ip ips
@@ -197,12 +199,12 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
 (= (lget fd) (? LINEBUF (?? LINEBUF[(tostr fd)] "") ""))
 (= (lput fd b) (? ($isnil LINEBUF) (<- LINEBUF {})) (setdot LINEBUF (tostr fd) b))
 (= (fdraw fd n ms)                      ; one read from the socket itself (not the fdline buffer); nil on timeout
-  (? (&& (isnum ms) (! (waitr fd ms))) nil
+  (needms ms) (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 0 fd ($addr b) n))
         (? r<0 (netfail "read failed") (strslice b 0 r)))))
 (= (fdr fd n=nil ms=nil)                    ; read up to n (default 65536) bytes; "" at end of stream; with ms: nil if nothing arrives within ms milliseconds
-  n=(needlen (?? n 65536) 2147483647) (needfd fd)
+  n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   b0=(lget fd)
   (? (> #b0 0) (: (lput fd (strslice b0 (min n #b0) #b0)) (strslice b0 0 (min n #b0)))
      (fdraw fd n ms)))
@@ -219,7 +221,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
      (> #b 0) (: (lput fd "") b)
      nil))
 (= (fdreadn fd n ms=nil)                ; exactly n bytes (fewer only at end of stream); raises "read timed out" after ms
-  (needfd fd) n=(needlen n 2147483647) b=(lget fd) end=(+ (now) (?? ms 0)) eof=false
+  (needfd fd) (needms ms) n=(needlen n 2147483647) b=(lget fd) end=(+ (now) (?? ms 0)) eof=false
   (wh (&& #b<n (! eof))
     d=(fdmore fd b ms end)
     (? ($isnil d) (: (lput fd b) (netfail "read timed out")))
@@ -235,7 +237,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   nil)
 (= (fdw fd s ms=nil)                    ; write everything (string, byte list or u8 array); with ms: raises "write timed out" if the peer takes nothing for ms milliseconds
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) n=($hlen d)
-  (? ($isnil ms) (fdwn fd d 0 n)
+  (needms ms) (? ($isnil ms) (fdwn fd d 0 n)
      (: (needfd fd) k=0 end=(+ (now) ms)
         (wh k<n
           r=(fdwp fd d k n-k)
@@ -299,7 +301,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   r=($syscall 44 fd ($addr d) ($hlen d) 0 ($addr sa) n)
   (? r<0 (netfail "send failed")) nil)
 (= (udpfrom fd n=nil ms=nil)            ; receive one datagram (at most n bytes, default 65536); nil if none arrives within ms (default: wait forever)
-  n=(needlen (?? n 65536) 2147483647) (needfd fd)
+  n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 0 0))
@@ -314,7 +316,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (? (< ($syscall 49 fd ($addr sa) (socklen ip)) 0) (: ($syscall 3 fd) (netfail (strcat2 "cannot bind UDP port " (tostr port)))))
   fd)
 (= (udpfrom2 fd n=nil ms=nil)           ; like udpfrom, but returns [data ip port] of the sender, so a server can answer with udpto: ip is [a b c d] for IPv4 (also from a dual-stack socket), 16 numbers for IPv6
-  n=(needlen (?? n 65536) 2147483647) (needfd fd)
+  n=(needlen (?? n 65536) 2147483647) (needfd fd) (needms ms)
   (? (&& (isnum ms) (! (waitr fd ms))) nil
      (: b=(rdbuf n) sa=($newb 1 28 28) ln=($newb 1 4 4) ($stb ln 0 28) r=-4
         (wh r==-4 r=($syscall 45 fd ($addr b) n 0 ($addr sa) ($addr ln)))
@@ -339,8 +341,10 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (join out "."))
 (= (dnspk name qtype)                   ; [id packet] asking for the records of type qtype (1 = A, 28 = AAAA, 2 NS, 5 CNAME, 12 PTR, 15 MX, 16 TXT, 33 SRV)
   q=(randbytes 2) pk=[..q 1 0 0 1 0 0 0 0 0 0]
-  (for l (split name ".")
-    (? #l>63 (netfail "bad host name") #l (: (push pk #l) (for c (bytes l) (push pk c)))))
+  nm=(? (ends name ".") name[..-1] name)     ; one trailing dot is fine; empty labels, labels over 63 and names over 253 bytes, spaces, NUL and control bytes are not
+  (? (|| (== nm "") (> #nm 253)) (netfail "bad host name"))
+  (for l (split nm ".")
+    (? (|| (== l "") #l>63 (any (\ (c) (|| c<33 c>126)) (bytes l))) (netfail "bad host name") (: (push pk #l) (for c (bytes l) (push pk c)))))
   [q [..pk 0 0 qtype 0 1]])
 (= (dnsparse r q qtype name)            ; a response -> [rcode addresses ttl truncated?], or nil if it does not answer the query (q = its id, qtype, name): the id, the question and the owner names of the records must match
   (? (&& r #r>=12 ($ldb r 0)==q[0] ($ldb r 1)==q[1] (>= ($ldb r 2) 128) (be16 r 4)==1)

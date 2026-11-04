@@ -10,6 +10,18 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
+## 0.7.77 (2026-11-04)
+
+### Fixed
+- `lib/httpd.aklang` answers 400 to a `Host` header that is not `uri-host [":" port]` (spaces, `/ ? # @`, commas, empty, a port above 65535), so handlers that build links from `req.headers.host` get a clean value (#227).
+- `lib/httpd.aklang` reads `Connection` as a comma-separated token list: `keep-alive, close` and `close, TE` close the connection, and an HTTP/1.0 `Keep-Alive, Upgrade` stays open (#229).
+- `lib/httpd.aklang` sends `100 Continue` only after the body is accepted (HTTP/1.1 only): an oversized `Content-Length` gets 413 without it, an unknown `Expect` value gets 417 (#235).
+- Socket timeouts are type-checked: `fdr`, `fdraw`, `udpfrom`, `udpfrom2`, `fdw`, `fdreadn` and `tcpc` raise `expected number, got str` for a string, `true` or an infinite `ms` instead of waiting forever (#221).
+- DNS refuses a bad name at once with `bad host name`: empty labels (`a..b` was looked up as `a.b`), spaces, NUL and control bytes, labels over 63 and names over 253 bytes; `name.` and exactly 253 bytes still work (#234).
+
+### Added
+- `lib/http.aklang` option `:total` (milliseconds): one deadline for the connect, the redirects and the body; the stall timeouts shrink to what is left and it raises `request timed out`. `lib/ws.aklang` `connect` accepts it for the handshake. A request that fails now closes its socket (#226).
+
 ## 0.7.71 (2026-10-30)
 
 ### Fixed

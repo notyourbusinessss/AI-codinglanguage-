@@ -1,0 +1,18 @@
+; Test server for the :total deadline of lib/http (#226): prints its port, then answers one request per connection by path and closes.
+;   /trickle  Content-Length 100, one byte every 100 ms     /short  10 bytes, one every 50 ms
+;   /r1 -> /r2 -> /ok  each hop answers 302 after 600 ms
+l=(tcpl 0)
+(fdw 1 (++ (tcpp l) "\n"))
+(= (drip c n ms) (for i n (fdw c "x") (sleep ms)))
+(wh true
+  c=(tcpa l) buf=""
+  (wh (! (has buf "\r\n\r\n")) d=(fdr c 65536) (? (== d "") buf=(++ buf "\r\n\r\n") buf=(++ buf d)))
+  path=(split buf " ")[1]
+  (try (sw path
+         "/trickle" (: (fdw c "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n") (drip c 100 100))
+         "/short" (: (fdw c "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n") (drip c 10 50))
+         "/r1" (: (sleep 600) (fdw c "HTTP/1.1 302 Found\r\nLocation: /r2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+         "/r2" (: (sleep 600) (fdw c "HTTP/1.1 302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+         (fdw c "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"))
+       e=>nil)
+  (try (fdc c) e=>nil))

@@ -19,7 +19,7 @@
 (= (reason c)
   (sw c 100 "Continue" 200 "OK" 201 "Created" 202 "Accepted" 204 "No Content" 301 "Moved Permanently" 302 "Found" 303 "See Other" 304 "Not Modified" 307 "Temporary Redirect" 308 "Permanent Redirect"
         400 "Bad Request" 401 "Unauthorized" 403 "Forbidden" 404 "Not Found" 405 "Method Not Allowed" 408 "Request Timeout" 409 "Conflict" 411 "Length Required" 413 "Payload Too Large" 414 "URI Too Long"
-        415 "Unsupported Media Type" 422 "Unprocessable Entity" 429 "Too Many Requests" 431 "Request Header Fields Too Large" 500 "Internal Server Error" 501 "Not Implemented" 503 "Service Unavailable" 505 "HTTP Version Not Supported" ""))
+        415 "Unsupported Media Type" 417 "Expectation Failed" 422 "Unprocessable Entity" 429 "Too Many Requests" 431 "Request Header Fields Too Large" 500 "Internal Server Error" 501 "Not Implemented" 503 "Service Unavailable" 505 "HTTP Version Not Supported" ""))
 (= (urldec s plus=false)                ; %XX escapes (and + as a space when plus) -> bytes
   out=[] d=(bytes s) i=0
   (wh i<#d
@@ -40,6 +40,12 @@
 (= (parsequery q)                       ; "a=1&b=x%20y&a=3" -> {"a" "3" "b" "x y"} (the last value of a repeated name wins)
   m={} (for kv (split q "&") (? (!= kv "") (: j=(idx kv "=") m[(urldec (? j>=0 kv[..j] kv) true)]=(? j>=0 (urldec kv[j+1..] true) ""))))
   m)
+(= (hostok h)                           ; Host value: uri-host [":" port] (RFC 9112 3.2): a name, IPv4 or [IPv6] address; no spaces, / ? # @ or commas; port 0-65535
+  br=(starts h "[") i=(idx h (? br "]" ":"))
+  nm=(? br (? i>0 h[1..i] "") (? i<0 h h[..i])) rs=(? br (? i>0 h[i+1..] "") (? i<0 "" h[i..]))
+  (&& (!= nm "")
+      (all (\ (b) (|| (&& b>=48 b<=57) (? br (|| (&& b>=65 b<=70) (&& b>=97 b<=102) (has [46 58] b)) (|| (&& b>=65 b<=90) (&& b>=97 b<=122) (has [33 36 37 38 39 40 41 42 43 45 46 59 61 95 126] b))))) (bytes nm))
+      (|| (== rs "") (&& (starts rs ":") #rs<=6 (all (\ (b) (&& b>=48 b<=57)) (bytes rs[1..])) (<= (num (++ "0" rs[1..])) 65535)))))
 (= (parsehead h)                        ; request line + headers (without the blank line) -> a request map, or [status message]
   lines=(split h "\r\n") rl=(split lines[0] " ")
   (? (has h (frombytes [0])) [400 "NUL in the request head"]
@@ -66,6 +72,7 @@
            (&& hd["transfer-encoding"] hd["content-length"]) [400 "Content-Length with Transfer-Encoding"]
            (&& hd["transfer-encoding"] (!= (lo hd["transfer-encoding"]) "chunked")) [400 "unsupported Transfer-Encoding"]
            (&& (== rl[2] "HTTP/1.1") (!= nh 1)) [400 "HTTP/1.1 needs exactly one Host header"]
+           (&& (!= hd["host"] nil) (! (hostok hd["host"]))) [400 "bad Host header"]
            {:method rl[0] :target t :path (? (== t "*") "*" (pathof sg)) :segs sg :query (parsequery (? i>=0 ot[i+1..] "")) :headers hd :version rl[2][5..] :body ""}))))
 (= (more c buf)                           ; more bytes from c after the ones in buf, or nil when the peer hung up
   (? c.cn (: d=(try (t.read c.cn 65536) e=>"") (? d=="" nil (++ buf d)))
@@ -74,10 +81,13 @@
 (= (cclose c) (? c.cn (try (t.close c.cn) e=>(fdc c.fd)) (fdc c.fd)))
 (= (cstream fd)                           ; TLS over fd that waits for the socket cooperatively
   {:r n=>(: (a.wait fd) (fdr fd n 0)) :w s=>(a.write fd s) :c ()=>(fdc fd)})
+(= (toks s) (~ x=>(trim x) (split (lo s) ",")))   ; a comma-separated header value -> its lower-case tokens
 (= (readbody c rq buf lim hl)           ; [body rest], or [status message]; hl is the limit for the chunked trailer
   te=(lo (?? rq.headers["transfer-encoding"] "")) cl=rq.headers["content-length"] err=nil
+  ie=(&& (== rq.version "1.1") (== (lo (?? rq.headers["expect"] "")) "100-continue"))     ; the client waits for 100 Continue, sent only once the body is going to be read
   (? (has te "chunked")
      (: out="" done=false
+        (? ie (cwrite c "HTTP/1.1 100 Continue\r\n\r\n"))
         (wh (&& (! done) (! err))
           (wh (&& (! err) (! (has buf "\r\n"))) b=(more c buf) (? (== b nil) err=[400 "truncated chunked body"] buf=b))
           (? (! err)
@@ -95,7 +105,8 @@
         (? err err [out buf]))
      cl (: n=(? (&& (all (\ (x) (&& x>=48 x<=57)) (bytes cl)) #cl<10) (num cl) -1)
            (? (< n 0) [400 "bad Content-Length"] (> n lim) [413 "body too large"]
-              (: (wh (&& (! err) #buf<n) b=(more c buf) (? (== b nil) err=[400 "truncated body"] buf=b))
+              (: (? ie (cwrite c "HTTP/1.1 100 Continue\r\n\r\n"))
+                 (wh (&& (! err) #buf<n) b=(more c buf) (? (== b nil) err=[400 "truncated body"] buf=b))
                  (? err err [buf[..n] buf[n..]]))))
      ["" buf]))
 (= (response code headers body head)    ; the bytes of a response (no body for HEAD, 1xx, 204, 304); raises for a status or header text that would break the framing
@@ -118,15 +129,15 @@
   (? (|| k<0 k>opts.maxhead) (: (cwrite c (response 431 {"connection" "close"} "request head too large" false)) nil)
      (: rq=(parsehead buf[..k])
         (? (islist rq) (: (cwrite c (response rq[0] {"connection" "close"} rq[1] false)) nil)
-           (: (? (== (lo (?? rq.headers["expect"] "")) "100-continue") (cwrite c "HTTP/1.1 100 Continue\r\n\r\n"))
-              st.deadline=(+ (now) opts.bodyms)
+           (&& (== rq.version "1.1") (! (has ["" "100-continue"] (lo (?? rq.headers["expect"] ""))))) (: (cwrite c (response 417 {"connection" "close"} "expectation failed" false)) nil)
+           (: st.deadline=(+ (now) opts.bodyms)
               bd=(readbody c rq buf[k+4..] opts.maxbody opts.maxhead)
               st.deadline=nil
               (? (isnum bd[0]) (: (cwrite c (response bd[0] {"connection" "close"} bd[1] false)) nil)
                  (: rq=(set (set rq "body" bd[0]) "peer" (try (peer c.fd) e=>nil)) rq=(set rq "sni" (? c.cn c.cn.sni nil))
                     res=(normalize (try (handler rq) e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) {:status 500 :headers {"content-type" "text/plain"} :body "internal server error"})))
-                    cn=(lo (?? rq.headers.connection "")) rc=(lo (?? res.headers["connection"] ""))
-                    keep=(&& (? (== rq.version "1.1") (!= cn "close") (== cn "keep-alive")) (!= rc "close") n+1<opts.maxreq)
+                    cn=(toks (?? rq.headers.connection "")) rc=(toks (tostr (?? res.headers["connection"] "")))
+                    keep=(&& (! (has cn "close")) (? (== rq.version "1.1") true (has cn "keep-alive")) (! (has rc "close")) n+1<opts.maxreq)
                     out=(try (response res.status (set res.headers "connection" (? keep "keep-alive" "close")) res.body (== rq.method "HEAD"))
                              e=>(: (fdw 2 (++ "httpd: handler error: " e "\n")) keep=false (response 500 {"connection" "close" "content-type" "text/plain"} "internal server error" (== rq.method "HEAD"))))
                     (cwrite c out)

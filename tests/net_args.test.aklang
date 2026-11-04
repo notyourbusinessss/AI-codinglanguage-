@@ -1,0 +1,19 @@
+; socket timeouts are type-checked (#221) and host names are checked before DNS sees them (#234)
+n=0
+(= (is name got want) (<- n n+1) (assert (== got want) (+ name ": got " (show got) " want " (show want))))
+u=(udp) l=(tcpl 0) ul=(udpl 0)
+(= (err f) (try (: (f) "no error") e=>e))
+(for [name f] [["fdr" ()=>(fdr u 10 "abc")] ["fdr true" ()=>(fdr u 10 true)] ["fdraw" ()=>(fdraw u 10 "abc")] ["udpfrom" ()=>(udpfrom u 10 "abc")] ["udpfrom2" ()=>(udpfrom2 ul 10 true)]
+                ["fdw" ()=>(fdw l "x" "abc")] ["fdreadn" ()=>(fdreadn l 1 "abc")] ["tcpc" ()=>(tcpc "127.0.0.1" (tcpp l) "abc")]]
+  (is (+ name " raises at once") (has (err f) "expected number") true))
+(is "a number still works" (fdr u 10 20) nil)
+(is "udpfrom with a number" (udpfrom u 10 20) nil)
+(is "tcpc with a number" (ty (tcpc "127.0.0.1" (tcpp l) 500)) "num")
+(for nm ["a..b" "" "." ".a" "a b.example" "x\u{0}y.example" "tab\there.example" (+ (rpt "abcdefgh." 40) "com") (+ (rpt "a" 64) ".com")]
+  (is (+ "bad host name " (show nm)) (err ()=>(dns nm)) "bad host name"))
+(is "tcpc refuses it too" (err ()=>(tcpc "a..b" 80)) "bad host name")
+n253=(+ (rpt (+ (rpt "a" 63) ".") 3) (rpt "b" 61))
+(is "253 bytes are accepted" [#n253 (ty (dnspk n253 1))] [253 "list"])
+(is "name. is accepted" (ty (dnspk "example.com." 1)) "list")
+(is "254 bytes are not" (err ()=>(dnspk (+ n253 "c") 1)) "bad host name")
+(assert (> n 20) (+ "too few checks ran: " n))
