@@ -162,7 +162,7 @@
 (= (sigalg_of v)
   (sw v 2052 "rsa_pss_sha256" 2053 "rsa_pss_sha384" 1027 "ecdsa_sha256" 1283 "ecdsa_sha384" nil))
 (= (connect host port opts=nil)
-  opts=(?? opts {})
+  opts=(?? opts {}) host=(idna host)      ; a non-ASCII name goes out as punycode: in SNI, in the name checked against the certificate and to DNS
   fd=(? opts.stream nil (?? opts.fd (tcpc host port opts.ms)))
   conn={:fd fd :st opts.stream :inbuf "" :hsbuf "" :plain "" :eof false :rkey nil :wkey nil :rseq 0 :wseq 0 :rms opts.rms :dl opts.deadline}
   (try (handshake conn host opts) e=>(: (rawc conn) (raise "io" e nil)))
