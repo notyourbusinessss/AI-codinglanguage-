@@ -183,7 +183,7 @@
 (= (req1 lv method url body headers opts hops)
   [sec host port path user]=(parseurl url) opts=(?? opts {})
   (? (&& opts.total (! opts.deadline)) (: (needms opts.total) opts=(set opts "deadline" (+ (now) opts.total))))     ; one deadline for the request, its redirects and its body
-  (chk "method" method " :/") (chk "URL" url "") (chk "host" host "")
+  (chk "method" method " :/") (chk "URL" url "") (? (any c=>(|| c<=32 c==127) (bytes url)) (netfail "illegal character in the URL: a space or control byte must be written %XX (see h.urlenc)")) (chk "host" host "")
   px=(proxyfor sec host opts)
   pp=(? px (parseurl px) nil)
   auth=(? port==(? sec 443 80) (hostpart host) (++ (hostpart host) ":" port))
