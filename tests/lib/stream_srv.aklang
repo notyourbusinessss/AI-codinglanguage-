@@ -1,0 +1,38 @@
+; Test server for streamed bodies (#222): ak stream_srv.aklang [cert.pem key.pem] -> prints its port, then answers one request per connection (TLS when a certificate is given) and closes. The request path is matched after any "http://host" prefix, so it also works as a proxy.
+;   /chunked  3 chunks of 4 bytes, 200 ms apart            /length  Content-Length 12, sent 4 bytes at a time, 200 ms apart
+;   /close    no length, 3 pieces 200 ms apart, then close   /gzip    gzip of "gzip one\ngzip two\n" in two writes
+;   /sse      text/event-stream, chunked: three events 150 ms apart (the second is split in the middle of a line)
+;   /missing  404 with a body                                /empty   200 with Content-Length 0
+(use "../../lib/tls.aklang" as tl)
+[cert key]=(args)
+cr=(? cert (tl.creds {:cert (rd cert) :key (rd key)}) nil)
+l=(tcpl 0 "127.0.0.1")
+(fdw 1 (++ (tcpp l) "\n"))
+(= (chunk w s) (w (++ (fmt "%x" #s) "\r\n" s "\r\n")))
+(= (serve w path)
+  (sw path
+    "/chunked" (: (w "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n") (for p ["one\n" "two\n" "tre\n"] (chunk w p) (sleep 200)) (w "0\r\n\r\n"))
+    "/length" (: (w "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\n") (for p ["abcd" "efgh" "ijkl"] (w p) (sleep 200)))
+    "/close" (: (w "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n") (for p ["xxxx" "yyyy" "zzzz"] (w p) (sleep 200)))
+    "/gzip" (: (w "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nConnection: close\r\nContent-Length: 35\r\n\r\n")
+               (w (frombytes [31 139 8 0 0 0 0 0 2 255 75 175 202 44 80 200 207 75 229])) (sleep 200)
+               (w (frombytes [74 7 49 74 202 243 185 0 30 186 41 160 18 0 0 0])))
+    "/sse" (: (w "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n")
+              (chunk w "id: 1\nevent: tick\ndata: one\n\n") (sleep 150)
+              (chunk w "data: tw") (sleep 150) (chunk w "o\ndata: second line\n\n") (sleep 150)
+              (chunk w ": a comment\r\ndata: three\r\n\r\n") (w "0\r\n\r\n"))
+    "/missing" (w "HTTP/1.1 404 Not Found\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmissing")
+    "/empty" (w "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    (w "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")))
+(wh true
+  c=(tcpa l) buf=""
+  (try
+    (: cn=(? cr (tl.accept c cr) nil)
+       r=(? cn (\ () (tl.read cn)) (\ () (fdr c 65536)))
+       w=(? cn (\ (s) (tl.write cn s)) (\ (s) (fdw c s)))
+       (wh (! (has buf "\r\n\r\n")) d=(r) (? (== d "") buf=(++ buf "\r\n\r\n") buf=(++ buf d)))
+       target=(split buf " ")[1] path=(? (starts target "http://") (: k=(idx target[7..] "/") (? k>=0 target[7+k..] "/")) target)
+       (serve w path)
+       (? cn (tl.close cn)))
+    e=>nil)
+  (try (fdc c) e=>nil))
