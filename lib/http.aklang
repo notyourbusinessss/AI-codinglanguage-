@@ -42,6 +42,7 @@
         ps=(? (== ps "") "" ps[1..]))
      (: j=(idx hp ":") host=(? j>=0 hp[..j] hp) ps=(? j>=0 hp[j+1..] "")))
   (? (== host "") (netfail (++ "no host in URL: " u)))
+  host=(idna host)                      ; a non-ASCII name travels as punycode: DNS, the Host header, SNI and CONNECT all use the A-label form
   port=(? (== ps "") (? sec 443 80)
          (: ok=(all (\ (c) (&& c>=48 c<=57)) (bytes ps)) v=(? (&& ok #ps<6) (num ps) nil)
             (? (&& v v>=1 v<=65535) v (netfail (++ "bad port in URL: " u)))))
