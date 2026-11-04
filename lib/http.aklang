@@ -133,7 +133,8 @@
     (wh (! (has have "\r\n")) d=c.r(65536) (? d=="" (netfail "chunked body truncated")) have+=d)
     k=(idx have "\r\n") fin=(== k 0) have=have[k+2..])
   bs.rest=have)
-(= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path
+(= (resolve sec host port path loc)     ; a Location value -> an absolute URL: absolute as is, //host/p, /p, or relative to the directory of path; a space or control byte in it is written %XX like browsers do
+  loc=(frombytes (flat (~ c=>(? (|| c<=32 c==127) (bytes (ul.urlenc (frombytes [c]))) [c]) (bytes loc))))
   origin=(++ (? sec "https://" "http://") (hostpart host) (? port==(? sec 443 80) "" (++ ":" port)))
   dir=(join (split (split path "?")[0] "/")[..-1] "/")
   (? (|| (starts loc "http://") (starts loc "https://")) loc
