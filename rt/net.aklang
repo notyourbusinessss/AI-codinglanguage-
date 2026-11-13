@@ -232,8 +232,11 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
     (? ($isnil d) (: (lput fd b) (netfail "read timed out")))
     (? (== d "") eof=true b=(++ b d)))
   (lput fd (strslice b (min n #b) #b)) (strslice b 0 (min n #b)))
+(= (needrange d off n)                  ; off and n are integers with 0<=off, 0<=n and off+n within the bytes of d, else "invalid length"
+  (needlen off 2147483647) (needlen n 2147483647) (? off+n>($hlen d) ($throwk 2 (strcat2 "invalid length: " (tostr n)))) nil)
 (= (fdwn fd s off n)                    ; write n bytes of s (string, byte list or typed array) starting at byte offset off
   d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) k=0
+  (needrange d off n)
   (flush)
   (wh k<n
     r=($syscall 44 fd ($addr d)+off+k n-k 16384 0 0)
@@ -275,7 +278,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (? r<0 (? r==-4 [] (neterr "poll failed" r))
      (: out=[] (for i n (? (== (% (// ($ldb b 8*i+6) 32) 2) 1) (netfail (strcat2 "fdwait: bad file descriptor " (tostr fds[i])))) (? (> (+ ($ldb b 8*i+6) ($ldb b 8*i+7)) 0) (push out fds[i]))) out)))
 (= (fdwp fd s off n)                    ; write without blocking: the bytes taken (0 when the buffer is full), at most n of s from byte offset off
-  d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) (needfd fd) (flush)
+  d=(? (islist s) (frombytes s) (istyped s) s (tostr s)) (needfd fd) (needrange d off n) (flush)
   r=($syscall 44 fd ($addr d)+off n 16448 0 0)                  ; MSG_NOSIGNAL | MSG_DONTWAIT
   (? r==-88 r=($syscall 1 fd ($addr d)+off (min n 4096)))      ; not a socket (a pipe): after fdpoll said writable, PIPE_BUF bytes fit
   (? r==-11 0 r==-4 0 r<0 (neterr "write failed" r) r))
