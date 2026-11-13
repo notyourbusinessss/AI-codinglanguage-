@@ -216,9 +216,10 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
 (= (fdmore fd b ms end)                 ; b plus more bytes from fd; nil on timeout (ms nil: never), "" at end of stream
   d=(fdraw fd 65536 (? ms (max 0 (- end (now))) nil))
   (? ($isnil d) nil d))
-(= (fdline fd ms=nil)                   ; one line without its "\n" (and "\r"), buffered per fd; nil at end of stream; raises "read timed out" after ms (what arrived stays buffered)
-  (needfd fd) b=(lget fd) end=(+ (now) (?? ms 0)) k=(idx b "\n") eof=false
+(= (fdline fd ms=nil max=1048576)       ; one line without its "\n" (and "\r"), buffered per fd; nil at end of stream; raises "read timed out" after ms and "line too long (limit N bytes)" when max bytes arrive without a newline (what arrived stays buffered)
+  (needfd fd) max=(needlen max 2147483647) b=(lget fd) end=(+ (now) (?? ms 0)) k=(idx b "\n") eof=false
   (wh (&& k<0 (! eof))
+    (? #b>max (: (lput fd b) (netfail (strcat2 (strcat2 "line too long (limit " (tostr max)) " bytes)"))))
     d=(fdmore fd b ms end)
     (? ($isnil d) (: (lput fd b) (netfail "read timed out")))
     (? (== d "") eof=true (: b=(++ b d) k=(idx b "\n"))))
