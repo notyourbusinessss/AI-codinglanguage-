@@ -10,6 +10,21 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
+## 0.7.97 (2026-11-13)
+
+### Fixed
+- `w.connect` of `lib/ws` sends the credentials of `ws://user:pass@host/` as `Authorization: Basic ...`, as `lib/http` does; a `:headers` Authorization replaces them (#273).
+
+## 0.7.96 (2026-11-13)
+
+### Fixed
+- `lib/ws` keeps to RFC 6455 when sending (#282): `w.ping` raises for data over 125 bytes, `w.close` for a code outside 1000-1003, 1007-1014 and 3000-4999 (so never 1005, 1006, 1015) and for a reason over 123 bytes or invalid UTF-8. Nothing is sent when it raises.
+
+## 0.7.95 (2026-11-13)
+
+### Fixed
+- `w.connect` of `lib/ws` refuses CR, LF and NUL in header names and values, a space or colon in a header name, a subprotocol that is not an RFC 9110 token and a space in the path (`illegal character in the ...`) before the upgrade request is written (#254).
+
 ## 0.7.94 (2026-11-13)
 
 ### Added
