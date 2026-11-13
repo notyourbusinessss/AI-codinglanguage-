@@ -1,0 +1,52 @@
+; lib/httpd: a Date header on every response (#272), header names must be tokens (#283), and the accept loop survives a failed accept (#265)
+(use "lib/run.aklang" as t)
+(use "../lib/time.aklang" as tm)
+out=(+ "/tmp/akhttpdr-" ($ (now)) "-" ($ (rand 1000000000)))
+pid=(trim (sh (+ "bin/ak tests/lib/httpd_srv.aklang >" out " 2>" out ".err & echo $!")))
+(wh (! (ex out)) (sleep 50)) (wh (== (trim (rd out)) "") (sleep 50))
+port=(num (trim (rd out)))
+(= (raw req ms=2000)
+  c=(tcpc "127.0.0.1" port) (fdw c req) got="" end=(+ (now) ms)
+  (wh (> end (now))
+    d=(fdr c 65536 (- end (now)))
+    (? (|| (== d nil) (== d "")) end=0 got+=d))
+  (fdc c) got)
+(= (head1 r) (fst (split r "\r\n")))
+(= (hdr r name) m=(~? (\ (l) (starts (lo l) (++ name ": "))) (split (fst (split r "\r\n\r\n")) "\r\n")) (? #m (trim m[0][#name+1..]) nil))
+(= (ctl b) (frombytes [b]))
+r=(try (:
+  ; Date
+  (= want "Mon, 01 Jan 2024 00:00:00 GMT")
+  (for [what req] [["200" "GET /user/1 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"] ["404" "GET /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"]
+                   ["400" "GARBAGE\r\n\r\n"] ["413" "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5000\r\n\r\n"]
+                   ["HEAD" "HEAD /user/1 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"] ["500" "GET /boom HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"]]
+    got=(raw req) d=(hdr got "date")
+    (assert d (+ what ": no date header in " (show got)))
+    m=(match (re "^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), (\\d\\d) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\\d{4}) (\\d\\d):(\\d\\d):(\\d\\d) GMT$") d)
+    (assert m (+ what ": the date is not an IMF-fixdate: " d))
+    tt=(tm.epoch (num m[4]) (+ 1 (idx "JanFebMarAprMayJunJulAugSepOctNovDec" m[3])//3) (num m[2]) (num m[5]) (num m[6]) (num m[7]))
+    (assert (< (abs (- tt (/ (now) 1000))) 5) (+ what ": the date " d " is not close to now")))
+  (assert (== (hdr (raw "GET /mydate HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n") "date") want) "a handler Date is kept")
+  (assert (== (# (~? (\ (l) (starts (lo l) "date:")) (split (fst (split (raw "GET /mydate HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n") "\r\n\r\n")) "\r\n"))) 1) "and not duplicated")
+  ; header names
+  (for name ["X(A)" "X\"A\"" "X@A" "X/A" "X{A}" "X}A" "X[A]" "X,A" "X;A" "X<A>" "X=A" "X?A" "X\\A" (+ "X" (ctl 1) "A") (+ "X" (ctl 127) "A") "X A" " X" "Xé"]
+    (assert (== (head1 (raw (+ "GET /user/1 HTTP/1.1\r\nHost: x\r\n" name ": v\r\nConnection: close\r\n\r\n"))) "HTTP/1.1 400 Bad Request") (+ "header name " (show name) " is refused")))
+  (for name ["X-Custom_1" "x.y" "ETag" "X!#$%&'*+-.^_`|~9"]
+    (assert (== (head1 (raw (+ "GET /user/1 HTTP/1.1\r\nHost: x\r\n" name ": v\r\nConnection: close\r\n\r\n"))) "HTTP/1.1 200 OK") (+ "header name " (show name) " is accepted")))
+  nil) e=>e)
+sh (+ "kill " pid " 2>/dev/null; rm -f " out " " out ".err")
+(assert (== r nil) (show r))
+; accept loop under an fd limit (#265): 60 clients against a server that may open 40 fds, then one more request
+o2=(+ out "-lim")
+pid2=(trim (sh (+ "(ulimit -n 40; exec bin/ak tests/lib/httpd_srv.aklang) >" o2 " 2>" o2 ".err & echo $!")))
+(wh (! (ex o2)) (sleep 50)) (wh (== (trim (rd o2)) "") (sleep 50))
+port=(num (trim (rd o2)))
+cs=(~ i=>(tcpc "127.0.0.1" port) 0..60)
+(sleep 1500)
+(for c cs (fdc c))
+(sleep 1500)
+got=(try (raw "GET /user/9 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n" 3000) e=>e)
+(sh (+ "kill " pid2 " 2>/dev/null"))
+err=(rd (+ o2 ".err"))
+(sh (+ "rm -f " o2 " " o2 ".err"))
+(assert (== (head1 got) "HTTP/1.1 200 OK") (+ "the server answers after the burst, got " (show got) " log " err))

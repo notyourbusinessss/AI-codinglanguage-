@@ -10,6 +10,41 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
+## 0.7.94 (2026-11-13)
+
+### Added
+- `lib/httpd` sends a `Date` header (IMF-fixdate, rebuilt once a second) on every response it builds, also 4xx and 5xx and streamed heads, unless the handler sets its own (#272).
+
+## 0.7.93 (2026-11-13)
+
+### Fixed
+- `lib/httpd` answers 400 `bad header line` for a request header name that is not an RFC 9110 token (`X(A)`, `X@A`, a control byte, a byte above 0x7F, a leading space) (#283). `X-Custom_1`, `x.y` and `ETag` still work.
+
+## 0.7.92 (2026-11-13)
+
+### Fixed
+- The accept loop of `lib/httpd` no longer ends for good after one failed `tcpa` (no free file descriptors, a connection aborted before accept) (#265): it logs one line to stderr per burst, waits 50 ms (up to 1 s while failures continue) and keeps listening. A refused connection over `:maxconn` ignores a failed close.
+
+## 0.7.91 (2026-11-13)
+
+### Fixed
+- `fdc` raises `close failed (bad file descriptor)` for a number that is not open, such as a second close of the same socket or `(fdc 999)` (#260), and `expected a file descriptor` for a non-number. A number that was closed and then reused by another socket cannot be told apart from an open one and is still closed. `lib/httpd` ignores a close that finds its fd already closed.
+
+## 0.7.90 (2026-11-13)
+
+### Added
+- `fdline` takes a third argument, `max` (default 1048576): when that many bytes arrive without a newline it raises `line too long (limit N bytes)` and keeps the data buffered, instead of growing until the process dies (#266). `fdline fd ms max` with a larger value reads longer lines.
+
+## 0.7.89 (2026-11-13)
+
+### Fixed
+- DNS reply parsing checks every length (#271): a record, a name, a compression pointer or a TXT string that runs past the end of the reply (or, for TXT, past its own RDLENGTH) makes the whole reply count as no answer, so the next nameserver is tried, instead of returning bytes from the heap. Well-formed replies parse as before.
+
+## 0.7.88 (2026-11-13)
+
+### Fixed
+- `fdwn` and `fdwp` check their range (#281): `off` and `n` must be integers with `0 <= off`, `0 <= n` and `off + n` within the bytes of the string, else `invalid length: n` is raised before anything is sent. A too long `n` used to send the memory after the string over the socket. `fdw`, `lib/httpd`, `lib/async` and `lib/x11` stay inside their strings and are unchanged.
+
 ## 0.7.87 (2026-11-04)
 
 ### Fixed
