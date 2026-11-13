@@ -7,6 +7,7 @@
 ;   (w.close ws) sends a close frame and closes the stream; after a close frame from the peer, recv answers it and returns nil (ws.closed, ws.code, ws.reason).
 ;   ws.protocol = the subprotocol chosen, ws.path / ws.headers = the upgrade request (server side).
 ; Violations (an unmasked client frame, reserved bits, a fragmented or oversized control frame, a message over :maxsize = 16 MB) send a close frame (1002, 1009) and raise an io error. A text message and a close reason that are not valid UTF-8 close with 1007, a close frame with a code RFC 6455 forbids on the wire (under 1000, 1004-1006, 1015-2999, 5000 and up) or a 1-byte payload with 1002.
+; connect refuses CR, LF or NUL in a header, a header name with a space or colon, a subprotocol that is not a token and a path with a space, before anything is sent; user:pass@ in the URL becomes Authorization: Basic (a :headers Authorization replaces it). w.ping data is at most 125 bytes; w.close takes a code the protocol allows (1000-1003, 1007-1014, 3000-4999) and a reason of valid UTF-8 up to 123 bytes: else an io error and nothing is sent.
 ; Not supported: extensions (permessage-deflate), the Origin check (look at ws.headers.origin yourself).
 (use "crypto.aklang" as c)
 (use "http.aklang" as h)
@@ -47,7 +48,9 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   ws.s.w((++ (frombytes hd) body)))
 (= (send ws text) (sendframe ws 1 (tostr text)))
 (= (sendb ws data) (sendframe ws 2 (? (islist data) (frombytes data) data)))
-(= (ping ws data="") (sendframe ws 9 data))
+(= (ping ws data="")
+  data=(tostr data) (? (> #data 125) (raise "io" "websocket: ping data over 125 bytes" nil))      ; RFC 6455 5.5: a control frame carries at most 125 bytes (#282)
+  (sendframe ws 9 data))
 (= (frame ws)                           ; one frame: [fin op payload]
   hd=(bytes (readn ws 2)) b0=hd[0] b1=hd[1]
   fin=b0>=128 rsv=(% (// b0 16) 8) op=(% b0 16) masked=b1>=128 n=(% b1 128)
@@ -82,6 +85,8 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
         (? (&& done (! ws.bin) (! (utf8ok out))) (wsfail ws 1007 "text message is not valid UTF-8"))
         (? done out nil))))
 (= (close ws code=1000 reason="")
+  (? (! ws.closed) (: (? (! (&& (isnum code) (isint code) (closeok code))) (raise "io" (++ "websocket: close code " (tostr code) " must not be sent") nil))     ; 1005, 1006, 1015 and codes below 1000 never go on the wire (#282)
+                      reason=(tostr reason) (? (|| (> #reason 123) (! (utf8ok reason))) (raise "io" "websocket: close reason must be valid UTF-8 of at most 123 bytes" nil))))
   (? (! ws.closed) (: ws.closed=true (try (sendframe ws 8 (++ (frombytes [(// code 256) (% code 256)]) reason)) e=>nil)))
   (try ws.s.c() e=>nil) nil)
 (= (headparse text)                     ; [first-line headers] with lower-case header names
@@ -92,8 +97,14 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 (= (client s host path opts)            ; the handshake over an open stream: a ws, or an io error
   opts=(?? opts {}) key=(h.b64 (frombytes (randbytes 16)))
   hs={"Host" host "Upgrade" "websocket" "Connection" "Upgrade" "Sec-WebSocket-Key" key "Sec-WebSocket-Version" "13"}
+  (for pr (?? opts.protocols []) (? (! (&& (isstr pr) (> #pr 0) (all (\ (b) (|| (&& b>=48 b<=57) (&& b>=65 b<=90) (&& b>=97 b<=122) (has [33 35 36 37 38 39 42 43 45 46 94 95 96 124 126] b))) (bytes pr)))) (raise "io" (++ "illegal character in the subprotocol " (show pr)) nil)))
+  (h.chk "path" path " ")
   (? opts.protocols hs=(set hs "Sec-WebSocket-Protocol" (join opts.protocols ", ")))
-  (for [k v] (?? opts.headers {}) hs=(set hs k v))
+  (? opts.user hs=(set hs "Authorization" (++ "Basic " (h.b64 opts.user))))      ; user:pass@ in the URL, like lib/http (#273); a header of the caller replaces it
+  (for [k v] (?? opts.headers {})
+    (? (== k "") (raise "io" "illegal character in the header name" nil)) (h.chk "header name" k " :") (h.chk "header value" (tostr v) "")
+    (? (== (lo k) "authorization") hs=(del hs "Authorization"))
+    hs=(set hs k v))
   s.w((++ "GET " path " HTTP/1.1\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n"))
   [head rest]=(h.readhead s)
   [st hd]=(headparse head)
@@ -110,6 +121,7 @@ GUID="258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
   (? opts.total (: (needms opts.total) opts=(set opts "deadline" (+ (now) opts.total))))     ; :total = the connect and the handshake together, in ms
   (? (! (has ["ws" "wss"] sch)) (raise "io" (++ "websocket: unsupported URL: " url) nil))
   [sec host port path user]=(h.parseurl (++ "http" url[2..]))
+  opts=(? user (set opts "user" user) opts)
   s=(h.dial sec host port (set opts "rms" (?? opts.rms 60000)))
   ws=(try (client s (? port==(? sec 443 80) (h.hostpart host) (++ (h.hostpart host) ":" port)) path opts) e=>(: (try s.c() x=>nil) (raise "io" e nil)))
   (s.sd nil) ws)
