@@ -18,6 +18,7 @@
 (use "async.aklang" as a)
 (use "tls.aklang" as t)
 (use "url.aklang" as u)
+(use "time.aklang" as tm)
 (= urldec u.urldec)                  ; shared with lib/http.aklang (lib/url.aklang)
 (= parsequery u.parsequery)
 (= (reason c)
@@ -41,6 +42,8 @@
   (&& (!= nm "")
       (all (\ (b) (|| (&& b>=48 b<=57) (? br (|| (&& b>=65 b<=70) (&& b>=97 b<=102) (has [46 58] b)) (|| (&& b>=65 b<=90) (&& b>=97 b<=122) (has [33 36 37 38 39 40 41 42 43 45 46 59 61 95 126] b))))) (bytes nm))
       (|| (== rs "") (&& (starts rs ":") #rs<=6 (all (\ (b) (&& b>=48 b<=57)) (bytes rs[1..])) (<= (num (++ "0" rs[1..])) 65535)))))
+(= (istoken s)                          ; a non-empty string of RFC 9110 token bytes (letters, digits and !#$%&'*+-.^_`|~): the only bytes a header name may hold (#283)
+  (&& (> #s 0) (all (\ (b) (|| (&& b>=48 b<=57) (&& b>=65 b<=90) (&& b>=97 b<=122) (has [33 35 36 37 38 39 42 43 45 46 94 95 96 124 126] b))) (bytes s))))
 (= (parsehead h)                        ; request line + headers (without the blank line) -> a request map, or [status message]
   lines=(split h "\r\n") rl=(split lines[0] " ")
   (? (has h (frombytes [0])) [400 "NUL in the request head"]
@@ -51,7 +54,7 @@
      (: hd={} ok=true nh=0
         (for l lines[1..]
           k=(idx l ":")
-          (? (|| k<=0 (has l[..k] " ")) ok=false
+          (? (|| k<=0 (! (istoken l[..k]))) ok=false
              (: n=(lo l[..k]) v=(trim l[k+1..]) (? (== n "host") nh+=1) hd[n]=(? hd[n] (++ hd[n] ", " v) v))))
         t=rl[1] f=(idx t "#") t=(? f>=0 t[..f] t)
         ab=(|| (starts (lo t) "http://") (starts (lo t) "https://"))     ; absolute-form: the authority replaces Host, the rest is the origin-form target
@@ -109,10 +112,16 @@
   (for [k v] headers
     (assert (&& (isstr k) (!= k "") (! (any (\ (c) (has [0 9 10 13 32 58] c)) (bytes k)))) "bad header name " (show k))
     (assert (! (any (\ (c) (has [0 10 13] c)) (bytes (tostr v)))) "bad value for header " k)))
+DATE=nil                                ; [second text]: the Date header value, rebuilt once per second (#272)
+(= (datehdr) sec=(flr (/ (now) 1000))
+  (? (|| ($isnil DATE) (!= DATE[0] sec))
+     (: c=(tm.civil sec) (<- DATE [sec (++ (at ["Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat"] c.wd) ", " (padl (tostr c.d) 2 "0") " " (at ["Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"] c.mo-1) " " (tostr c.y) " " (padl (tostr c.h) 2 "0") ":" (padl (tostr c.mi) 2 "0") ":" (padl (tostr c.s) 2 "0") " GMT")])))
+  DATE[1])
 (= (response code headers body head)    ; the bytes of a response (no body for HEAD, 1xx, 204, 304); raises for a status or header text that would break the framing
   (chkhead code headers)
   nob=(|| head (has [204 304] code) (&& code>=100 code<200))
   hs={} (for [k v] headers hs[(lo k)]=v)
+  (? (! (has (keys hs) "date")) hs["date"]=(datehdr))
   (? (! (has (keys hs) "content-length")) hs["content-length"]=#body)
   (? (has [204 304] code) hs=(del hs "content-length"))
   (++ "HTTP/1.1 " code " " (reason code) "\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n" (? nob "" body)))
@@ -124,6 +133,7 @@
           (? r>0 (: k+=r end=(+ (now) opts.wms)) (> (now) end) (netfail "write timed out") (a.sleep 3))))))
 (= (shead code headers)                 ; status line and headers of a response whose body follows separately (no content-length is added)
   hs={} (for [k v] headers hs[(lo k)]=v)
+  (? (! (has (keys hs) "date")) hs["date"]=(datehdr))
   (++ "HTTP/1.1 " code " " (reason code) "\r\n" (join (~ k=>(++ k ": " hs[k]) (keys hs)) "\r\n") "\r\n\r\n"))
 (= (stream c rq res keep opts)          ; a handler result with :stream f: the head, then f called with a writer (w chunk) for each piece of the body (Transfer-Encoding: chunked for HTTP/1.1, close-delimited for 1.0; HEAD, 204, 304 and 1xx send no body and f is not called); true if the connection can be used again
   hs={} (for [k v] res.headers hs[(lo k)]=v)
@@ -197,11 +207,14 @@
 (= (listen port handler opts=nil)
   opts=(?? opts {}) o={:host (?? opts.host "127.0.0.1") :maxhead (?? opts.maxhead 16384) :maxbody (?? opts.maxbody 1048576) :maxreq (?? opts.maxreq 100) :headms (?? opts.headms 30000) :idlems (?? opts.idlems 60000) :bodyms (?? opts.bodyms 30000) :wms (?? opts.wms 60000) :maxconn opts.maxconn :backlog (?? opts.backlog 128) :active 0 :tls (? opts.tls (t.creds opts.tls) nil)}
   l=(tcpl port o.host o.backlog)
+  o.fails=0
   (a.spawn ()=>(wh true (a.wait l)
-    fd=(tcpa l)
-    (? (&& o.maxconn (>= o.active o.maxconn))
-       (: r=(response 503 {"connection" "close"} "too many connections" false) (try (fdwp fd r 0 (len r)) e=>nil) (fdc fd))
-       (: o.active=(+ o.active 1) (a.spawn guarded fd handler o)))))
+    fd=(try (tcpa l) e=>(: (? (== o.fails 0) (fdw 2 (++ "httpd: accept failed, still listening: " e "\n"))) o.fails+=1 (a.sleep (min 1000 (* 50 o.fails))) nil))     ; a failed accept (no free fds, an aborted connection) is logged once per burst and retried, never ends the loop (#265)
+    (? (! ($isnil fd))
+       (: o.fails=0
+          (? (&& o.maxconn (>= o.active o.maxconn))
+             (: r=(response 503 {"connection" "close"} "too many connections" false) (try (fdwp fd r 0 (len r)) e=>nil) (try (fdc fd) e=>nil))
+             (: o.active=(+ o.active 1) (a.spawn guarded fd handler o)))))))
   l)
 (= (run) a.run())                       ; run the tasks of this library (use this, not another copy of async.aklang's run: each use of that file keeps its own task queue)
 (= (spawn f ..args) (a.spawn f ..args))   ; start a task in this library's queue, e.g. a client that talks to your own server before s.run() ends
