@@ -127,8 +127,8 @@ Built in, no `use` needed. Descriptors are plain numbers.
 | `(unixl path)` | listen on a Unix-domain socket (a file path that must not exist yet); accept with `tcpa`, connect with `unixc` |
 | `(fdr fd n=65536 ms=nil)` | read up to n bytes; `""` means the other side closed; with `ms`, nil if nothing arrives in time |
 | `(fdw fd s ms=nil)` | write all of `s` (a string, byte list or `u8`); with `ms`, raises `write timed out` if the peer takes nothing for that long |
-| `(fdline fd ms=nil)`, `(fdreadn fd n ms=nil)` | one line (without its line ending) or exactly n bytes, buffered per descriptor; nil / fewer bytes at the end of the stream, `read timed out` after `ms` (nothing is lost, call again) |
-| `(fdwp fd s off n)` | write without blocking: the number of bytes taken (0 when the buffer is full) |
+| `(fdline fd ms=nil max=1048576)`, `(fdreadn fd n ms=nil)` | one line (without its line ending; `line too long (limit N bytes)` past `max` bytes without a newline) or exactly n bytes, buffered per descriptor; nil / fewer bytes at the end of the stream, `read timed out` after `ms` (nothing is lost, call again) |
+| `(fdwp fd s off n)` | write without blocking: the number of bytes taken (0 when the buffer is full); `off` and `n` must lie inside `s`, else `invalid length` (same for `fdwn`) |
 | `(peer fd)`, `(sockname fd)` | the remote / local address of a connected socket: `{:ip "127.0.0.1" :port 80}` (IPv4 or IPv6 text) |
 | `(shutw fd)`, `(shutr fd)` | half-close: no more writing (the other side reads end-of-file and can still answer) / no more reading |
 | `(sockopt fd name on=true)` | `"nodelay"`, `"keepalive"`, `"reuseaddr"`, `"reuseport"`, `"broadcast"`; `on` is true, false or an integer |
