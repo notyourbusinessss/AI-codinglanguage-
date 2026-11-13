@@ -338,17 +338,18 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
                     v6)
               [(strslice b 0 r) ip (+ (* 256 ($ldb sa 2)) ($ldb sa 3))])))))
 (= (randbytes n) b=($newb 1 n n) ($syscall 318 ($addr b) n 0) (bytes (strslice b 0 n)))
-(= (be16 b i) (+ (* 256 ($ldb b i)) ($ldb b i+1)))
+(= (dnsin r i n) (? (|| i<0 i+n>($hlen r)) ($throwk 2 "malformed DNS reply")) i)   ; the bytes i..i+n must lie inside the reply, else the whole reply is dropped (#271)
+(= (be16 b i) (dnsin b i 2) (+ (* 256 ($ldb b i)) ($ldb b i+1)))
 (= (dnsskip r i)                        ; offset after the (possibly compressed) name at i
-  c=($ldb r i)
-  (wh (&& c>0 c<192) i+=c+1 c=($ldb r i))
-  (? c==0 i+1 i+2))
+  c=($ldb r (dnsin r i 1))
+  (wh (&& c>0 c<192) i+=c+1 c=($ldb r (dnsin r i 1)))
+  (? c==0 i+1 (: (dnsin r i 2) i+2)))
 (= (dnsname r i)                        ; the name at offset i as text, following compression pointers
-  out=[] jumps=0 c=($ldb r i)
+  out=[] jumps=0 c=($ldb r (dnsin r i 1))
   (wh (&& c>0 jumps<20)
-    (? c>=192 (: i=(+ (* 256 (- c 192)) ($ldb r i+1)) jumps+=1)
-       (: (push out (strslice r i+1 i+1+c)) i+=c+1))
-    c=($ldb r i))
+    (? c>=192 (: i=(+ (* 256 (- c 192)) ($ldb r (dnsin r i+1 1))) jumps+=1)
+       (: (dnsin r i+1 c) (push out (strslice r i+1 i+1+c)) i+=c+1))
+    c=($ldb r (dnsin r i 1)))
   (join out "."))
 (= (cpgood cp k)                        ; is cp a code point that a UTF-8 sequence of k bytes may encode (no overlong form, surrogate or value above U+10FFFF)?
   (&& (>= cp (sw k 2 128 3 2048 4 65536 0)) cp<=1114111 (! (&& cp>=55296 cp<=57343))))
@@ -400,16 +401,17 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   (for l (split nm ".")
     (? (|| (== l "") #l>63 (any (\ (c) (|| c<33 c>126)) (bytes l))) (netfail "bad host name") (: (push pk #l) (for c (bytes l) (push pk c)))))
   [q [..pk 0 0 qtype 0 1]])
-(= (dnsparse r q qtype name)            ; a response -> [rcode addresses ttl truncated?], or nil if it does not answer the query (q = its id, qtype, name): the id, the question and the owner names of the records must match
+(= (dnsparse r q qtype name) (try (dnsparse1 r q qtype name) e=>nil))   ; a reply that runs past its own end anywhere is no answer (#271)
+(= (dnsparse1 r q qtype name)           ; a response -> [rcode addresses ttl truncated?], or nil if it does not answer the query (q = its id, qtype, name): the id, the question and the owner names of the records must match
   (? (&& r #r>=12 ($ldb r 0)==q[0] ($ldb r 1)==q[1] (>= ($ldb r 2) 128) (be16 r 4)==1)
      (: n=(be16 r 6) want=(lo name) want=(? (ends want ".") want[..-1] want) i=(dnsskip r 12)
         ok=(&& (== (lo (dnsname r 12)) want) (== (be16 r i) qtype) (== (be16 r i+2) 1)) i+=4
         names=[want] ips=[] ttl=3600 cn={} j=i
-        (? ok (: (for k n o=(lo (dnsname r j)) j=(dnsskip r j) t=(be16 r j) l=(be16 r j+8) (? t==5 cn[o]=(lo (dnsname r j+10))) j+=10+l)
+        (? ok (: (for k n o=(lo (dnsname r j)) j=(dnsskip r j) t=(be16 r j) l=(be16 r j+8) (dnsin r j+10 l) (? t==5 cn[o]=(lo (dnsname r j+10))) j+=10+l)
                  (for k 10 (? (has (keys cn) want) (: want=cn[want] (push names want)))))) ; the names the answer may be about: the query name and the targets of its CNAME chain
         (for k (? ok n 0)
           o=(lo (dnsname r i)) i=(dnsskip r i)
-          t=(be16 r i) l=(be16 r i+8) j=i+10
+          t=(be16 r i) l=(be16 r i+8) j=i+10 (dnsin r j l)
           (? (! (has names o)) nil
              (&& t==qtype (|| (&& t==1 l==4) (&& t==28 l==16)))
              (: (push ips (~ x=>($ldb r x) j..j+l)) ttl=(min ttl (+ (* 65536 (be16 r i+4)) (be16 r i+6))))
@@ -417,7 +419,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
              (push ips (dnsname r j))
              (&& t==qtype t==15) (push ips {:pref (be16 r j) :host (dnsname r j+2)})
              (&& t==qtype t==33) (push ips {:prio (be16 r j) :weight (be16 r j+2) :port (be16 r j+4) :host (dnsname r j+6)})
-             (&& t==qtype t==16) (: k=j txt="" (wh k<j+l txt=(strcat2 txt (strslice r k+1 k+1+($ldb r k))) k+=($ldb r k)+1) (push ips txt)))
+             (&& t==qtype t==16) (: k=j txt="" (wh k<j+l m=($ldb r k) (? k+1+m>j+l ($throwk 2 "malformed DNS reply")) txt=(strcat2 txt (strslice r k+1 k+1+m)) k+=m+1) (push ips txt)))
           i=j+l)
         (? ok [(& ($ldb r 3) 15) ips ttl (== (& ($ldb r 2) 2) 2)] nil))
      nil))
