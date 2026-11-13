@@ -1,0 +1,16 @@
+; fdwn and fdwp check offset and length against the bytes of the string (#281): nothing beyond the string is sent
+(= l (tcpl 0)) (= c (tcpc "127.0.0.1" (tcpp l))) (= a (tcpa l))
+(= (err f) (try (: (f) "no error") e=>e))
+(for [what f] [["n past the end" ()=>(fdwn c "abc" 0 4000)] ["off past the end" ()=>(fdwn c "abc" 5 1)] ["off+n past the end" ()=>(fdwn c "abc" 2 2)]
+               ["negative off" ()=>(fdwn c "abc" -1 2)] ["negative n" ()=>(fdwn c "abc" 0 -1)] ["fraction" ()=>(fdwn c "abc" 0.5 1.5)] ["text off" ()=>(fdwn c "abc" "x" 1)] ["nil n" ()=>(fdwn c "abc" 0 nil)]]
+  (assert (has (err f) "invalid length") (+ "fdwn " what)))
+(for [what f] [["n past the end" ()=>(fdwp c "abc" 0 100)] ["off past the end" ()=>(fdwp c "abc" 5 1)] ["off+n past the end" ()=>(fdwp c "abc" 2 2)]
+               ["negative off" ()=>(fdwp c "abc" -1 2)] ["negative n" ()=>(fdwp c "abc" 0 -1)] ["fraction" ()=>(fdwp c "abc" 0.5 1.5)] ["text off" ()=>(fdwp c "abc" "x" 1)] ["nil n" ()=>(fdwp c "abc" 0 nil)]]
+  (assert (has (err f) "invalid length") (+ "fdwp " what)))
+(assert (== (fdwp c "abc" 0 0) 0) "fdwp with n 0 writes nothing")
+(assert (== (fdwp c "abc" 3 0) 0) "an empty range at the end is fine")
+(assert (== (fdwp c "abc" 1 2) 2) "a range inside the string is written")
+(fdwn c "xyz" 0 3) (fdwn c "abcdef" 3 3)
+(= got (fdreadn a 8 2000))
+(assert (== got "bcxyzdef") (+ "only the valid ranges were sent, got " got))
+(fdc c) (fdc a) (fdc l)

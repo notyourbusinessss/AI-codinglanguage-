@@ -1,0 +1,10 @@
+; fdline refuses a line without a newline past its limit (#266), and the data stays buffered
+(= l (tcpl 0)) (= c (tcpc "127.0.0.1" (tcpp l))) (= a (tcpa l))
+(fdw c (rpt "x" 99) ) (fdw c "\nrest")
+(assert (== (# (fdline a 2000 100)) 99) "a line of 99 bytes passes a limit of 100")
+(fdw c (rpt "y" 1000))
+(assert (has (try (fdline a 2000 100) e=>e) "line too long (limit 100 bytes)") "1000 bytes without a newline raise")
+(assert (has (try (fdline a 2000 100) e=>e) "line too long") "the data stays buffered, so it raises again")
+(assert (has (try (fdline a 2000 -1) e=>e) "invalid length") "a bad limit is refused")
+(fdw c "\n")
+(assert (== (# (fdline a 2000 5000)) 1004) "a larger limit returns the same data once the line ends")

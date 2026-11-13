@@ -1,5 +1,5 @@
 ; A misbehaving nameserver for the reply-validation tests (#199): ak dns_evil.aklang MODE -> prints its port, then answers every query for bank.example with 6.6.6.6 in the way MODE says, and logs "<name> <qtype>" per query.
-; question: the reply asks about evil.test · qtype: the question has the right name but type AAAA · owner: the record belongs to other.example · port: the right reply, sent from another socket · cname-bad: bank.example CNAME real.example, but the A record belongs to other.example · cname-ok: bank.example CNAME real.example and real.example A 6.6.6.6 · ok: the plain right reply
+; question: the reply asks about evil.test · qtype: the question has the right name but type AAAA · owner: the record belongs to other.example · port: the right reply, sent from another socket · cname-bad: bank.example CNAME real.example, but the A record belongs to other.example · cname-ok: bank.example CNAME real.example and real.example A 6.6.6.6 · ok: the plain right reply · txt-short: a TXT record whose inner string length (200) is past its RDLENGTH (3) · rdlen: an A record whose RDLENGTH (100) is past the end of the packet · name-off: the owner name of the record runs off the end · cut-rdata: an A record cut in the middle of its RDATA · ptr-off: the owner name is a compression pointer past the end · txt-ok: a well-formed TXT
 mode=(fst (args))
 u=(udpl 0 "127.0.0.1")
 o=(udpl 0 "127.0.0.1")
@@ -19,5 +19,13 @@ o=(udpl 0 "127.0.0.1")
          "cname-ok" [(rr name 5 (enc "real.example")) (rr "real.example" 1 [6 6 6 6])]
          [(rr qn qtt [6 6 6 6])])
   ans=(? (== qt 28) [] ans)
-  hd=[b[0] b[1] 129 128 0 1 0 #ans 0 0 0 0]
-  (udpto (? (== mode "port") o u) ip pt (frombytes [..hd ..(enc qn) 0 qtt 0 1 ..(flat ans)])))
+  raw=(sw mode
+         "txt-short" [..(enc name) 0 16 0 1 0 0 0 60 0 3 200 97 98]
+         "rdlen" [..(enc name) 0 1 0 1 0 0 0 60 0 100 6 6 6 6]
+         "name-off" [50 97 97]
+         "cut-rdata" [..(enc name) 0 1 0 1 0 0 0 60 0 4 6 6]
+         "ptr-off" [192 250 0 1 0 1 0 0 0 60 0 4 6 6 6 6]
+         "txt-ok" [..(enc name) 0 16 0 1 0 0 0 60 0 3 2 97 98]
+         nil)
+  hd=[b[0] b[1] 129 128 0 1 0 (? raw 1 #ans) 0 0 0 0]
+  (udpto (? (== mode "port") o u) ip pt (frombytes [..hd ..(enc qn) 0 qtt 0 1 ..(? raw raw (flat ans))])))

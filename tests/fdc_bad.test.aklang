@@ -1,0 +1,7 @@
+; fdc raises on a descriptor that is not open (#260). A number that was closed and reopened by another socket cannot be told apart, so only the plain cases are covered.
+(= a (tcpl 0))
+(assert (== (fdc a) nil) "closing an open socket works")
+(assert (has (try (fdc a) e=>e) "close failed (bad file descriptor)") "a second close raises")
+(assert (has (try (fdc 999) e=>e) "close failed (bad file descriptor)") "an fd that was never open raises")
+(assert (has (try (fdc "x") e=>e) "expected a file descriptor") "a non-number is refused")
+(assert (has (try (fdc -1) e=>e) "expected a file descriptor") "a negative number is refused")
