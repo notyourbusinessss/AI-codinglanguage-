@@ -73,7 +73,7 @@
   (? c.cn (: d=(try (t.read c.cn 65536) e=>"") (? d=="" nil (++ buf d)))
      (: (a.wait c.fd) d=(fdr c.fd 65536) (? d=="" nil (++ buf d)))))
 (= (cwrite c s) (? c.cn (t.write c.cn s) (a.write c.fd s)))
-(= (cclose c) (? c.cn (try (t.close c.cn) e=>(fdc c.fd)) (fdc c.fd)))
+(= (cclose c) (? c.cn (try (t.close c.cn) e=>(try (fdc c.fd) x=>nil)) (try (fdc c.fd) x=>nil)))   ; a close that finds the fd already closed is not an error (fdc raises on a closed fd, #260)
 (= (cstream fd)                           ; TLS over fd that waits for the socket cooperatively
   {:r n=>(: (a.wait fd) (fdr fd n 0)) :w s=>(a.write fd s) :c ()=>(fdc fd)})
 (= (toks s) (~ x=>(trim x) (split (lo s) ",")))   ; a comma-separated header value -> its lower-case tokens
