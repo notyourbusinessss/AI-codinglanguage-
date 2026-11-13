@@ -10,6 +10,11 @@ Each release PR adds its section here; `tests/version.test.aklang` fails when th
 - More tests written in Ak (part of #120): `tests/examples.test.aklang`, `json_numbers`, `fmt_golden`, `docs` and `trace` replace their `.js` versions (no JS target runs in them any more). `examples/demo.aklang` and `examples/everything.aklang` no longer use Node (`req`, `fetch`, `aw`, `new`, `Math.max`): they run natively, `everything` through `lib/httpd.aklang` and `lib/http.aklang`. `lib/httpd.aklang` gained `s.spawn f args..` to start a task in the server's own queue.
 - More tests written in Ak (part of #120): `tests/strings.test.aklang`, `use_as`, `aktest` and `input_validation` replace their `.js` versions and run only the native binary. The checks that compared the JS target with native (case tables, `unjson`/`exit`/size errors, "sockets are native only") are gone with them; `tests/cross_errors.test.aklang` and `tests/native_diff.js` still compare the targets.
 
+## 0.7.88 (2026-11-13)
+
+### Fixed
+- `fdwn` and `fdwp` check their range (#281): `off` and `n` must be integers with `0 <= off`, `0 <= n` and `off + n` within the bytes of the string, else `invalid length: n` is raised before anything is sent. A too long `n` used to send the memory after the string over the socket. `fdw`, `lib/httpd`, `lib/async` and `lib/x11` stay inside their strings and are unchanged.
+
 ## 0.7.87 (2026-11-04)
 
 ### Fixed
