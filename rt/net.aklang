@@ -271,7 +271,7 @@ LINEBUF=nil                             ; bytes read ahead by fdline/fdreadn, pe
   r=($syscall 49 fd ($addr sa) 3+#path) r=(? r<0 r ($syscall 50 fd backlog))
   (? r<0 (: ($syscall 3 fd) (neterr (strcat2 "cannot listen on " path) r)))
   fd)
-(= (fdc fd) ($syscall 3 fd) (? LINEBUF (mapdel LINEBUF (tostr fd))) nil)
+(= (fdc fd) (needfd fd) r=($syscall 3 fd) (? LINEBUF (mapdel LINEBUF (tostr fd))) (? r==-9 (neterr "close failed" r)) nil)   ; a number that is not open (never was, or closed already) raises: the kernel reuses numbers, so a second close would hit another socket (#260)
 (= (fdwait fds ms=nil)                      ; the fds that are readable (or hung up) within ms milliseconds (ms<0: wait forever); an fd that is not open raises
   (needlist fds) (? (&& (! ($isnil ms)) (! ($isnum ms))) (bad ms)) n=#fds b=($newb 1 8*n 8*n)
   (for i n (for k 4 ($stb b 8*i+k (% (// fds[i] (** 256 k)) 256))) ($stb b 8*i+4 1))
